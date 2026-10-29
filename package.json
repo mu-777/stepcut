@@ -1,8 +1,10 @@
 {
   "name": "screen-annotator",
+  "productName": "Screen Annotator",
   "version": "0.1.0",
   "description": "Make step-by-step tutorial videos from screen recordings",
   "license": "Apache-2.0",
+  "author": "mu-777",
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -13,7 +15,9 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "dist:dir": "electron-vite build && electron-builder --dir --publish never"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
@@ -22,6 +26,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
@@ -32,5 +37,31 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7"
+  },
+  "build": {
+    "appId": "com.mu777.screenannotator",
+    "productName": "Screen Annotator",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    }
   }
 }

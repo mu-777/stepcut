@@ -12,11 +12,11 @@ ccr-47d39648-xbk8lb
 ## 現在地
 - Electron + TypeScript で M1 を実装済み。Linux コンテナで GUI 操作・CLI(validate / export)・mp4/SRT 書き出しを確認済み
 - 構成: src/core(形・時刻・レイアウト・検証。単体テストあり)、src/main(ファイル・読み上げ・CLI)、src/renderer(合成・再生・書き出し・UI)
-- Windows 実機は未確認(読み上げ、HW エンコーダー、AAC、メニュー、CLI の標準出力)
+- Windows 版は PR ごとに GitHub Actions でビルド(.github/workflows/build.yml、手順は /pr-build)。実機は未確認(読み上げ、HW エンコーダー、AAC、メニュー、CLI の標準出力)
 
 ## 次にやること
-- Windows 実機で確認: `npm run dev` で録画追加→分割→テロップ・読み上げ・ズーム→書き出し。CLI は `npx electron . export x.json --json`
-- 配布用のパッケージ化(electron-builder 等の選定と GitHub Releases)
+- PR の Windows ビルドで実機確認: 録画追加→分割→テロップ・読み上げ・ズーム→書き出し、CLI の export
+- リリース(タグ→GitHub Releases)の仕組み。dayglassbar の release.yml 方式が参考
 - M2: ポインター・蛍光ペン(直線)、フレーム画像の書き出し(AI-03)、クラッシュ復旧(PRJ-06)、PRJ-03
 
 ## 課題・ブロッカー

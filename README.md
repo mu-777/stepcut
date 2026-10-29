@@ -19,7 +19,10 @@ npm run dev        # 開発用に起動
 npm run build      # out/ にビルド
 npm start          # ビルド済みを起動
 npm run check      # lint・型チェック・単体テスト・ビルド
+npm run dist:win   # Windows 用のインストーラと portable 版を dist/ に作る(Windows 上で実行)
 ```
+
+main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`screen-annotator-win`)に置く。
 
 起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.sanno.json`
 
