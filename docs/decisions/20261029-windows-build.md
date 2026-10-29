@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-10-29
+updated: 2026-10-29
 tags: [build, ci]
 ---
 
@@ -25,6 +26,7 @@ Windows 向け配布物の作り方と、開発中の動作確認用バイナリ
 - **コンテナ内で `electron-builder --win`** — nsis/portable の作成に Wine が要り、環境に入っていない
 - **エージェントから `workflow_dispatch` でビルド** — エージェントのトークンに Actions の write が無く 403 になる。PR トリガを外すとエージェントから Windows ビルドを出す手段がなくなる
 - **PR にバイナリを添付** — PR へのファイル添付は Web UI 専用で、`.exe` は許可されていない
+- **Artifact を zip にせず exe ごとに置く(`upload-artifact@v7` の `archive: false`)** — 1 回のダウンロードでインストーラと portable の両方がそろう今の形を優先した(ユーザー判断)。zip なしだと Artifact が 2 つに分かれ、それぞれ別にダウンロードする
 
 ## 前提と再検討の条件
 

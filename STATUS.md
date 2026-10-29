@@ -12,7 +12,7 @@ ccr-47d39648-xbk8lb
 ## 現在地
 - Electron + TypeScript で M1 を実装済み。Linux コンテナで GUI 操作・CLI(validate / export)・mp4/SRT 書き出しを確認済み
 - 構成: src/core(形・時刻・レイアウト・検証。単体テストあり)、src/main(ファイル・読み上げ・CLI)、src/renderer(合成・再生・書き出し・UI)
-- Windows 版は PR ごとに GitHub Actions でビルド(.github/workflows/build.yml、手順は /pr-build)。実機は未確認(読み上げ、HW エンコーダー、AAC、メニュー、CLI の標準出力)
+- M1 は main にマージ済み(PR #1)。Windows 版は PR ごとに GitHub Actions でビルド(.github/workflows/build.yml、手順は /pr-build)。実機は未確認(読み上げ、HW エンコーダー、AAC、メニュー、CLI の標準出力)
 
 ## 次にやること
 - PR の Windows ビルドで実機確認: 録画追加→分割→テロップ・読み上げ・ズーム→書き出し、CLI の export
