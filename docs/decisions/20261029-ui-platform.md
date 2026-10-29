@@ -1,16 +1,16 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-29
 tags: [platform, export]
 ---
 
-# UI 基盤は Electron(2026-10-29 提案)
+# UI 基盤は Electron(2026-10-29 決定)
 
 デスクトップアプリの土台を Electron と Tauri のどちらにするかについての決定(要件 T-01)。描画・プレビュー・mp4 書き出しを WebCodecs で行う前提(エンコーダーの決定: [20261026-encoder.md](20261026-encoder.md))で、Windows と Mac の両方で同じ経路が使えるかを主な判断材料にした。
 
 ## 決定
 
-Electron を使う。開発言語は TypeScript。描画はレンダラー(Chromium)上の WebGL / Canvas、エンコードは WebCodecs、mp4 の分解・組み立てはライブラリ(候補: mediabunny)で行う。OS 依存の処理(読み上げ、ファイル監視など)はメインプロセス側の差し替え可能な層に置く。
+Electron を使う。開発言語は TypeScript。描画はレンダラー(Chromium)上の WebGL / Canvas、エンコードは WebCodecs、mp4 の分解・組み立ては mediabunny(MPL-2.0。改変せずに使う限り Apache-2.0 の配布と両立する)で行う。OS 依存の処理(読み上げ、ファイル監視など)はメインプロセス側の差し替え可能な層に置く。
 
 ## 理由
 
@@ -50,4 +50,5 @@ Electron を使う。開発言語は TypeScript。描画はレンダラー(Chrom
 - Chromium の Media Foundation AAC エンコーダー: https://chromium.googlesource.com/chromium/src/+/705e9082e97f3ad583223a17a09a0fb865238851(Windows N では AAC 不可)
 - Media Foundation AAC エンコーダーの仕様(LC のみ、44.1/48kHz): https://learn.microsoft.com/en-us/windows/win32/medfound/aac-encoder
 - 組み込みブラウザでのコーデック特許の扱い(TeamDev): https://teamdev.com/dotnetbrowser/docs/guides/gs/media/
+- MPL-2.0 のファイル単位の条件と、他ライセンスのコードとの組み合わせ(Larger Work): https://www.mozilla.org/en-US/MPL/2.0/FAQ/
 - Windows の音声合成 API: https://learn.microsoft.com/en-us/uwp/api/windows.media.speechsynthesis.speechsynthesizer.synthesizetexttostreamasync

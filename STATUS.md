@@ -7,24 +7,23 @@
 ccr-47d39648-xbk8lb
 
 ## ゴール
-手順書動画エディタ(仮称)の MVP を作る。要件は docs/requirements.md
+手順書動画エディタ(仮称)の M1(MVP)を Windows で使える状態にする。範囲は docs/decisions/20261029-mvp-scope.md
 
 ## 現在地
-- リポジトリ初期化済み(AGENTS.md・README・要件定義書・決定記録)
-- T-01 / T-05 / T-06 の案を作成(status: proposed、承認待ち): UI 基盤は Electron(decisions/20261029-ui-platform.md)、MVP は M1〜M3 の 3 段階(decisions/20261029-mvp-scope.md)、JSON の形は docs/project-format.md
-- 実装は未着手
+- Electron + TypeScript で M1 を実装済み。Linux コンテナで GUI 操作・CLI(validate / export)・mp4/SRT 書き出しを確認済み
+- 構成: src/core(形・時刻・レイアウト・検証。単体テストあり)、src/main(ファイル・読み上げ・CLI)、src/renderer(合成・再生・書き出し・UI)
+- Windows 実機は未確認(読み上げ、HW エンコーダー、AAC、メニュー、CLI の標準出力)
 
 ## 次にやること
-- 承認されたら 3 件の決定記録を status: accepted にする
-- 雛形を作る: Electron + TypeScript + Vite、lint/format は Biome、テストは Vitest(いずれも MIT 系)。AGENTS.md の「完了の定義」を埋める
-- M1 の最初の実装: project-format.md から JSON Schema と検証(AI-04)、出力時刻 → ソース時刻の対応(4 章)を単体テスト付きで作る
+- Windows 実機で確認: `npm run dev` で録画追加→分割→テロップ・読み上げ・ズーム→書き出し。CLI は `npx electron . export x.json --json`
+- 配布用のパッケージ化(electron-builder 等の選定と GitHub Releases)
+- M2: ポインター・蛍光ペン(直線)、フレーム画像の書き出し(AI-03)、クラッシュ復旧(PRJ-06)、PRJ-03
 
 ## 課題・ブロッカー
-- 3 件の案の承認待ち
+- Windows の GUI アプリは CLI の標準出力がコンソールに出ない可能性がある。`--result <file>` で回避できるが実機で要確認
 
 ## 未決事項
-- 要件の未決 U-01〜U-05, U-08(docs/requirements.md 11.1)。U-06 は仮決め(両方で持つ)、U-07 は案あり
-- ズームの遷移時間の既定値は仮に 0.4 秒(U-05)
-- 法務・規約: H.264/AAC 特許(T-03。Electron 内蔵 OpenH264 を使うかもこれ次第)、OS 標準音声の商用利用(T-04)
+- 仮決め: 早送りステップでは元の音声を鳴らさない(U-09)、HW がなければ OpenH264・AAC がなければ Opus(T-02)、ズームの遷移 0.4 秒(U-05)、音量は共通+ステップ(U-06)
+- 要件の未決 U-01〜U-05, U-08(docs/requirements.md 11.1)
+- 法務・規約: H.264/AAC 特許(T-03)、OS 標準音声の商用利用(T-04)
 - 要件定義書 12 章の出典の差し替え(T-08)
-- LICENSE ファイルが未作成

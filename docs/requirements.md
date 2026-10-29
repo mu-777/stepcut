@@ -4,7 +4,7 @@
 |---|---|
 | 版 | 0.1（ドラフト） |
 | 作成日 | 2026-10-26 |
-| 状態 | 要件整理段階。UI基盤・データ構造（JSON）・MVP範囲は案を作成済みで承認待ち（11.2） |
+| 状態 | M1（MVP）を実装中。UI基盤・データ構造（JSON）・MVP範囲は決定済み（11.2） |
 
 ---
 
@@ -270,7 +270,7 @@
 
 ## 8. 決定の経緯
 
-主要な決定は [docs/decisions/](decisions/) に個別の記録がある（構成モデル・座標系・エンコーダー・読み上げ・ライセンス）。UI基盤・MVP範囲・プロジェクトファイルの形は提案中（status: proposed）。
+主要な決定は [docs/decisions/](decisions/) に個別の記録がある（構成モデル・座標系・エンコーダー・読み上げ・ライセンス）。UI基盤（Electron）・MVP範囲・プロジェクトファイルの形も決定済み。
 
 | 論点 | 決定 | 理由・根拠 |
 |---|---|---|
@@ -336,17 +336,18 @@
 | U-06 | 元音声と読み上げの音量を、プロジェクト単位とステップ単位のどちらで持つか | 仮決め：両方（共通設定をステップで上書き） |
 | U-07 | フレームレートが一定でない（VFR）ソースの扱い | 画面録画ツールに多い。案：変換せず、出力時刻の直前のフレームを使う（[project-format.md](project-format.md) 4章） |
 | U-08 | ポインターのクリック時エフェクト（波紋など） | プリセットに含めるか |
+| U-09 | 早送りステップで元の音声を鳴らすか | 仮決め：鳴らさない（[project-format.md](project-format.md) 5章） |
 
 ### 11.2 技術選定・確認へ持ち越し
 
 | # | 事項 | 備考 |
 |---|---|---|
-| T-01 | ElectronかTauriか | 案：Electron（[decisions/20261029-ui-platform.md](decisions/20261029-ui-platform.md)）。承認待ち |
-| T-02 | ハードウェアエンコーダーがない環境での代替手段 | Electronなら Chromium 内蔵の OpenH264（BSD）が候補。特許（T-03）の確認後に使うか決める |
+| T-01 | ElectronかTauriか | 決定：Electron（[decisions/20261029-ui-platform.md](decisions/20261029-ui-platform.md)） |
+| T-02 | ハードウェアエンコーダーがない環境での代替手段 | 仮決め：Chromium 内蔵の OpenH264（BSD）、AAC がなければ Opus（[decisions/20261026-encoder.md](decisions/20261026-encoder.md)）。特許（T-03）の確認後に正式に決める |
 | T-03 | H.264/AACの特許の扱い | OSのエンコーダーで回避できるか、法的に確認する |
 | T-04 | OS標準音声の出力を商用利用してよいか | 公式の明記を確認できていない |
-| T-05 | プロジェクトファイル（JSON）の構造 | 案：[project-format.md](project-format.md)、[decisions/20261029-project-format.md](decisions/20261029-project-format.md)。承認待ち |
-| T-06 | MVPの範囲 | 案：[decisions/20261029-mvp-scope.md](decisions/20261029-mvp-scope.md)。承認待ち |
+| T-05 | プロジェクトファイル（JSON）の構造 | 決定：[project-format.md](project-format.md)、[decisions/20261029-project-format.md](decisions/20261029-project-format.md) |
+| T-06 | MVPの範囲 | 決定：[decisions/20261029-mvp-scope.md](decisions/20261029-mvp-scope.md)（ズームを含む） |
 | T-07 | Mac版の公証（notarization） | Mac版を出す段階で対応する |
 | T-08 | 12章の出典のうち一次情報でない可能性があるものの差し替え | Cap は公式 CapSoftware/Cap、Shotcut の依存・ライセンスは公式 mltframework/shotcut で確認し直す。OpenScreen FAQ は第三者ページ |
 

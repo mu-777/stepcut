@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-29
 tags: [data-model]
 ---
 
-# プロジェクトファイルは秒・ソースのピクセル・画面の割合で書く JSON(2026-10-29 提案)
+# プロジェクトファイルは秒・ソースのピクセル・画面の割合で書く JSON(2026-10-29 決定)
 
 プロジェクトファイル(要件 T-05)の単位・座標・既定値の扱いなど、形を決める原則についての決定。仕様の本体は [../project-format.md](../project-format.md)。前提は [ステップ単位モデル](20261026-step-based-model.md) と [座標系](20261026-coordinate-system.md)。
 
