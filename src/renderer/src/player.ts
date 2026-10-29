@@ -8,6 +8,7 @@ import { renderStepAudio } from "./audio";
 import { drawFrame } from "./compositor";
 import type { SourceMedia } from "./media";
 import { SAMPLE_RATE, type SpeechStore } from "./speech";
+import type { ThumbCache } from "./thumbs";
 
 export interface PlayerState {
   project: Project;
@@ -18,6 +19,8 @@ export interface PlayerState {
   sourceView: { stepIndex: number; time: number } | null;
   /** ズーム範囲の指定中はズームを外して表示する */
   ignoreZoom: boolean;
+  /** シーク中の仮表示に使う縮小フレーム */
+  thumbs: ThumbCache | null;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -68,15 +71,39 @@ export class Player {
     });
   }
 
-  /** 停止中の表示を更新する。デコード中に呼ばれたら、終わってから最新の状態で描き直す */
+  /** 停止中の表示を更新する。デコード中に呼ばれたら、近い縮小フレームを仮に描き、終わってから最新の状態で描き直す */
   renderStill(): Promise<void> {
     this.stillWanted = true;
-    if (!this.stillRunning) {
-      this.stillRunning = this.stillLoop().finally(() => {
-        this.stillRunning = null;
-      });
+    if (this.stillRunning) {
+      this.paintPlaceholder();
+      return this.stillRunning;
     }
+    this.stillRunning = this.stillLoop().finally(() => {
+      this.stillRunning = null;
+    });
     return this.stillRunning;
+  }
+
+  /** いまの状態で表示するもの。ステップ(録画を表示中は null)、ステップ内の時刻、素材、素材の時刻 */
+  private target(st: PlayerState) {
+    if (st.sourceView) {
+      const step = st.project.steps[st.sourceView.stepIndex];
+      const m = step ? (st.media.get(step.source) ?? null) : null;
+      return { entry: null, local: 0, m, srcT: st.sourceView.time };
+    }
+    const loc = locate(st.timeline, this.time);
+    if (!loc) return null;
+    const m = st.media.get(loc.entry.step.source) ?? null;
+    return { entry: loc.entry, local: loc.local, m, srcT: sourceTimeAt(loc.entry.step, loc.local) };
+  }
+
+  private paintPlaceholder(): void {
+    if (this.playing) return;
+    const st = this.getState();
+    const tg = this.target(st);
+    if (!tg?.m || !st.thumbs) return;
+    const thumb = st.thumbs.nearest(tg.m, tg.srcT, 2);
+    if (thumb) this.paint(st, tg.entry, tg.local, thumb, tg.m);
   }
 
   private async stillLoop(): Promise<void> {
@@ -84,23 +111,13 @@ export class Player {
       this.stillWanted = false;
       if (this.playing) return;
       const st = this.getState();
-      if (st.sourceView) {
-        const step = st.project.steps[st.sourceView.stepIndex];
-        const m = step ? (st.media.get(step.source) ?? null) : null;
-        const wc = m ? await m.video.getCanvas(st.sourceView.time).catch(() => null) : null;
-        if (!this.playing) this.paint(this.getState(), null, 0, wc?.canvas ?? null, m);
-        continue;
-      }
-      const loc = locate(st.timeline, this.time);
-      if (!loc) {
+      const tg = this.target(st);
+      if (!tg) {
         this.paint(st, null, 0, null, null);
         continue;
       }
-      const m = st.media.get(loc.entry.step.source) ?? null;
-      const wc = m
-        ? await m.video.getCanvas(sourceTimeAt(loc.entry.step, loc.local)).catch(() => null)
-        : null;
-      if (!this.playing) this.paint(st, loc.entry, loc.local, wc?.canvas ?? null, m);
+      const wc = tg.m ? await tg.m.video.getCanvas(tg.srcT).catch(() => null) : null;
+      if (!this.playing) this.paint(st, tg.entry, tg.local, wc?.canvas ?? null, tg.m);
     }
   }
 

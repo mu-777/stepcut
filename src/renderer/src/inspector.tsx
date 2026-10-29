@@ -1,6 +1,6 @@
 // 右側の設定パネル。ステップの設定とプロジェクト全体の設定。
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_ZOOM_TRANSITION,
   resolveCaptionStyle,
@@ -11,6 +11,7 @@ import type { Project, Step, Zoom } from "../../core/schema";
 import type { Voice } from "../../shared/api";
 import { CheckField, Field, NumField, prune, SelectField, TextField, withParam } from "./fields";
 import { t } from "./i18n";
+import type { Selection } from "./timeline";
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
 
@@ -46,11 +47,12 @@ export function StepInspector(props: {
   update: Update;
   voices: Voice[];
   playheadLocal: number;
-  sourceTime: number | null;
   speechInfo: string | null;
+  /** タイムラインで選んだ要素。その欄を強調して見える位置へ動かす */
+  focus: Selection;
   onDrawZoom: (zoomIndex: number) => void;
 }) {
-  const { project, index, update, voices } = props;
+  const { project, index, update, voices, focus } = props;
   const step = project.steps[index];
   if (!step) return null;
   const set = (key: string) => patchStep(update, index, key);
@@ -76,133 +78,127 @@ export function StepInspector(props: {
 
   return (
     <div className="inspector">
-      <h3>
-        {t("step")} {index + 1}
-      </h3>
-      <TextField
-        label={t("id")}
-        value={step.id}
-        onChange={(v) => set("id")((s) => ({ ...s, id: v.replace(/[^A-Za-z0-9_-]/g, "") }))}
-      />
-      <SelectField
-        label={t("source")}
-        value={step.source}
-        options={project.sources.map((s) => ({ value: s.id, label: `${s.id} — ${s.path}` }))}
-        onChange={(v) => set("source")((s) => ({ ...s, source: v }))}
-      />
-      <div className="row">
-        <NumField
-          label={t("in")}
-          value={step.in}
-          min={0}
-          onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
+      <Section focused={focus.kind === "step"}>
+        <TextField
+          label={t("id")}
+          value={step.id}
+          onChange={(v) => set("id")((s) => ({ ...s, id: v.replace(/[^A-Za-z0-9_-]/g, "") }))}
         />
-        <NumField
-          label={t("out")}
-          value={step.out}
-          min={0}
-          onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
+        <SelectField
+          label={t("source")}
+          value={step.source}
+          options={project.sources.map((s) => ({ value: s.id, label: `${s.id} — ${s.path}` }))}
+          onChange={(v) => set("source")((s) => ({ ...s, source: v }))}
         />
-      </div>
-      {props.sourceTime !== null && (
-        <div className="row">
-          <button
-            type="button"
-            onClick={() => set("in")((s) => ({ ...s, in: round(props.sourceTime ?? 0) }))}
-          >
-            {t("setIn")}
-          </button>
-          <button
-            type="button"
-            onClick={() => set("out")((s) => ({ ...s, out: round(props.sourceTime ?? 0) }))}
-          >
-            {t("setOut")}
-          </button>
-        </div>
-      )}
-      <NumField
-        label={t("speed")}
-        value={step.speed ?? 1}
-        min={1}
-        step={0.5}
-        onChange={(v) =>
-          set("speed")((s) => ({ ...s, speed: v === undefined || v === 1 ? undefined : Math.max(1, v) }))
-        }
-      />
-
-      <h4>{t("caption")}</h4>
-      <TextField
-        label={t("caption")}
-        multiline
-        value={caption.text}
-        onChange={(v) => setCaption("text", { text: v })}
-      />
-      <div className="row">
-        <NumField
-          label={t("captionStart")}
-          value={caption.start}
-          min={0}
-          onChange={(v) => setCaption("start", { start: v })}
-        />
-        <NumField
-          label={t("captionEnd")}
-          value={caption.end}
-          min={0}
-          onChange={(v) => setCaption("end", { end: v })}
-        />
-      </div>
-      <NumField
-        label={t("captionSize")}
-        value={caption.style?.size}
-        placeholder={String(style.size)}
-        step={2}
-        onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
-      />
-      {mode === "full" && (
         <div className="row">
           <NumField
-            label={t("captionX")}
-            value={caption.position?.x ?? 0.5}
-            step={0.01}
+            label={t("in")}
+            value={step.in}
             min={0}
-            max={1}
-            onChange={(v) => setCaption("x", { position: { x: v ?? 0.5, y: caption.position?.y ?? 0.88 } })}
+            onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
           />
           <NumField
-            label={t("captionY")}
-            value={caption.position?.y ?? 0.88}
-            step={0.01}
+            label={t("out")}
+            value={step.out}
             min={0}
-            max={1}
-            onChange={(v) => setCaption("y", { position: { x: caption.position?.x ?? 0.5, y: v ?? 0.88 } })}
+            onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
           />
         </div>
-      )}
+        <NumField
+          label={t("speed")}
+          value={step.speed ?? 1}
+          min={1}
+          step={0.5}
+          onChange={(v) =>
+            set("speed")((s) => ({ ...s, speed: v === undefined || v === 1 ? undefined : Math.max(1, v) }))
+          }
+        />
+      </Section>
 
-      <h4>{t("speech")}</h4>
-      <TextField
-        label={t("speechText")}
-        multiline
-        value={speech.text}
-        onChange={(v) => setSpeech("text", { text: v })}
-      />
-      {props.speechInfo && <p className="hint">{props.speechInfo}</p>}
-      <VoiceSelect
-        label={t("voice")}
-        voices={voices}
-        value={speech.voice}
-        emptyLabel={t("defaultVoice")}
-        onChange={(v) => setSpeech("voice", { voice: v })}
-      />
-      <NumField
-        label={t("rate")}
-        value={typeof speech.params?.rate === "number" ? speech.params.rate : undefined}
-        step={0.1}
-        min={0.5}
-        max={3}
-        placeholder={t("defaultVoice")}
-        onChange={(v) => setSpeech("rate", { params: withParam(speech.params, "rate", v) })}
-      />
+      <Section focused={focus.kind === "caption"}>
+        <h4>{t("caption")}</h4>
+        <TextField
+          label={t("caption")}
+          multiline
+          value={caption.text}
+          onChange={(v) => setCaption("text", { text: v })}
+        />
+        <div className="row">
+          <NumField
+            label={t("captionStart")}
+            value={caption.start}
+            min={0}
+            onChange={(v) => setCaption("start", { start: v })}
+          />
+          <NumField
+            label={t("captionEnd")}
+            value={caption.end}
+            min={0}
+            onChange={(v) => setCaption("end", { end: v })}
+          />
+        </div>
+        <NumField
+          label={t("captionSize")}
+          value={caption.style?.size}
+          placeholder={String(style.size)}
+          step={2}
+          onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
+        />
+        {mode === "full" && (
+          <div className="row">
+            <NumField
+              label={t("captionX")}
+              value={caption.position?.x ?? 0.5}
+              step={0.01}
+              min={0}
+              max={1}
+              onChange={(v) => setCaption("x", { position: { x: v ?? 0.5, y: caption.position?.y ?? 0.88 } })}
+            />
+            <NumField
+              label={t("captionY")}
+              value={caption.position?.y ?? 0.88}
+              step={0.01}
+              min={0}
+              max={1}
+              onChange={(v) => setCaption("y", { position: { x: caption.position?.x ?? 0.5, y: v ?? 0.88 } })}
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section focused={focus.kind === "speech"}>
+        <h4>{t("speech")}</h4>
+        <TextField
+          label={t("speechText")}
+          multiline
+          value={speech.text}
+          onChange={(v) => setSpeech("text", { text: v })}
+        />
+        <NumField
+          label={t("speechStart")}
+          value={speech.start}
+          min={0}
+          placeholder="0"
+          onChange={(v) => setSpeech("start", { start: v === 0 ? undefined : v })}
+        />
+        {props.speechInfo && <p className="hint">{props.speechInfo}</p>}
+        <VoiceSelect
+          label={t("voice")}
+          voices={voices}
+          value={speech.voice}
+          emptyLabel={t("defaultVoice")}
+          onChange={(v) => setSpeech("voice", { voice: v })}
+        />
+        <NumField
+          label={t("rate")}
+          value={typeof speech.params?.rate === "number" ? speech.params.rate : undefined}
+          step={0.1}
+          min={0.5}
+          max={3}
+          placeholder={t("defaultVoice")}
+          onChange={(v) => setSpeech("rate", { params: withParam(speech.params, "rate", v) })}
+        />
+      </Section>
 
       <h4>{t("sourceAudio")}</h4>
       <div className="row">
@@ -235,37 +231,39 @@ export function StepInspector(props: {
       <h4>{t("holds")}</h4>
       {(step.holds ?? []).map((h, k) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: 保持は id を持たない
-        <div className="row" key={k}>
-          <NumField
-            label={t("at")}
-            value={h.at}
-            min={0}
-            onChange={(v) =>
-              set(`hold${k}.at`)((s) => ({
-                ...s,
-                holds: s.holds?.map((x, i) => (i === k ? { ...x, at: v ?? 0 } : x)),
-              }))
-            }
-          />
-          <NumField
-            label={t("duration")}
-            value={h.duration}
-            min={0.1}
-            onChange={(v) =>
-              set(`hold${k}.duration`)((s) => ({
-                ...s,
-                holds: s.holds?.map((x, i) => (i === k ? { ...x, duration: v ?? 1 } : x)),
-              }))
-            }
-          />
-          <button
-            type="button"
-            className="small"
-            onClick={() => set("holds")((s) => ({ ...s, holds: s.holds?.filter((_, i) => i !== k) }))}
-          >
-            {t("remove")}
-          </button>
-        </div>
+        <Section key={k} focused={focus.kind === "hold" && focus.index === k}>
+          <div className="row">
+            <NumField
+              label={t("at")}
+              value={h.at}
+              min={0}
+              onChange={(v) =>
+                set(`hold${k}.at`)((s) => ({
+                  ...s,
+                  holds: s.holds?.map((x, i) => (i === k ? { ...x, at: v ?? 0 } : x)),
+                }))
+              }
+            />
+            <NumField
+              label={t("duration")}
+              value={h.duration}
+              min={0.1}
+              onChange={(v) =>
+                set(`hold${k}.duration`)((s) => ({
+                  ...s,
+                  holds: s.holds?.map((x, i) => (i === k ? { ...x, duration: v ?? 1 } : x)),
+                }))
+              }
+            />
+            <button
+              type="button"
+              className="small"
+              onClick={() => set("holds")((s) => ({ ...s, holds: s.holds?.filter((_, i) => i !== k) }))}
+            >
+              {t("remove")}
+            </button>
+          </div>
+        </Section>
       ))}
       <button
         type="button"
@@ -284,7 +282,7 @@ export function StepInspector(props: {
       <h4>{t("zooms")}</h4>
       {(step.zooms ?? []).map((z, k) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: ズームは id を持たない
-        <div className="zoom" key={k}>
+        <Section key={k} className="zoom" focused={focus.kind === "zoom" && focus.index === k}>
           <div className="row">
             <NumField
               label={t("start")}
@@ -328,7 +326,7 @@ export function StepInspector(props: {
               {t("remove")}
             </button>
           </div>
-        </div>
+        </Section>
       ))}
       <button
         type="button"
@@ -346,6 +344,19 @@ export function StepInspector(props: {
       >
         {t("addZoom")}
       </button>
+    </div>
+  );
+}
+
+/** 設定の欄。タイムラインで選ばれたら強調し、見える位置へ動かす */
+function Section(props: { focused: boolean; className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (props.focused) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [props.focused]);
+  return (
+    <div ref={ref} className={`section ${props.className ?? ""} ${props.focused ? "focused" : ""}`}>
+      {props.children}
     </div>
   );
 }

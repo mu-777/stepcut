@@ -1,13 +1,13 @@
 // ステップ 1 つ分の音声を合成する(元の音声 + 読み上げ)。プレビューと書き出しで同じ処理を使う。
 import { resolveAudio, stepSpeed } from "../../core/defaults";
 import type { Project, Step } from "../../core/schema";
-import { sourceSegments } from "../../core/timeline";
+import { sourceSegments, speechStart } from "../../core/timeline";
 import type { SourceMedia } from "./media";
 import { SAMPLE_RATE } from "./speech";
 
 /**
  * 元の音声は保持の間は止め、早送りステップでは鳴らさない(速度を変えた音は聞き取れないため)。
- * 読み上げはステップの先頭から鳴らす。
+ * 読み上げは speech.start(既定はステップの先頭)から鳴らす。
  */
 export async function renderStepAudio(
   project: Project,
@@ -45,7 +45,7 @@ export async function renderStepAudio(
     const node = ctx.createBufferSource();
     node.buffer = speech;
     node.connect(gain);
-    node.start(0);
+    node.start(speechStart(step));
   }
   return ctx.startRendering();
 }

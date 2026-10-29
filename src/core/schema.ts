@@ -86,6 +86,7 @@ export const stepSchema = z.strictObject({
   speech: z
     .strictObject({
       text: z.string(),
+      start: time.optional(),
       voice: z.string().nullable().optional(),
       params: speechParams.optional(),
     })

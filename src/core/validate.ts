@@ -1,6 +1,6 @@
 // プロジェクトファイルの検証(AI-04)。形(schema.ts)に加え、id の参照や時刻の重なりを調べる。
 import { type Project, projectSchema } from "./schema";
-import { stepHolds, videoDuration } from "./timeline";
+import { baseDuration, stepHolds, videoDuration } from "./timeline";
 
 export interface Issue {
   /** JSON 内の位置。例: "steps[2].caption.text" */
@@ -99,6 +99,9 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
     const c = step.caption;
     if (c && c.end != null && c.end <= (c.start ?? 0)) {
       errors.push({ path: at(".caption.end"), message: "end は start より後にしてください" });
+    }
+    if (step.speech?.start !== undefined && step.speech.start > baseDuration(step) + EPS) {
+      errors.push({ path: at(".speech.start"), message: "読み上げの開始がステップの映像より後です" });
     }
     if (step.pointers?.length) {
       warnings.push({ path: at(".pointers"), message: "ポインターはこの版では描画しません(M2 で対応)" });

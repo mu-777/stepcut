@@ -370,6 +370,10 @@
               "text": {
                 "type": "string"
               },
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
               "voice": {
                 "type": [
                   "string",

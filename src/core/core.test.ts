@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { captionCues } from "./captions";
-import { duplicateStep, splitStep, uniqueStepId } from "./edit";
+import { addHold, duplicateStep, splitStep, trimStep, uniqueStepId } from "./edit";
 import { computeLayout, normalizeZoomRect, viewRectAt, zoomProgress } from "./layout";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
@@ -17,6 +17,12 @@ import {
 import { parseProject, parseProjectText } from "./validate";
 
 const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 10, out: 20, ...over });
+const proj = (steps: Step[]): Project => ({
+  format: "screen-annotator.project",
+  version: 1,
+  sources: [{ id: "rec", path: "a.mp4" }],
+  steps,
+});
 
 describe("timeline", () => {
   it("通常ステップは出力時刻 = ソース時刻 - in", () => {
@@ -222,5 +228,68 @@ describe("edit", () => {
     const r = duplicateStep(p, 0);
     expect(r.steps.map((s) => s.id)).toEqual(["a", "a-2"]);
     expect(uniqueStepId(r, "a-2")).toBe("a-3");
+  });
+});
+
+describe("speech.start", () => {
+  it("読み上げの終わりが映像より後なら、その分だけ長くなる", () => {
+    expect(stepDuration(step({ speech: { text: "a", start: 8 } }), 4)).toBe(12);
+    expect(stepDuration(step({ speech: { text: "a", start: 2 } }), 4)).toBe(10);
+  });
+
+  it("映像より後に始まる読み上げは検証エラー", () => {
+    const r = parseProject(proj([step({ speech: { text: "a", start: 11 } })]));
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("trim", () => {
+  const p = (s: Step): Project => proj([s]);
+
+  it("Out は録画の長さで止まる", () => {
+    expect(trimStep(p(step()), 0, "out", 99, 30).steps[0]?.out).toBe(30);
+  });
+
+  it("In を前へ広げると、要素の時刻を同じ分だけ後ろへずらす", () => {
+    const s = step({
+      caption: { text: "c", start: 1, end: 3 },
+      zooms: [{ start: 2, end: 4, rect: { x: 0, y: 0, w: 10, h: 10 } }],
+      holds: [{ at: 5, duration: 1 }],
+      speech: { text: "s", start: 1 },
+    });
+    const out = trimStep(p(s), 0, "in", 8, 30).steps[0] as Step;
+    expect(out.in).toBe(8);
+    expect(out.caption).toMatchObject({ start: 3, end: 5 });
+    expect(out.zooms?.[0]).toMatchObject({ start: 4, end: 6 });
+    expect(out.holds?.[0]?.at).toBe(7);
+    expect(out.speech?.start).toBe(3);
+  });
+
+  it("In を後ろへ詰めると、要素は前へずれ、はみ出した分は切り詰める", () => {
+    const s = step({ speed: 2, zooms: [{ start: 0.5, end: 3, rect: { x: 0, y: 0, w: 10, h: 10 } }] });
+    const out = trimStep(p(s), 0, "in", 12, 30).steps[0] as Step;
+    // ソースで 2 秒 = 出力で 1 秒(speed 2)
+    expect(out.zooms?.[0]).toMatchObject({ start: 0, end: 2 });
+  });
+
+  it("In は Out を越えない", () => {
+    expect(trimStep(p(step()), 0, "in", 25, 30).steps[0]?.in).toBeCloseTo(19.9);
+  });
+});
+
+describe("addHold", () => {
+  const p = (s: Step): Project => proj([s]);
+
+  it("保持を追加する", () => {
+    expect(addHold(p(step()), 0, 2, 1.5).steps[0]?.holds).toEqual([{ at: 2, duration: 1.5 }]);
+  });
+
+  it("後ろの保持に重なる分は縮める。保持の途中には足さない", () => {
+    const s = step({ holds: [{ at: 3, duration: 1 }] });
+    expect(addHold(p(s), 0, 2, 5).steps[0]?.holds).toEqual([
+      { at: 2, duration: 1 },
+      { at: 3, duration: 1 },
+    ]);
+    expect(addHold(p(s), 0, 3.5, 1).steps[0]?.holds).toHaveLength(1);
   });
 });

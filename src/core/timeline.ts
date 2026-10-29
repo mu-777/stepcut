@@ -24,9 +24,15 @@ export function baseDuration(step: Step): number {
   return videoDuration(step) + stepHolds(step).reduce((sum, h) => sum + h.duration, 0);
 }
 
-/** ステップの出力上の長さ。読み上げが長ければ最終フレームを保持して合わせる(TIM-03) */
+/** 読み上げを始めるステップ内の出力時刻 */
+export function speechStart(step: Step): number {
+  return step.speech?.start ?? 0;
+}
+
+/** ステップの出力上の長さ。読み上げの終わりが映像より後なら最終フレームを保持して合わせる(TIM-03) */
 export function stepDuration(step: Step, speechDuration = 0): number {
-  return Math.max(baseDuration(step), speechDuration);
+  const speechEnd = speechDuration > 0 ? speechStart(step) + speechDuration : 0;
+  return Math.max(baseDuration(step), speechEnd);
 }
 
 /** 出力時刻 t に表示するソースの時刻 */
