@@ -57,8 +57,11 @@ PR の作成/head への push で `build` ワークフローが自動で走る(d
 
 ```
 mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="screen-annotator",
-                          resource_id="build.yml", workflow_runs_filter={branch: "<branch>"})
+                          workflow_runs_filter={branch: "<branch>"})
 ```
+
+`resource_id="build.yml"` は、build.yml が main にまだ無い間は 404 になる。`resource_id` を省いて全 run から
+`name: build` のものを選ぶ。
 
 - 目的の run は `head_sha` がブランチ HEAD と一致し、`event` が `pull_request` のもの
 - `status` が `completed` になるまで待つ。`sleep` ではなく、`send_later` で数分後に自分へチェックインを入れる
