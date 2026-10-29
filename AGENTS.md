@@ -20,12 +20,18 @@
 ## 完了の定義(ユーザーに返す前に必ず通す)
 
 <!-- 検証コマンドを実行順に。前提条件(dev サーバ必須等)も書く -->
-- lint / build / test: ツール決定後に記入
+- `npm run check`(Biome の lint・format 確認、tsc の型チェック、Vitest の単体テスト、electron-vite のビルド)が通ること
+- UI・描画・書き出しを触ったら `xvfb-run -a node tests/e2e/ui-smoke.cjs`(GUI の操作確認)と CLI 書き出し(README の CLI 節)も通す。手順は [.claude/rules/e2e.md](.claude/rules/e2e.md)
+- プロジェクトファイルの形(`src/core/schema.ts`)を変えたら `UPDATE_SCHEMA=1 npx vitest run src/core/schema-file.test.ts` で docs/project.schema.json を更新し、docs/project-format.md も直す
 - 仕様に関わる変更は docs/requirements.md・docs/decisions/ と矛盾しないこと。仕様を変えたら同じ作業内で要件定義書も更新する
 
 ## 完了報告
 
 大きめの変更(新機能、体験の流れや見た目が変わるもの、ユーザーが詳細を把握していない変更)の完了報告では、最後に「ユーザーに確認してほしいこと」を簡潔に付ける。各項目に、何を見るかと、確認のしかた(コマンド、画面での操作)を書く。自分で確認済みのこと(型チェック、テストなど)は分けて書き、ユーザーには人の判断が要るところだけを頼む。軽微な変更や、ユーザーが具体的に指示した変更には付けない。
+
+## Windows バイナリ(動作確認用)
+
+クラウドセッションの Linux コンテナでは Windows ビルドできない(Wine なし)。`.github/workflows/build.yml` が base=main の PR で windows-latest ビルドを走らせ、Artifacts(`screen-annotator-win`)に置く。PR 本文には run の `html_url` を貼る。手順はスキル `/pr-build`(`.claude/skills/pr-build/SKILL.md`)。エージェントは `workflow_dispatch` を叩けない(403)ので試さない。
 
 ## 自動確認できないこと(触ったら「実機確認待ち」として報告する)
 

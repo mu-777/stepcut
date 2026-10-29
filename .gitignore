@@ -5,3 +5,9 @@ CLAUDE.local.md
 # 秘匿情報(*.local.example.* はコミットしてよい)
 .env
 *.local.json
+
+# ビルド成果物・依存
+node_modules/
+out/
+dist/
+test-output/
