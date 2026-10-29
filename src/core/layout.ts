@@ -13,7 +13,7 @@ export interface Rect {
 export interface FrameLayout {
   /** 映像を描く領域(出力のピクセル) */
   video: Rect;
-  /** テロップの帯。余白なしでは null */
+  /** テロップの帯。全画面では null */
   band: Rect | null;
 }
 

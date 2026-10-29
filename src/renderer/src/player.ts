@@ -1,5 +1,7 @@
 // プレビューの再生。描画は書き出しと同じ drawFrame、音声も同じ renderStepAudio を使う(OUT-06)。
 // 時計は AudioContext に合わせ、映像は間に合わなければ飛ばす。
+// 停止中の表示はデコードを常に 1 本だけにし、その間の要求は最新の 1 件にまとめる
+// (要求ごとにデコードを積むと、キーフレームからのデコード待ちが溜まってシークが追従しなくなる)。
 import type { Project } from "../../core/schema";
 import { locate, sourceTimeAt, type TimelineEntry, totalDuration } from "../../core/timeline";
 import { renderStepAudio } from "./audio";
@@ -22,11 +24,17 @@ type Img = CanvasImageSource & { width: number; height: number };
 
 const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
 
+/** プレビューの再生速度。書き出しには影響しない */
+export const PLAYBACK_RATES = [0.5, 1, 2, 3] as const;
+
 export class Player {
   time = 0;
   playing = false;
+  /** 再生速度。負の値は逆方向(音声なし) */
+  rate = 1;
   private runId = 0;
-  private drawToken = 0;
+  private stillWanted = false;
+  private stillRunning: Promise<void> | null = null;
   private ac: AudioContext | null = null;
 
   constructor(
@@ -60,26 +68,40 @@ export class Player {
     });
   }
 
-  /** 停止中の表示を更新する */
-  async renderStill(): Promise<void> {
-    if (this.playing) return;
-    const token = ++this.drawToken;
-    const st = this.getState();
-    if (st.sourceView) {
-      const step = st.project.steps[st.sourceView.stepIndex];
-      const m = step ? (st.media.get(step.source) ?? null) : null;
-      const wc = m ? await m.video.getCanvas(st.sourceView.time) : null;
-      if (token === this.drawToken) this.paint(st, null, 0, wc?.canvas ?? null, m);
-      return;
+  /** 停止中の表示を更新する。デコード中に呼ばれたら、終わってから最新の状態で描き直す */
+  renderStill(): Promise<void> {
+    this.stillWanted = true;
+    if (!this.stillRunning) {
+      this.stillRunning = this.stillLoop().finally(() => {
+        this.stillRunning = null;
+      });
     }
-    const loc = locate(st.timeline, this.time);
-    if (!loc) {
-      this.paint(st, null, 0, null, null);
-      return;
+    return this.stillRunning;
+  }
+
+  private async stillLoop(): Promise<void> {
+    while (this.stillWanted) {
+      this.stillWanted = false;
+      if (this.playing) return;
+      const st = this.getState();
+      if (st.sourceView) {
+        const step = st.project.steps[st.sourceView.stepIndex];
+        const m = step ? (st.media.get(step.source) ?? null) : null;
+        const wc = m ? await m.video.getCanvas(st.sourceView.time).catch(() => null) : null;
+        if (!this.playing) this.paint(this.getState(), null, 0, wc?.canvas ?? null, m);
+        continue;
+      }
+      const loc = locate(st.timeline, this.time);
+      if (!loc) {
+        this.paint(st, null, 0, null, null);
+        continue;
+      }
+      const m = st.media.get(loc.entry.step.source) ?? null;
+      const wc = m
+        ? await m.video.getCanvas(sourceTimeAt(loc.entry.step, loc.local)).catch(() => null)
+        : null;
+      if (!this.playing) this.paint(st, loc.entry, loc.local, wc?.canvas ?? null, m);
     }
-    const m = st.media.get(loc.entry.step.source) ?? null;
-    const wc = m ? await m.video.getCanvas(sourceTimeAt(loc.entry.step, loc.local)).catch(() => null) : null;
-    if (token === this.drawToken) this.paint(st, loc.entry, loc.local, wc?.canvas ?? null, m);
   }
 
   seek(t: number): void {
@@ -94,6 +116,15 @@ export class Player {
     }
   }
 
+  /** 再生中なら同じ位置から速度を変えて再生し直す */
+  setRate(rate: number): void {
+    this.rate = rate;
+    if (this.playing) {
+      this.stop();
+      this.play();
+    }
+  }
+
   stop(): void {
     this.runId++;
     this.playing = false;
@@ -105,10 +136,12 @@ export class Player {
 
   async play(): Promise<void> {
     if (this.playing) return;
+    if (this.rate < 0) return this.playReverse();
     const st = this.getState();
     const total = totalDuration(st.timeline);
     if (total <= 0) return;
     if (this.time >= total - 0.01) this.time = 0;
+    const rate = this.rate;
     const run = ++this.runId;
     this.playing = true;
     this.onTime(this.time, true);
@@ -128,33 +161,29 @@ export class Player {
         st.speech.get(st.project, entry.step)?.buffer ?? null,
       );
 
-    let firstAudio: AudioBuffer | null = null;
-    try {
-      firstAudio = await audioFor(first.entry);
-    } catch {
-      // 音声が用意できなくても映像は再生する
-    }
-    if (!alive()) return;
+    // 音声を待たずに映像を動かし始める(シークのたびにステップ全体の音声の用意を待たないため)。
+    // 音声は用意でき次第、時計に合わせて途中から鳴らす
     const t0 = ac.currentTime + 0.05;
-    const clock = () => startT + (ac.currentTime - t0);
+    const clock = () => startT + (ac.currentTime - t0) * rate;
 
     const schedule = (entry: TimelineEntry, buf: AudioBuffer) => {
       const playFrom = Math.max(entry.start, startT);
-      let when = t0 + (playFrom - startT);
+      let when = t0 + (playFrom - startT) / rate;
       let offset = playFrom - entry.start;
       if (when < ac.currentTime) {
-        offset += ac.currentTime - when;
+        offset += (ac.currentTime - when) * rate;
         when = ac.currentTime;
       }
       if (offset >= buf.duration) return;
       const node = ac.createBufferSource();
       node.buffer = buf;
+      // 速度に合わせて音の高さも変わる(最も単純な方式)
+      node.playbackRate.value = rate;
       node.connect(ac.destination);
       node.start(when, offset);
     };
-    if (firstAudio) schedule(first.entry, firstAudio);
     (async () => {
-      for (let i = first.entry.index + 1; i < st.timeline.length && alive(); i++) {
+      for (let i = first.entry.index; i < st.timeline.length && alive(); i++) {
         const entry = st.timeline[i] as TimelineEntry;
         try {
           const buf = await audioFor(entry);
@@ -200,5 +229,24 @@ export class Player {
       this.time = total;
       this.stop();
     }
+  }
+
+  /** 逆方向の再生。逆向きのデコードは重いので、停止中の表示を時計に合わせて更新する(音声なし) */
+  private async playReverse(): Promise<void> {
+    const run = ++this.runId;
+    this.playing = true;
+    this.onTime(this.time, true);
+    let last = performance.now();
+    while (run === this.runId && this.time > 0) {
+      const now = await nextFrame();
+      this.time = Math.max(0, this.time + ((now - last) / 1000) * this.rate);
+      last = now;
+      this.onTime(this.time, true);
+      this.playing = false;
+      await this.renderStill();
+      if (run !== this.runId) return;
+      this.playing = true;
+    }
+    if (run === this.runId) this.stop();
   }
 }

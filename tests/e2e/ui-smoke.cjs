@@ -148,6 +148,23 @@ const check = (cond, msg) => {
   check(captions.includes("外部で変更したテロップ"), "外部変更を検知して再読み込みする");
   await shot(page, "03-external");
 
+  // キー操作: Home → → で 1 秒、Shift+→ で 1 フレーム、↓ で次のステップ境界、L 連打で ×2
+  const timeText = () => page.locator(".transport .time").textContent();
+  await page.locator("body").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  check((await timeText()).startsWith("0:01.00"), `→ で 1 秒進む (${await timeText()})`);
+  await page.keyboard.press("Shift+ArrowRight");
+  check((await timeText()).startsWith("0:01.03"), `Shift+→ で 1 フレーム進む (${await timeText()})`);
+  await page.keyboard.press("ArrowDown");
+  check((await timeText()).startsWith("0:04.00"), `↓ で次のステップ境界へ (${await timeText()})`);
+  await page.keyboard.press("l");
+  await page.keyboard.press("l");
+  await page.waitForTimeout(300);
+  check((await page.locator(".transport select.rate").inputValue()) === "2", "L 2 回で ×2 再生");
+  await page.keyboard.press("k");
+  await page.locator(".transport select.rate").selectOption("1");
+
   // プロジェクト設定タブ
   await page.getByRole("button", { name: /^(Project|プロジェクト)$/ }).click();
   await page.waitForTimeout(300);

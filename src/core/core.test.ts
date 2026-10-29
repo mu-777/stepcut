@@ -78,7 +78,7 @@ describe("layout", () => {
     shadow: true,
   };
 
-  it("帯ありは帯の上に縦横比を保って収める", () => {
+  it("枠付きは帯の上に縦横比を保って収める", () => {
     const l = computeLayout(1920, 1080, layout, 1920, 1080);
     expect(l.band).toEqual({ x: 0, y: 864, w: 1920, h: 216 });
     expect(l.video.y).toBeCloseTo(43.2);
@@ -86,7 +86,7 @@ describe("layout", () => {
     expect(l.video.w / l.video.h).toBeCloseTo(16 / 9);
   });
 
-  it("余白なしは全面", () => {
+  it("全画面は全面", () => {
     const l = computeLayout(1920, 1080, { ...layout, mode: "full" }, 1920, 1080);
     expect(l.video).toEqual({ x: 0, y: 0, w: 1920, h: 1080 });
     expect(l.band).toBeNull();

@@ -11,7 +11,7 @@ import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
 import { ProjectInspector, StepInspector } from "./inspector";
 import { openMedia, type SourceMedia } from "./media";
-import type { Player, PlayerState } from "./player";
+import { PLAYBACK_RATES, type Player, type PlayerState } from "./player";
 import { Preview } from "./preview";
 import { SpeechStore } from "./speech";
 
@@ -39,6 +39,7 @@ export function App() {
   const [speechVersion, setSpeechVersion] = useState(0);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState(1);
   const [sourceView, setSourceView] = useState<number | null>(null);
   const [drawingZoom, setDrawingZoom] = useState<{ step: number; zoom: number } | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -250,17 +251,46 @@ export function App() {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTyping()) return;
-      if (e.key === "Escape") setDrawingZoom(null);
-      if (e.key === " ") {
-        e.preventDefault();
-        const pl = playerRef.current;
-        if (pl?.playing) pl.stop();
-        else pl?.play();
-      }
+  // キー操作は一般的な動画編集アプリに合わせる(docs/decisions/20261029-timeline-ui.md)
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if (isTyping()) return;
+    const pl = playerRef.current;
+    if (!pl) return;
+    const changeRate = (r: number) => {
+      setRate(r);
+      pl.setRate(r);
+      if (!pl.playing) pl.play();
     };
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
+    let handled = true;
+    if (key === "Escape") setDrawingZoom(null);
+    else if (key === " ") {
+      if (pl.playing) pl.stop();
+      else {
+        if (pl.rate < 0) changeRate(1);
+        pl.play();
+      }
+    } else if (key === "k" && !e.ctrlKey && !e.metaKey) pl.stop();
+    else if (key === "l") changeRate(pl.playing && pl.rate >= 1 ? Math.min(3, Math.floor(pl.rate) + 1) : 1);
+    else if (key === "j") changeRate(pl.playing && pl.rate < 0 ? Math.max(-3, pl.rate - 1) : -1);
+    else if (key === "ArrowLeft" || key === "ArrowRight") {
+      // ←→ は 1 秒、Shift+←→ は 1 フレーム
+      const d = e.shiftKey ? 1 / resolveOutput(project).fps : 1;
+      pl.seek(pl.time + (key === "ArrowLeft" ? -d : d));
+    } else if (key === "ArrowUp") pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
+    else if (key === "ArrowDown") pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    else if (key === "Home") pl.seek(0);
+    else if (key === "End") pl.seek(total);
+    else if (key === "k" && (e.ctrlKey || e.metaKey)) {
+      const l = locate(timeline, pl.time);
+      if (l) update((p) => splitStep(p, l.entry.index, l.local, true));
+    } else handled = false;
+    if (handled) e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyRef.current(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -486,6 +516,23 @@ export function App() {
                 onChange={(e) => playerRef.current?.seek(Number(e.target.value))}
               />
             )}
+            <select
+              className="rate"
+              aria-label={t("playbackRate")}
+              value={PLAYBACK_RATES.includes(rate as (typeof PLAYBACK_RATES)[number]) ? rate : ""}
+              onChange={(e) => {
+                const r = Number(e.target.value);
+                setRate(r);
+                playerRef.current?.setRate(r);
+              }}
+            >
+              {rate < 0 && <option value="">◀ ×{-rate}</option>}
+              {PLAYBACK_RATES.map((r) => (
+                <option key={r} value={r}>
+                  ×{r}
+                </option>
+              ))}
+            </select>
             <span className="time">
               {sourceView !== null ? `rec ${fmt(sourceTime)}` : `${fmt(time)} / ${fmt(total)}`}
             </span>
