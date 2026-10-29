@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { resolveOutput } from "../../core/defaults";
+import { resolveLayout, resolveOutput } from "../../core/defaults";
 import { deleteStep, duplicateStep, moveStep, newProject, splitStep, uniqueStepId } from "../../core/edit";
+import { computeLayout, normalizeZoomRect, videoPlacementOf, viewRectAt } from "../../core/layout";
 import type { Project } from "../../core/schema";
 import { buildTimeline, locate, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
+import { BackgroundStore } from "./backgrounds";
 import { exportProject } from "./exporter";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
@@ -55,6 +57,8 @@ export function App() {
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
   const [thumbsVersion, setThumbsVersion] = useState(0);
   const thumbs = useMemo(() => new ThumbCache(() => setThumbsVersion((v) => v + 1)), []);
+  const [bgVersion, setBgVersion] = useState(0);
+  const backgrounds = useMemo(() => new BackgroundStore(() => setBgVersion((v) => v + 1)), []);
   const speech = useMemo(() => new SpeechStore(), []);
   const playerRef = useRef<Player | null>(null);
 
@@ -82,6 +86,8 @@ export function App() {
     sourceView: trimPreview ? { stepIndex: trimPreview.step, time: trimPreview.time } : null,
     ignoreZoom: drawingZoom !== null,
     thumbs,
+    backgrounds,
+    projectPath: filePath,
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -130,7 +136,7 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
   useEffect(() => {
     playerRef.current?.renderStill();
-  }, [project, timeline, media, trimPreview, drawingZoom]);
+  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion]);
 
   // 選択が範囲外になったら(削除・外部変更)プロジェクトの選択に戻す
   useEffect(() => {
@@ -266,7 +272,7 @@ export function App() {
   /** 選んだ要素を消す(Delete キー) */
   const deleteSelection = () => {
     const s = selection;
-    if (s.kind === "project") return;
+    if (!("step" in s)) return;
     const patch = (fn: (st: Project["steps"][number]) => Project["steps"][number]) =>
       update((p) => ({ ...p, steps: p.steps.map((st, i) => (i === s.step ? fn(st) : st)) }));
     if (s.kind === "step") {
@@ -295,8 +301,10 @@ export function App() {
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
     let handled = true;
-    if (key === "Escape") setDrawingZoom(null);
-    else if (key === " ") {
+    if (key === "Escape") {
+      setDrawingZoom(null);
+      if (selection.kind === "video") setSelection({ kind: "project" });
+    } else if (key === " ") {
       if (pl.playing) pl.stop();
       else {
         if (pl.rate < 0) changeRate(1);
@@ -409,6 +417,71 @@ export function App() {
   }, [drawingKey]);
 
   const out = resolveOutput(project);
+  const layoutMode = resolveLayout(project).mode;
+  const locMedia = loc ? media.get(loc.entry.step.source) : [...media.values()][0];
+
+  /** プレビューの右クリック。再生ヘッドのステップに、クリックした点を中心にズームを作る(UI-05) */
+  const previewMenu = (x: number, y: number, pt: { x: number; y: number }) => {
+    const items: MenuItem[] = [];
+    if (loc && locMedia && !drawingZoom) {
+      const { entry, local } = loc;
+      const step = entry.step;
+      const zooms = step.zooms ?? [];
+      const hit = zooms.findIndex((z) => local >= z.start && local <= z.end);
+      const v = computeLayout(
+        out.width,
+        out.height,
+        resolveLayout(project),
+        locMedia.width,
+        locMedia.height,
+      ).video;
+      const fx = (pt.x - v.x) / v.w;
+      const fy = (pt.y - v.y) / v.h;
+      if (hit >= 0) {
+        items.push({ label: t("drawRect"), action: () => editZoomRect(entry.index, hit) });
+      } else if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
+        // 表示中の範囲(ズーム中ならその範囲)の中で、クリックした点をソースの座標にする
+        const view = viewRectAt(step, local, locMedia.width, locMedia.height);
+        const sx = view.x + fx * view.w;
+        const sy = view.y + fy * view.h;
+        const end = Math.min(
+          entry.duration,
+          local + 2,
+          ...zooms.filter((z) => z.start > local).map((z) => z.start),
+        );
+        items.push({
+          label: t("addZoomHere"),
+          disabled: end - local < 0.1,
+          action: () => {
+            const w = locMedia.width / 2;
+            const h = locMedia.height / 2;
+            const r = normalizeZoomRect(
+              { x: sx - w / 2, y: sy - h / 2, w, h },
+              locMedia.width,
+              locMedia.height,
+            );
+            const r3 = (n: number) => Math.round(n * 1000) / 1000;
+            const zoom = {
+              start: r3(local),
+              end: r3(end),
+              rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) },
+            };
+            update((p) => ({
+              ...p,
+              steps: p.steps.map((s, i) =>
+                i === entry.index ? { ...s, zooms: [...(s.zooms ?? []), zoom] } : s,
+              ),
+            }));
+            editZoomRect(entry.index, zooms.length);
+          },
+        });
+      }
+    }
+    if (layoutMode === "band")
+      items.push({ label: t("editVideoBox"), action: () => setSelection({ kind: "video" }) });
+    if (items.length) setMenu({ x, y, items });
+  };
+
   const clampW = (v: number) => Math.min(Math.max(v, 160), 640);
 
   return (
@@ -461,7 +534,7 @@ export function App() {
         <aside className="left-pane">
           <button
             type="button"
-            className={`nav-item ${selection.kind === "project" ? "selected" : ""}`}
+            className={`nav-item ${selection.kind === "project" || selection.kind === "video" ? "selected" : ""}`}
             onClick={() => select({ kind: "project" })}
           >
             {t("project")}
@@ -537,23 +610,48 @@ export function App() {
                     srcW: selMedia.width,
                     srcH: selMedia.height,
                     rect: project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.rect ?? null,
-                    onRect: (rect) => {
-                      update((p) => ({
-                        ...p,
-                        steps: p.steps.map((s, i) =>
-                          i === drawingZoom.step
-                            ? {
-                                ...s,
-                                zooms: s.zooms?.map((z, k) => (k === drawingZoom.zoom ? { ...z, rect } : z)),
-                              }
-                            : s,
-                        ),
-                      }));
-                      setDrawingZoom(null);
+                    onRect: (rect, key) => {
+                      update(
+                        (p) => ({
+                          ...p,
+                          steps: p.steps.map((s, i) =>
+                            i === drawingZoom.step
+                              ? {
+                                  ...s,
+                                  zooms: s.zooms?.map((z, k) =>
+                                    k === drawingZoom.zoom ? { ...z, rect } : z,
+                                  ),
+                                }
+                              : s,
+                          ),
+                        }),
+                        key,
+                      );
                     },
                   }
                 : null
             }
+            srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
+            videoEdit={
+              selection.kind === "video" && layoutMode === "band" && !drawingZoom && !playing
+                ? {
+                    onRect: (rect, key) =>
+                      update(
+                        (p) => ({
+                          ...p,
+                          layout: { ...p.layout, video: videoPlacementOf(rect, out.width, out.height) },
+                        }),
+                        key,
+                      ),
+                  }
+                : null
+            }
+            onVideoClick={(inside) => {
+              if (layoutMode !== "band" || playing) return;
+              if (inside) setSelection({ kind: "video" });
+              else if (selection.kind === "video") setSelection({ kind: "project" });
+            }}
+            onContextMenu={previewMenu}
           />
           <div className="transport">
             <button
@@ -584,7 +682,14 @@ export function App() {
             <span className="time">
               {fmtTime(time)} / {fmtTime(total)}
             </span>
-            {drawingZoom && <span className="hint">{t("drawingRect")}</span>}
+            {drawingZoom && (
+              <>
+                <span className="hint">{t("drawingRect")}</span>
+                <button type="button" className="small" onClick={() => setDrawingZoom(null)}>
+                  {t("done")}
+                </button>
+              </>
+            )}
             <span className="spacer" />
             <button
               type="button"
@@ -650,7 +755,18 @@ export function App() {
               onDrawZoom={(zoom) => editZoomRect(selected, zoom)}
             />
           ) : (
-            <ProjectInspector project={project} update={update} voices={voices} />
+            <ProjectInspector
+              project={project}
+              update={update}
+              voices={voices}
+              focusVideo={selection.kind === "video"}
+              srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
+              projectPath={filePath}
+              backgroundError={(() => {
+                const bg = resolveLayout(project).background;
+                return typeof bg !== "string" && "image" in bg ? backgrounds.error(bg.image, filePath) : null;
+              })()}
+            />
           )}
         </aside>
       </main>

@@ -2,13 +2,17 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  DEFAULT_BACKGROUND,
   DEFAULT_ZOOM_TRANSITION,
   resolveCaptionStyle,
   resolveLayout,
   resolveOutput,
 } from "../../core/defaults";
-import type { Project, Step, Zoom } from "../../core/schema";
+import { computeLayout, videoPlacementOf } from "../../core/layout";
+import type { Background, Project, Step, VideoPlacement, Zoom } from "../../core/schema";
 import type { Voice } from "../../shared/api";
+import { api } from "./api";
+import { drawPresetThumb, PRESETS } from "./backgrounds";
 import { CheckField, Field, NumField, prune, SelectField, TextField, withParam } from "./fields";
 import { t } from "./i18n";
 import type { Selection } from "./timeline";
@@ -368,7 +372,16 @@ const RESOLUTIONS = [
   { label: "3840×2160", w: 3840, h: 2160 },
 ];
 
-export function ProjectInspector(props: { project: Project; update: Update; voices: Voice[] }) {
+export function ProjectInspector(props: {
+  project: Project;
+  update: Update;
+  voices: Voice[];
+  /** プレビューで映像を選んでいる。映像の位置の欄を強調する */
+  focusVideo: boolean;
+  srcSize: { w: number; h: number } | null;
+  projectPath: string | null;
+  backgroundError: string | null;
+}) {
   const { project, update, voices } = props;
   const out = resolveOutput(project);
   const layout = resolveLayout(project);
@@ -441,17 +454,13 @@ export function ProjectInspector(props: { project: Project; update: Update; voic
         ]}
         onChange={(v) => set("layout", { ...project.layout, mode: v })}
       />
+      <BackgroundField
+        value={layout.background}
+        error={props.backgroundError}
+        onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
+      />
       {layout.mode === "band" && (
         <>
-          <Field label={t("background")}>
-            <input
-              type="color"
-              value={layout.background.slice(0, 7)}
-              onChange={(e) =>
-                set("layout", { ...project.layout, background: e.target.value.toUpperCase() }, "layout.bg")
-              }
-            />
-          </Field>
           <div className="row">
             <NumField
               label={t("bandHeight")}
@@ -470,6 +479,13 @@ export function ProjectInspector(props: { project: Project; update: Update; voic
               onChange={(v) => set("layout", prune({ ...project.layout, margin: v }), "layout.margin")}
             />
           </div>
+          <Section focused={props.focusVideo}>
+            <VideoPlacementField
+              project={project}
+              srcSize={props.srcSize}
+              onChange={(v, key) => set("layout", prune({ ...project.layout, video: v }), key)}
+            />
+          </Section>
           <CheckField
             label={t("shadow")}
             value={layout.shadow}
@@ -594,5 +610,208 @@ function DictionaryField(props: { value: Dict; onChange: (d: Dict) => void }) {
         }}
       />
     </Field>
+  );
+}
+
+const PRESET_LABELS: Record<string, Parameters<typeof t>[0]> = {
+  default: "presetDefault",
+  sunset: "presetSunset",
+  mint: "presetMint",
+  ocean: "presetOcean",
+  graphite: "presetGraphite",
+  paper: "presetPaper",
+};
+
+function PresetSwatch(props: { id: string; selected: boolean; onClick: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (ref.current) drawPresetThumb(ref.current, props.id);
+  }, [props.id]);
+  const label = t(PRESET_LABELS[props.id] ?? "presetDefault");
+  return (
+    <button
+      type="button"
+      className={`swatch ${props.selected ? "selected" : ""}`}
+      title={label}
+      aria-label={label}
+      onClick={props.onClick}
+    >
+      <canvas ref={ref} width={64} height={36} />
+    </button>
+  );
+}
+
+/** 背景(LAY-04)。種類を選び、種類ごとの設定を出す */
+function BackgroundField(props: {
+  value: Background;
+  error: string | null;
+  onChange: (bg: Background, key: string) => void;
+}) {
+  const bg = props.value;
+  const kind = typeof bg === "string" ? "color" : "gradient" in bg ? "gradient" : "image";
+  const grad = typeof bg !== "string" && "gradient" in bg ? bg.gradient : null;
+  const image = typeof bg !== "string" && "image" in bg ? bg.image : null;
+  return (
+    <>
+      <SelectField
+        label={t("bgType")}
+        value={kind}
+        options={[
+          { value: "image", label: t("bgImage") },
+          { value: "gradient", label: t("bgGradient") },
+          { value: "color", label: t("bgColor") },
+        ]}
+        onChange={(v) =>
+          props.onChange(
+            v === "color"
+              ? "#000000"
+              : v === "gradient"
+                ? { gradient: { angle: 135, colors: ["#1E2A5A", "#6A3093"] } }
+                : DEFAULT_BACKGROUND,
+            "layout.bgType",
+          )
+        }
+      />
+      {typeof bg === "string" && (
+        <Field label={t("color")}>
+          <input
+            type="color"
+            value={bg.slice(0, 7)}
+            onChange={(e) => props.onChange(e.target.value.toUpperCase(), "layout.bg")}
+          />
+        </Field>
+      )}
+      {grad && (
+        <>
+          <NumField
+            label={t("angle")}
+            value={grad.angle ?? 180}
+            step={15}
+            onChange={(v) => props.onChange({ gradient: { ...grad, angle: v ?? 180 } }, "layout.angle")}
+          />
+          <div className="row">
+            {grad.colors.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 色は並び順で区別する
+              <div className="grad-color" key={i}>
+                <input
+                  type="color"
+                  value={c.slice(0, 7)}
+                  onChange={(e) =>
+                    props.onChange(
+                      {
+                        gradient: {
+                          ...grad,
+                          colors: grad.colors.map((x, j) => (j === i ? e.target.value.toUpperCase() : x)),
+                        },
+                      },
+                      `layout.grad${i}`,
+                    )
+                  }
+                />
+                {grad.colors.length > 2 && (
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() =>
+                      props.onChange(
+                        { gradient: { ...grad, colors: grad.colors.filter((_, j) => j !== i) } },
+                        "layout.gradRemove",
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            {grad.colors.length < 4 && (
+              <button
+                type="button"
+                className="small"
+                onClick={() =>
+                  props.onChange(
+                    { gradient: { ...grad, colors: [...grad.colors, grad.colors.at(-1) ?? "#FFFFFF"] } },
+                    "layout.gradAdd",
+                  )
+                }
+              >
+                {t("addColor")}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {image !== null && (
+        <>
+          <div className="swatches">
+            {PRESETS.map((p) => (
+              <PresetSwatch
+                key={p.id}
+                id={p.id}
+                selected={image === `preset:${p.id}`}
+                onClick={() => props.onChange({ image: `preset:${p.id}` }, "layout.preset")}
+              />
+            ))}
+          </div>
+          {!image.startsWith("preset:") && <p className="hint">{image}</p>}
+          {props.error && <p className="hint error">⚠ {props.error}</p>}
+          <button
+            type="button"
+            onClick={async () => {
+              const path = await api.pickImage();
+              if (path) props.onChange({ image: path }, "layout.image");
+            }}
+          >
+            {t("chooseImage")}
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+/** 枠付きでの映像の位置(中心)と幅。未指定(自動配置)のときは、いまの自動配置の値を表示する */
+function VideoPlacementField(props: {
+  project: Project;
+  srcSize: { w: number; h: number } | null;
+  onChange: (v: VideoPlacement | undefined, key: string) => void;
+}) {
+  const out = resolveOutput(props.project);
+  const layout = resolveLayout(props.project);
+  const src = props.srcSize ?? { w: 1920, h: 1080 };
+  const cur =
+    layout.video ??
+    videoPlacementOf(computeLayout(out.width, out.height, layout, src.w, src.h).video, out.width, out.height);
+  const set = (patch: Partial<VideoPlacement>, key: string) => props.onChange({ ...cur, ...patch }, key);
+  return (
+    <>
+      <p className="field-label">{t("videoPos")}</p>
+      <div className="row">
+        <NumField
+          label={t("videoX")}
+          value={cur.x}
+          step={0.01}
+          onChange={(v) => set({ x: v ?? 0.5 }, "video.x")}
+        />
+        <NumField
+          label={t("videoY")}
+          value={cur.y}
+          step={0.01}
+          onChange={(v) => set({ y: v ?? 0.5 }, "video.y")}
+        />
+        <NumField
+          label={t("videoWidth")}
+          value={cur.width}
+          step={0.01}
+          min={0.05}
+          onChange={(v) => set({ width: Math.max(0.05, v ?? 0.5) }, "video.w")}
+        />
+      </div>
+      {layout.video && (
+        <button type="button" className="small" onClick={() => props.onChange(undefined, "video.auto")}>
+          {t("videoAuto")}
+        </button>
+      )}
+    </>
   );
 }

@@ -41,6 +41,18 @@ const audioSchema = z.strictObject({
 
 const speechParams = z.record(z.string(), z.union([z.number(), z.string(), z.boolean()]));
 
+/** 背景。色・グラデーション・画像のどれか(LAY-04)。画像は "preset:<名前>" か画像ファイルのパス */
+export const backgroundSchema = z.union([
+  color,
+  z.strictObject({
+    gradient: z.strictObject({
+      angle: z.number().optional(),
+      colors: z.array(color).min(2).max(4),
+    }),
+  }),
+  z.strictObject({ image: z.string().min(1) }),
+]);
+
 const pointSchema = z.strictObject({ t: time, x: z.number(), y: z.number() });
 const transitionKind = z.enum(["none", "fade", "flash"]);
 
@@ -115,10 +127,11 @@ export const projectSchema = z.strictObject({
   layout: z
     .strictObject({
       mode: z.enum(["band", "full"]).optional(),
-      background: color.optional(),
+      background: backgroundSchema.optional(),
       bandHeight: ratio.optional(),
       margin: ratio.optional(),
       shadow: z.boolean().optional(),
+      video: z.strictObject({ x: z.number(), y: z.number(), width: z.number().positive().max(4) }).optional(),
     })
     .optional(),
   styles: z
@@ -146,3 +159,5 @@ export type Step = z.infer<typeof stepSchema>;
 export type Zoom = z.infer<typeof zoomSchema>;
 export type Hold = z.infer<typeof holdSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
+export type Background = z.infer<typeof backgroundSchema>;
+export type VideoPlacement = NonNullable<NonNullable<Project["layout"]>["video"]>;

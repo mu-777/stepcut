@@ -12,10 +12,12 @@ import { quantize, type ThumbCache } from "./thumbs";
 
 export type Selection =
   | { kind: "project" }
+  /** 枠付きでプレビュー上の映像を選んだ(位置と大きさの編集) */
+  | { kind: "video" }
   | { kind: "step" | "caption" | "speech"; step: number }
   | { kind: "zoom" | "hold"; step: number; index: number };
 
-export const selectedStep = (s: Selection): number | null => (s.kind === "project" ? null : s.step);
+export const selectedStep = (s: Selection): number | null => ("step" in s ? s.step : null);
 
 export interface MenuItem {
   label: string;
@@ -228,7 +230,7 @@ export function Timeline(props: {
   const visR = scrollLeft + viewW + TILE_W;
   const isSel = (kind: Selection["kind"], step: number, index?: number) =>
     selection.kind === kind &&
-    selection.kind !== "project" &&
+    "step" in selection &&
     selection.step === step &&
     (index === undefined || ("index" in selection && selection.index === index));
 

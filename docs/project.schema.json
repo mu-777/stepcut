@@ -62,8 +62,55 @@
           ]
         },
         "background": {
-          "type": "string",
-          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "gradient": {
+                  "type": "object",
+                  "properties": {
+                    "angle": {
+                      "type": "number"
+                    },
+                    "colors": {
+                      "minItems": 2,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "colors"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "gradient"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "image"
+              ],
+              "additionalProperties": false
+            }
+          ]
         },
         "bandHeight": {
           "type": "number",
@@ -77,6 +124,28 @@
         },
         "shadow": {
           "type": "boolean"
+        },
+        "video": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 4
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

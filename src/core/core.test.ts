@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { captionCues } from "./captions";
+import { resolveLayout } from "./defaults";
 import { addHold, duplicateStep, splitStep, trimStep, uniqueStepId } from "./edit";
-import { computeLayout, normalizeZoomRect, viewRectAt, zoomProgress } from "./layout";
+import { computeLayout, normalizeZoomRect, videoPlacementOf, viewRectAt, zoomProgress } from "./layout";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
 import {
@@ -82,6 +83,7 @@ describe("layout", () => {
     bandHeight: 0.2,
     margin: 0.04,
     shadow: true,
+    video: null,
   };
 
   it("枠付きは帯の上に縦横比を保って収める", () => {
@@ -90,6 +92,21 @@ describe("layout", () => {
     expect(l.video.y).toBeCloseTo(43.2);
     expect(l.video.h).toBeCloseTo(1080 - 216 - 43.2);
     expect(l.video.w / l.video.h).toBeCloseTo(16 / 9);
+  });
+
+  it("映像の位置と幅を指定すると、中心と幅に合わせ、高さはソースの縦横比", () => {
+    const l = computeLayout(1920, 1080, { ...layout, video: { x: 0.5, y: 0.4, width: 0.5 } }, 1600, 1000);
+    expect(l.video).toEqual({ x: 480, y: 432 - 300, w: 960, h: 600 });
+    expect(videoPlacementOf(l.video, 1920, 1080)).toEqual({ x: 0.5, y: 0.4, width: 0.5 });
+  });
+
+  it("背景は色・グラデーション・画像を受け付け、既定はプリセット画像", () => {
+    const ok = (background: unknown) => parseProject({ ...proj([]), layout: { background } }).ok;
+    expect(ok("#112233")).toBe(true);
+    expect(ok({ gradient: { angle: 135, colors: ["#000000", "#FFFFFF"] } })).toBe(true);
+    expect(ok({ gradient: { colors: ["#000000"] } })).toBe(false);
+    expect(ok({ image: "preset:mist" })).toBe(true);
+    expect(resolveLayout(proj([])).background).toEqual({ image: "preset:default" });
   });
 
   it("全画面は全面", () => {

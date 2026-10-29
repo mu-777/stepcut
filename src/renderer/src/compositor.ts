@@ -10,6 +10,7 @@ import {
 import { computeLayout, viewRectAt } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
 import { wrapText } from "../../core/text";
+import { drawSimpleBackground } from "./backgrounds";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Frame = CanvasImageSource & { width: number; height: number };
@@ -29,14 +30,20 @@ export interface FrameInput {
   outH: number;
   /** ズームを無視する(ズーム範囲の編集中) */
   ignoreZoom?: boolean;
+  /** 画像の背景(出力の大きさで用意したもの)。色・グラデーションの背景なら使わない */
+  backgroundImage?: Frame | null;
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
   const layout: ResolvedLayout = resolveLayout(f.project);
   const scale = f.outH / 1080;
   ctx.save();
-  ctx.fillStyle = layout.mode === "band" ? layout.background : "#000000";
-  ctx.fillRect(0, 0, f.outW, f.outH);
+  if (!drawSimpleBackground(ctx, f.outW, f.outH, layout.background)) {
+    // 画像の読み込み中・失敗時は暗い灰色
+    ctx.fillStyle = "#202024";
+    ctx.fillRect(0, 0, f.outW, f.outH);
+    if (f.backgroundImage) ctx.drawImage(f.backgroundImage, 0, 0, f.outW, f.outH);
+  }
 
   const srcW = f.srcW || 1920;
   const srcH = f.srcH || 1080;

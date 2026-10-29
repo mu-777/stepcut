@@ -86,6 +86,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await page.setViewportSize({ width: 1400, height: 860 });
   await page.waitForSelector(".step-item");
+  // 前回の実行で覚えたカラム幅を消す
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector(".step-item");
   await page.waitForTimeout(2500);
   await shot(page, "01-open");
   check((await page.locator(".step-item").count()) === 2, "プロジェクトを開いてステップが 2 つ表示される");
@@ -221,6 +225,53 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await drag(page, center(sp), { x: center(sp).x + 80, y: center(sp).y });
   const left1 = (await page.locator("aside.left-pane").boundingBox()).width;
   check(left1 - left0 > 60, `左カラムの幅を変えられる (${left0} → ${left1})`);
+
+  // プレビューの右クリックでズームを作り、枠を動かす(UI-05)
+  await page.locator(".step-item").nth(1).click();
+  await page.keyboard.press("ArrowRight");
+  const stage = await page.locator(".preview-stage").boundingBox();
+  const zoomsBefore = await page.locator(".tl-bar.zoom").count();
+  await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.4, { button: "right" });
+  await page.getByRole("menuitem", { name: /Add zoom here|ここにズームを追加/ }).click();
+  await page.waitForTimeout(400);
+  check(
+    (await page.locator(".tl-bar.zoom").count()) === zoomsBefore + 1,
+    "プレビューの右クリックでズームを作る",
+  );
+  const ob = await page.locator(".box-outline").boundingBox();
+  const hintBefore = await page.locator(".zoom.focused .hint").textContent();
+  await drag(page, center(ob), { x: center(ob).x - 40, y: center(ob).y - 20 });
+  const hintAfter = await page.locator(".zoom.focused .hint").textContent();
+  check(hintBefore !== hintAfter, `ズームの枠をドラッグで移動 (${hintBefore} → ${hintAfter})`);
+  await page.getByRole("button", { name: /^(Done|完了)$/ }).click();
+
+  // 枠付きで映像を選び、ドラッグで移動(中心線に吸着)、角で縮小(LAY-08)
+  await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.4);
+  await page.waitForTimeout(200);
+  const vb = await page.locator(".box-outline").boundingBox();
+  check(vb !== null, "プレビューの映像をクリックすると枠とハンドルが出る");
+  await drag(page, center(vb), { x: center(vb).x + 3, y: center(vb).y + 60 });
+  const vx = await page.getByLabel("X", { exact: true }).inputValue();
+  check(vx === "0.5", `映像の移動で中心線に吸着する (x=${vx})`);
+  await drag(
+    page,
+    { x: vb.x + vb.width, y: vb.y + vb.height + 60 },
+    { x: vb.x + vb.width - 100, y: vb.y + vb.height },
+  );
+  await page.waitForTimeout(300);
+  await shot(page, "05-video-box");
+
+  // 背景をプリセット「ミント」に変える
+  await page.locator(".swatch").nth(2).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: /^(Save|保存)$/ }).click();
+  await page.waitForTimeout(800);
+  const saved2 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+  check(saved2.layout?.video?.y > 0.45, `映像を下へ動かした位置が保存される (y=${saved2.layout?.video?.y})`);
+  check(saved2.layout.video.width < 0.85, `角のドラッグで縮小する (width=${saved2.layout.video.width})`);
+  check(saved2.layout.background?.image === "preset:mint", "背景のプリセットを選べる");
+  await page.keyboard.press("Escape");
+  await shot(page, "06-mint");
 
   // プロジェクトの設定
   await page.locator(".nav-item").click();

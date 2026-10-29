@@ -1,5 +1,5 @@
 // 省略された項目の既定値を解決する(STY-02: 個別設定がなければ共通設定、それもなければ既定値)。
-import type { CaptionStyle, Project, Step, Zoom } from "./schema";
+import type { Background, CaptionStyle, Project, Step, VideoPlacement, Zoom } from "./schema";
 
 export interface ResolvedOutput {
   width: number;
@@ -11,11 +11,16 @@ export interface ResolvedOutput {
 
 export interface ResolvedLayout {
   mode: "band" | "full";
-  background: string;
+  background: Background;
   bandHeight: number;
   margin: number;
   shadow: boolean;
+  /** 枠付きでの映像の位置(中心、出力に対する割合)と幅(出力の幅に対する割合)。null なら自動で配置する */
+  video: VideoPlacement | null;
 }
+
+/** 背景の既定値。黒ではドロップシャドウが見えないため、同梱のプリセット画像にする */
+export const DEFAULT_BACKGROUND: Background = { image: "preset:default" };
 
 export type ResolvedCaptionStyle = Required<CaptionStyle>;
 
@@ -59,10 +64,11 @@ export function resolveLayout(p: Project): ResolvedLayout {
   const l = p.layout ?? {};
   return {
     mode: l.mode ?? "band",
-    background: l.background ?? "#000000",
+    background: l.background ?? DEFAULT_BACKGROUND,
     bandHeight: l.bandHeight ?? 0.2,
     margin: l.margin ?? 0.04,
     shadow: l.shadow ?? true,
+    video: l.video ?? null,
   };
 }
 

@@ -131,6 +131,13 @@ function registerIpc(): void {
     });
     return r.filePaths;
   });
+  ipcMain.handle("image:pick", async () => {
+    const r = await dialog.showOpenDialog({
+      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }],
+      properties: ["openFile"],
+    });
+    return r.filePaths[0] ?? null;
+  });
   ipcMain.handle("export:pick", async (_e, defaultPath: string) => {
     const r = await dialog.showSaveDialog({ filters: [{ name: "MP4", extensions: ["mp4"] }], defaultPath });
     return r.canceled ? null : (r.filePath ?? null);

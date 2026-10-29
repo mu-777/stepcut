@@ -35,9 +35,39 @@ export function computeLayout(
     return { video: fitContain(srcW, srcH, { x: 0, y: 0, w: outW, h: outH }), band: null };
   }
   const bandH = outH * layout.bandHeight;
+  const band = { x: 0, y: outH - bandH, w: outW, h: bandH };
+  if (layout.video) return { video: placeVideo(layout.video, outW, outH, srcW, srcH), band };
+  return { video: fitContain(srcW, srcH, autoVideoArea(outW, outH, layout)), band };
+}
+
+/** 枠付きで自動配置するときの、映像を収める領域(帯と余白を除いたところ) */
+export function autoVideoArea(outW: number, outH: number, layout: ResolvedLayout): Rect {
+  const bandH = outH * layout.bandHeight;
   const m = outH * layout.margin;
-  const area = { x: m, y: m, w: Math.max(1, outW - 2 * m), h: Math.max(1, outH - bandH - m) };
-  return { video: fitContain(srcW, srcH, area), band: { x: 0, y: outH - bandH, w: outW, h: bandH } };
+  return { x: m, y: m, w: Math.max(1, outW - 2 * m), h: Math.max(1, outH - bandH - m) };
+}
+
+/** 位置と幅の指定(割合)から映像の矩形を出す。高さはソースの縦横比で決まる */
+export function placeVideo(
+  v: { x: number; y: number; width: number },
+  outW: number,
+  outH: number,
+  srcW: number,
+  srcH: number,
+): Rect {
+  const w = v.width * outW;
+  const h = (w * srcH) / srcW;
+  return { x: v.x * outW - w / 2, y: v.y * outH - h / 2, w, h };
+}
+
+/** 映像の矩形から位置と幅の指定(割合)に戻す。小数 4 桁に丸める */
+export function videoPlacementOf(
+  r: Rect,
+  outW: number,
+  outH: number,
+): { x: number; y: number; width: number } {
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  return { x: r4((r.x + r.w / 2) / outW), y: r4((r.y + r.h / 2) / outH), width: r4(r.w / outW) };
 }
 
 /** ズーム範囲をソースの縦横比にそろえ(中心を保って広げる)、映像内に収める */

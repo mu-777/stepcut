@@ -2,9 +2,12 @@
 // 時計は AudioContext に合わせ、映像は間に合わなければ飛ばす。
 // 停止中の表示はデコードを常に 1 本だけにし、その間の要求は最新の 1 件にまとめる
 // (要求ごとにデコードを積むと、キーフレームからのデコード待ちが溜まってシークが追従しなくなる)。
+
+import { resolveLayout } from "../../core/defaults";
 import type { Project } from "../../core/schema";
 import { locate, sourceTimeAt, type TimelineEntry, totalDuration } from "../../core/timeline";
 import { renderStepAudio } from "./audio";
+import type { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
 import type { SourceMedia } from "./media";
 import { SAMPLE_RATE, type SpeechStore } from "./speech";
@@ -21,6 +24,10 @@ export interface PlayerState {
   ignoreZoom: boolean;
   /** シーク中の仮表示に使う縮小フレーム */
   thumbs: ThumbCache | null;
+  /** 画像の背景 */
+  backgrounds: BackgroundStore | null;
+  /** 背景画像のパスの基準 */
+  projectPath: string | null;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -68,7 +75,14 @@ export class Player {
       outW: this.canvas.width,
       outH: this.canvas.height,
       ignoreZoom: st.ignoreZoom,
+      backgroundImage: this.backgroundImage(st),
     });
+  }
+
+  private backgroundImage(st: PlayerState): Img | null {
+    const bg = resolveLayout(st.project).background;
+    if (typeof bg === "string" || !("image" in bg) || !st.backgrounds) return null;
+    return st.backgrounds.get(bg.image, this.canvas.width, this.canvas.height, st.projectPath);
   }
 
   /** 停止中の表示を更新する。デコード中に呼ばれたら、近い縮小フレームを仮に描き、終わってから最新の状態で描き直す */

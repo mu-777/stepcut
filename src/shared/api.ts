@@ -54,6 +54,8 @@ export interface Api {
   /** 保存。素材パスを保存先基準で書き換えた JSON を返す。filePath が null なら保存先を尋ねる */
   saveProject(filePath: string | null, text: string, prevPath: string | null): Promise<OpenedProject | null>;
   pickSources(): Promise<string[]>;
+  /** 背景の画像を選ぶ(絶対パス) */
+  pickImage(): Promise<string | null>;
   pickExportPath(defaultPath: string): Promise<string | null>;
   resolveSource(projectPath: string | null, stored: string): Promise<string>;
   setDirty(dirty: boolean): void;

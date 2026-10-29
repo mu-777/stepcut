@@ -8,6 +8,7 @@ const api: Api = {
   initialProject: () => ipcRenderer.invoke("project:initial"),
   saveProject: (filePath, text, prevPath) => ipcRenderer.invoke("project:save", filePath, text, prevPath),
   pickSources: () => ipcRenderer.invoke("sources:pick"),
+  pickImage: () => ipcRenderer.invoke("image:pick"),
   pickExportPath: (defaultPath) => ipcRenderer.invoke("export:pick", defaultPath),
   resolveSource: (projectPath, stored) => ipcRenderer.invoke("sources:resolve", projectPath, stored),
   setDirty: (dirty) => ipcRenderer.send("project:dirty", dirty),
