@@ -1,5 +1,5 @@
 ---
-status: accepted   # accepted | superseded | deprecated
+status: accepted   # proposed(承認待ち) | accepted | superseded | deprecated
 date: YYYY-MM-DD   # 最初にこの決定をした日(タイトル・ファイル名と揃える)
 updated: YYYY-MM-DD # 本文を書き換えた日。初版では省略
 tags: []           # 任意。例: [infra, auth]
