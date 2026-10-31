@@ -1,7 +1,7 @@
 // 出力画面上の配置(LAY)とズームの表示範囲(ZM)。座標はピクセル。
 import type { ResolvedLayout } from "./defaults";
 import { zoomTransition } from "./defaults";
-import type { Step, Zoom } from "./schema";
+import type { Margin, Step, Zoom } from "./schema";
 
 export interface Rect {
   x: number;
@@ -11,10 +11,10 @@ export interface Rect {
 }
 
 export interface FrameLayout {
-  /** 映像を描く領域(出力のピクセル) */
+  /** 録画を描く領域(出力のピクセル) */
   video: Rect;
-  /** テロップの帯。全画面では null */
-  band: Rect | null;
+  /** ズームしていないときに見せる録画の範囲(ソースのピクセル)。cover では端を切り取った範囲 */
+  crop: Rect;
 }
 
 export function fitContain(srcW: number, srcH: number, area: Rect): Rect {
@@ -24,6 +24,24 @@ export function fitContain(srcW: number, srcH: number, area: Rect): Rect {
   return { x: area.x + (area.w - w) / 2, y: area.y + (area.h - h) / 2, w, h };
 }
 
+/** 余白を除いた領域(出力のピクセル) */
+export function marginArea(outW: number, outH: number, m: Margin): Rect {
+  const x = m.left * outW;
+  const y = m.top * outH;
+  return { x, y, w: Math.max(1, outW - x - m.right * outW), h: Math.max(1, outH - y - m.bottom * outH) };
+}
+
+/** 領域(出力のピクセル)をちょうど囲む余白。プレビュー上で枠を動かしたときに使う。小数 4 桁に丸める */
+export function marginOf(r: Rect, outW: number, outH: number): Margin {
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  return {
+    top: r4(r.y / outH),
+    right: r4((outW - r.x - r.w) / outW),
+    bottom: r4((outH - r.y - r.h) / outH),
+    left: r4(r.x / outW),
+  };
+}
+
 export function computeLayout(
   outW: number,
   outH: number,
@@ -31,55 +49,30 @@ export function computeLayout(
   srcW: number,
   srcH: number,
 ): FrameLayout {
-  if (layout.mode === "full") {
-    return { video: fitContain(srcW, srcH, { x: 0, y: 0, w: outW, h: outH }), band: null };
-  }
-  const bandH = outH * layout.bandHeight;
-  const band = { x: 0, y: outH - bandH, w: outW, h: bandH };
-  if (layout.video) return { video: placeVideo(layout.video, outW, outH, srcW, srcH), band };
-  return { video: fitContain(srcW, srcH, autoVideoArea(outW, outH, layout)), band };
+  const area = marginArea(outW, outH, layout.margin);
+  const full = { x: 0, y: 0, w: srcW, h: srcH };
+  if (layout.fit === "contain") return { video: fitContain(srcW, srcH, area), crop: full };
+  // cover: 領域いっぱいに描き、はみ出す録画の端を切り取る
+  return { video: area, crop: expandToAspect(full, area.w / area.h, srcW, srcH, true) };
 }
 
-/** 枠付きで自動配置するときの、映像を収める領域(帯と余白を除いたところ) */
-export function autoVideoArea(outW: number, outH: number, layout: ResolvedLayout): Rect {
-  const bandH = outH * layout.bandHeight;
-  const m = outH * layout.margin;
-  return { x: m, y: m, w: Math.max(1, outW - 2 * m), h: Math.max(1, outH - bandH - m) };
-}
-
-/** 位置と幅の指定(割合)から映像の矩形を出す。高さはソースの縦横比で決まる */
-export function placeVideo(
-  v: { x: number; y: number; width: number },
-  outW: number,
-  outH: number,
-  srcW: number,
-  srcH: number,
-): Rect {
-  const w = v.width * outW;
-  const h = (w * srcH) / srcW;
-  return { x: v.x * outW - w / 2, y: v.y * outH - h / 2, w, h };
-}
-
-/** 映像の矩形から位置と幅の指定(割合)に戻す。小数 4 桁に丸める */
-export function videoPlacementOf(
-  r: Rect,
-  outW: number,
-  outH: number,
-): { x: number; y: number; width: number } {
-  const r4 = (n: number) => Math.round(n * 10000) / 10000;
-  return { x: r4((r.x + r.w / 2) / outW), y: r4((r.y + r.h / 2) / outH), width: r4(r.w / outW) };
-}
-
-/** ズーム範囲をソースの縦横比にそろえ(中心を保って広げる)、映像内に収める */
-export function normalizeZoomRect(rect: Rect, srcW: number, srcH: number): Rect {
-  const aspect = srcW / srcH;
+/**
+ * 矩形を縦横比 aspect にそろえる(中心を保つ)。shrink なら内側に縮め(切り取り)、そうでなければ外側に広げる。
+ * ソースの範囲に収める。
+ */
+export function expandToAspect(rect: Rect, aspect: number, srcW: number, srcH: number, shrink = false): Rect {
   let w = rect.w;
   let h = rect.h;
-  if (w / h > aspect) h = w / aspect;
+  const wider = w / h > aspect;
+  if (wider !== shrink) h = w / aspect;
   else w = h * aspect;
   if (w > srcW) {
     w = srcW;
+    h = w / aspect;
+  }
+  if (h > srcH) {
     h = srcH;
+    w = h * aspect;
   }
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
@@ -88,34 +81,78 @@ export function normalizeZoomRect(rect: Rect, srcW: number, srcH: number): Rect 
   return { x, y, w, h };
 }
 
+/**
+ * ズームで実際に見える範囲。枠(rect)は「必ず見せる範囲」で、表示の縦横比に合うよう上下か左右を広げる。
+ * aspect は表示の縦横比(録画を描く領域の幅 ÷ 高さ)。
+ */
+export function zoomViewRect(rect: Rect, aspect: number, srcW: number, srcH: number): Rect {
+  return expandToAspect(rect, aspect, srcW, srcH);
+}
+
+/** ズームの倍率(ズームしていないときの見える範囲に対して) */
+export function zoomScale(z: Zoom, base: Rect, srcW: number, srcH: number): number {
+  return base.w / zoomViewRect(z.rect, base.w / base.h, srcW, srcH).w;
+}
+
 function easeInOut(p: number): number {
   return p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
 }
 
-/** ズームの進み具合(0 = ズームなし、1 = 範囲いっぱい)。start から transition 秒で入り、end の transition 秒前から戻る */
-export function zoomProgress(z: Zoom, t: number): number {
-  if (t < z.start || t > z.end) return 0;
-  const len = z.end - z.start;
-  const tr = Math.min(zoomTransition(z), len / 2);
-  if (tr <= 0) return 1;
-  if (t < z.start + tr) return easeInOut((t - z.start) / tr);
-  if (t > z.end - tr) return easeInOut((z.end - t) / tr);
-  return 1;
+/** 間がこれより短いズームどうしは、いったん戻らずに次の範囲へ移る(OpenScreen と同じ) */
+export const CHAIN_GAP = 1.5;
+
+/**
+ * ズームの進み具合(0 = ズームなし、1 = 範囲いっぱい)。
+ * start〜end は拡大したまま保つ区間で、拡大の動きは start の手前、縮小の動きは end の後ろに置く。
+ */
+export function zoomProgress(z: Zoom, t: number, transition: number): number {
+  if (t >= z.start && t <= z.end) return 1;
+  if (transition <= 0) return 0;
+  if (t < z.start && t >= z.start - transition) return easeInOut(1 - (z.start - t) / transition);
+  if (t > z.end && t <= z.end + transition) return easeInOut(1 - (t - z.end) / transition);
+  return 0;
 }
 
-/** 出力時刻 t に表示するソースの範囲(ソースのピクセル) */
-export function viewRectAt(step: Step, t: number, srcW: number, srcH: number): Rect {
-  const full = { x: 0, y: 0, w: srcW, h: srcH };
-  for (const z of step.zooms ?? []) {
-    const p = zoomProgress(z, t);
-    if (p <= 0) continue;
-    const target = normalizeZoomRect(z.rect, srcW, srcH);
-    return {
-      x: full.x + (target.x - full.x) * p,
-      y: full.y + (target.y - full.y) * p,
-      w: full.w + (target.w - full.w) * p,
-      h: full.h + (target.h - full.h) * p,
-    };
+const lerpRect = (a: Rect, b: Rect, p: number): Rect => ({
+  x: a.x + (b.x - a.x) * p,
+  y: a.y + (b.y - a.y) * p,
+  w: a.w + (b.w - a.w) * p,
+  h: a.h + (b.h - a.h) * p,
+});
+
+/**
+ * ステップ内の出力時刻 t に見せるソースの範囲(ソースのピクセル)。
+ * base はズームしていないときに見せる範囲(computeLayout の crop)。
+ */
+export function viewRectAt(step: Step, t: number, srcW: number, srcH: number, base?: Rect): Rect {
+  const b = base ?? { x: 0, y: 0, w: srcW, h: srcH };
+  const aspect = b.w / b.h;
+  const zooms = [...(step.zooms ?? [])].sort((x, y) => x.start - y.start);
+  for (let i = 0; i < zooms.length; i++) {
+    const z = zooms[i] as Zoom;
+    const next = zooms[i + 1];
+    // 続くズームの間は、前の範囲から次の範囲へ移る
+    if (next && t > z.end && t < next.start && next.start - z.end < CHAIN_GAP) {
+      const p = easeInOut((t - z.end) / (next.start - z.end));
+      return lerpRect(
+        zoomViewRect(z.rect, aspect, srcW, srcH),
+        zoomViewRect(next.rect, aspect, srcW, srcH),
+        p,
+      );
+    }
   }
-  return full;
+  let best: { p: number; z: Zoom } | null = null;
+  for (let i = 0; i < zooms.length; i++) {
+    const z = zooms[i] as Zoom;
+    const prev = zooms[i - 1];
+    const next = zooms[i + 1];
+    const chainedIn = prev && z.start - prev.end < CHAIN_GAP;
+    const chainedOut = next && next.start - z.end < CHAIN_GAP;
+    const tr = zoomTransition(z, zoomScale(z, b, srcW, srcH));
+    if ((chainedIn && t < z.start) || (chainedOut && t > z.end)) continue;
+    const p = zoomProgress(z, t, tr);
+    if (p > 0 && (!best || p > best.p)) best = { p, z };
+  }
+  if (!best) return b;
+  return lerpRect(b, zoomViewRect(best.z.rect, aspect, srcW, srcH), best.p);
 }

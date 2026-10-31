@@ -67,14 +67,12 @@
 
 | キー | 既定 | 内容 |
 |---|---|---|
-| `mode` | `"band"` | `"band"`(枠付き)または `"full"`(全画面) |
-| `background` | `{ "image": "preset:default" }` | 背景(両モード)。下の 3 種類のどれか |
-| `bandHeight` | `0.2` | 帯の高さ。出力の高さに対する割合(枠付きのみ) |
-| `margin` | `0.04` | 映像の上・左・右の余白。出力の高さに対する割合(枠付きのみ。`video` があれば使わない) |
-| `shadow` | `true` | 映像のドロップシャドウ(枠付きのみ) |
-| `video` | なし(自動配置) | 映像の位置と大きさ(枠付きのみ)。`x` / `y` は映像の中心(画面側座標)、`width` は出力の幅に対する映像の幅。高さはソースの縦横比で決まる |
+| `background` | `{ "image": "preset:default" }` | 背景。下の 3 種類のどれか |
+| `margin` | `{ "top": 0.04, "right": 0.0225, "bottom": 0.2, "left": 0.0225 }` | 録画の周りの余白。`top` / `bottom` は出力の高さ、`left` / `right` は出力の幅に対する割合。すべて 0 なら全画面 |
+| `fit` | `"contain"` | 余白の内側への録画の置き方。`"contain"` は縦横比を保って全体を収める(すき間には背景が見える)、`"cover"` は余白の内側いっぱいに描き、はみ出す録画の端を切り取る |
+| `shadow` | `true` | 録画のドロップシャドウ |
 
-枠付きでは、`video` がなければ帯と余白を除いた領域に映像を縦横比を保って最大の大きさで収め、左右中央に置く。`video` があればその位置と幅で置く(帯に重なってもよい)。全画面では、出力画面いっぱいに縦横比を保って収める。
+旧い書き方(`mode` / `bandHeight` / 数値の `margin` / `video`)は読み込み時に `margin` へ直す。`"mode": "full"` は余白 0、`"band"` は上・左・右に旧 `margin`、下に `bandHeight` の余白になる。
 
 `background` の書き方:
 
@@ -88,9 +86,11 @@
 
 プロジェクト共通の見た目。各要素の `style` に同名のキーを書くと、その要素だけ上書きする。
 
+テロップの位置は、ステップの `caption.position` / `width` → `styles.caption.position` / `width` → 既定の順に決まる。どこにも書かなければ、録画の下の余白にテロップが収まるならその中央、収まらなければ画面の高さ 88% の位置に置く。
+
 | キー | 内容 |
 |---|---|
-| `caption` | `font`(既定 `"Yu Gothic UI"`)、`size`(48)、`color`(`"#FFFFFF"`)、`lineHeight`(1.4)、`align`(`"center"` / `"left"`)、`background`(全画面時の文字の背景。既定 `"#000000AA"`) |
+| `caption` | `font`(既定 `"Yu Gothic UI"`)、`size`(48)、`color`(`"#FFFFFF"`)、`lineHeight`(1.4)、`align`(`"center"` / `"left"`)、`background`(文字の背景の箱。色、または `"auto"` = 録画に重なるときだけ `#000000AA` の箱を付ける。既定 `"auto"`)。プロジェクト共通の `styles.caption` には、テロップの置き方の既定 `position`(中心、画面側座標)と `width`(折り返し幅、出力の幅に対する割合。既定 0.8)も書ける |
 | `pointer` | `preset`(既定 `"arrow"`)、`size`(48) |
 | `highlighter` | `color`(`"#FFEB3B"`)、`width`(ソースのピクセル。24)、`opacity`(0.4) |
 
@@ -151,8 +151,8 @@
 | `source` | ○ | `sources` の `id` |
 | `in` / `out` | ○ | ソースの区間(ソースの時刻) |
 | `speed` | | `1` なら通常ステップ、`1` より大きいと早送りステップ(STP-07)。既定 1 |
-| `caption` | | テロップ。`text`(改行は `\n`)、`start`(既定 0)、`end`(既定 `null` = ステップの終わりまで)、`position`(全画面時の中心位置。画面側座標。既定 `{ "x": 0.5, "y": 0.88 }`)、`width`(全画面時の折り返し幅。画面側の割合。既定 0.8)、`style` |
-| `speech` | | 読み上げ。`text`(1 文、STP-08)、`start`(読み上げを始めるステップ内の出力時刻。既定 0。保持を除いた映像の長さを超えられない)、`voice`、`params` |
+| `caption` | | テロップ。`text`(改行は `\n`)、`start`(既定 0)、`end`(既定 `null` = ステップの終わりまで)、`position`(中心の位置。画面側座標。`styles.caption.position` を上書きする)、`width`(折り返し幅。出力の幅に対する割合。`styles.caption.width` を上書きする)、`style` |
+| `speech` | | 読み上げ。書かなければ読まない。`text`(1 文、STP-08。省略するとテロップの文を読む)、`start`(読み上げを始めるステップ内の出力時刻。既定 0。保持を除いた映像の長さを超えられない)、`voice`、`params` |
 | `audio` | | 音量の上書き。形は 3.4 と同じ |
 | `holds` | | 保持(TIM-02)。`at` の出力時刻で映像を止め、`duration` 秒保持する |
 | `zooms` | | ズーム(ZM) |
@@ -162,12 +162,14 @@
 #### ズーム
 
 ```json
-{ "start": 1.0, "end": 4.0, "rect": { "x": 640, "y": 300, "w": 800, "h": 450 }, "hold": false, "transition": 0.4 }
+{ "start": 1.0, "end": 4.0, "rect": { "x": 640, "y": 300, "w": 800, "h": 450 }, "hold": true }
 ```
 
-- `rect` は映像側座標。映像の表示領域と同じ縦横比にそろえて描画する
-- `hold: true` のとき、`start` から `end` まで映像を止める。`holds` に `{ "at": start, "duration": end - start }` を書いたのと同じ扱いになる(保持とズーム中の静止は同じ機能)
-- `transition` はズームイン・アウトにかける秒数(U-05 の既定値は未決。仮に 0.4)
+- `start` 〜 `end` は拡大したまま保つ区間。拡大の動きは `start` の手前、縮小の動きは `end` の後ろで行う(ステップの外にはみ出す分は切り詰める)
+- `rect` は映像側座標で「必ず見せる範囲」。表示の縦横比と違うときは、中心を保って上下か左右を広げて表示する
+- `hold`(既定 `true`)のとき、`start` から `end` まで映像を止める。`holds` に `{ "at": start, "duration": end - start }` を書いたのと同じ扱いになる(保持とズーム中の静止は同じ機能)。`false` なら映像を流し続ける
+- `transition` は拡大・縮小の動きにかける秒数。省略すると倍率から決める(0.6 + 0.55 × ln(倍率) 秒。2 倍で約 1 秒)。`0` なら動きなしで切り替える
+- 前のズームの `end` から次のズームの `start` まで 1.5 秒未満なら、いったん戻らずに次の範囲へ移る
 
 #### ポインターと蛍光ペン
 
@@ -209,7 +211,7 @@
   "format": "screen-annotator.project",
   "version": 1,
   "output": { "width": 1920, "height": 1080, "fps": 30, "quality": "high", "srt": true },
-  "layout": { "mode": "band" },
+  "layout": { "background": { "image": "preset:default" } },
   "speech": { "engine": "os" },
   "dictionary": [ { "from": "URL", "to": "ユーアールエル" } ],
   "sources": [ { "id": "rec1", "path": "rec/setup.mp4" } ],

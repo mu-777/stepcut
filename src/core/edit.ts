@@ -38,7 +38,14 @@ export function splitStep(project: Project, index: number, t: number, keepRest: 
   const steps = [...project.steps];
   steps[index] = first;
   if (keepRest) {
-    const rest: Step = { id: uniqueStepId(project, step.id), source: step.source, in: at, out: step.out };
+    // 後半はテロップと同じ文を読む設定(既定でオン)で始める
+    const rest: Step = {
+      id: uniqueStepId(project, step.id),
+      source: step.source,
+      in: at,
+      out: step.out,
+      speech: {},
+    };
     if (step.speed !== undefined) rest.speed = step.speed;
     steps.splice(index + 1, 0, rest);
   }

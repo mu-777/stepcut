@@ -46,6 +46,9 @@ export class Player {
   private stillWanted = false;
   private stillRunning: Promise<void> | null = null;
   private ac: AudioContext | null = null;
+  private master: GainNode | null = null;
+  /** プレビューの音を消す(書き出しには影響しない) */
+  muted = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -147,6 +150,11 @@ export class Player {
     }
   }
 
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (this.master) this.master.gain.value = muted ? 0 : 1;
+  }
+
   /** 再生中なら同じ位置から速度を変えて再生し直す */
   setRate(rate: number): void {
     this.rate = rate;
@@ -178,6 +186,10 @@ export class Player {
     this.onTime(this.time, true);
     const ac = new AudioContext({ sampleRate: SAMPLE_RATE });
     this.ac = ac;
+    const master = ac.createGain();
+    master.gain.value = this.muted ? 0 : 1;
+    master.connect(ac.destination);
+    this.master = master;
     const startT = this.time;
     const first = locate(st.timeline, startT);
     if (!first) return;
@@ -210,7 +222,7 @@ export class Player {
       node.buffer = buf;
       // 速度に合わせて音の高さも変わる(最も単純な方式)
       node.playbackRate.value = rate;
-      node.connect(ac.destination);
+      node.connect(master);
       node.start(when, offset);
     };
     (async () => {
@@ -225,36 +237,48 @@ export class Player {
       }
     })();
 
+    // デコードと描画を分ける。保持中は同じフレームが続くのでデコーダーは何も返さないが、
+    // 描画は毎フレーム行い、時刻とズームの動きを進める
     for (let i = first.entry.index; i < st.timeline.length && alive(); i++) {
       const entry = st.timeline[i] as TimelineEntry;
       const m = st.media.get(entry.step.source) ?? null;
-      const locals: number[] = [];
-      const self = this;
-      async function* times() {
-        while (alive()) {
-          await nextFrame();
-          const local = clock() - entry.start;
-          if (local >= entry.duration) return;
-          const l = Math.max(0, local);
-          locals.push(l);
-          self.time = entry.start + l;
-          yield sourceTimeAt(entry.step, l);
+      let latest: Img | null = null;
+      let entryDone = false;
+      const decoding = (async () => {
+        if (!m) return;
+        async function* times() {
+          let last = Number.NaN;
+          while (alive() && !entryDone) {
+            await nextFrame();
+            const local = clock() - entry.start;
+            if (local >= entry.duration) return;
+            const src = sourceTimeAt(entry.step, Math.max(0, local));
+            if (src === last) continue;
+            last = src;
+            yield src;
+          }
         }
+        try {
+          for await (const wc of m.video.canvasesAtTimestamps(times())) {
+            if (!alive()) break;
+            if (wc) latest = wc.canvas as Img;
+          }
+        } catch {
+          // 描画は続ける
+        }
+      })();
+      while (alive()) {
+        await nextFrame();
+        const local = clock() - entry.start;
+        if (local >= entry.duration) break;
+        const l = Math.max(0, local);
+        this.time = entry.start + l;
+        // 最初のフレームがデコードされるまでは前の表示を残す
+        if (latest || !m) this.paint(st, entry, l, latest, m);
+        this.onTime(this.time, true);
       }
-      if (m) {
-        for await (const wc of m.video.canvasesAtTimestamps(times())) {
-          if (!alive()) break;
-          const local = locals.shift() ?? 0;
-          this.paint(st, entry, local, (wc?.canvas as Img | undefined) ?? null, m);
-          this.onTime(entry.start + local, true);
-        }
-      } else {
-        for await (const _ of times()) {
-          const local = locals.shift() ?? 0;
-          this.paint(st, entry, local, null, null);
-          this.onTime(entry.start + local, true);
-        }
-      }
+      entryDone = true;
+      await decoding;
     }
     if (alive()) {
       this.time = total;

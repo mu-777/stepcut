@@ -1,9 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { captionCues } from "./captions";
-import { resolveLayout } from "./defaults";
+import {
+  type ResolvedLayout,
+  resolveCaptionPlacement,
+  resolveLayout,
+  speechText,
+  zoomTransition,
+} from "./defaults";
 import { addHold, duplicateStep, splitStep, trimStep, uniqueStepId } from "./edit";
-import { computeLayout, normalizeZoomRect, videoPlacementOf, viewRectAt, zoomProgress } from "./layout";
+import { computeLayout, marginOf, viewRectAt, zoomProgress, zoomViewRect } from "./layout";
+import { migrateProject } from "./migrate";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
 import {
@@ -77,27 +84,46 @@ describe("timeline", () => {
 });
 
 describe("layout", () => {
-  const layout = {
-    mode: "band" as const,
+  const layout: ResolvedLayout = {
     background: "#000000",
-    bandHeight: 0.2,
-    margin: 0.04,
+    margin: { top: 0.04, right: 0.0225, bottom: 0.2, left: 0.0225 },
+    fit: "contain",
     shadow: true,
-    video: null,
   };
 
-  it("枠付きは帯の上に縦横比を保って収める", () => {
+  it("余白を除いた領域に、縦横比を保って収める", () => {
     const l = computeLayout(1920, 1080, layout, 1920, 1080);
-    expect(l.band).toEqual({ x: 0, y: 864, w: 1920, h: 216 });
     expect(l.video.y).toBeCloseTo(43.2);
     expect(l.video.h).toBeCloseTo(1080 - 216 - 43.2);
     expect(l.video.w / l.video.h).toBeCloseTo(16 / 9);
+    expect(l.crop).toEqual({ x: 0, y: 0, w: 1920, h: 1080 });
   });
 
-  it("映像の位置と幅を指定すると、中心と幅に合わせ、高さはソースの縦横比", () => {
-    const l = computeLayout(1920, 1080, { ...layout, video: { x: 0.5, y: 0.4, width: 0.5 } }, 1600, 1000);
-    expect(l.video).toEqual({ x: 480, y: 432 - 300, w: 960, h: 600 });
-    expect(videoPlacementOf(l.video, 1920, 1080)).toEqual({ x: 0.5, y: 0.4, width: 0.5 });
+  it("余白なしは全面", () => {
+    const zero = { top: 0, right: 0, bottom: 0, left: 0 };
+    expect(computeLayout(1920, 1080, { ...layout, margin: zero }, 1920, 1080).video).toEqual({
+      x: 0,
+      y: 0,
+      w: 1920,
+      h: 1080,
+    });
+  });
+
+  it("cover は領域いっぱいに描き、録画の端を切り取る", () => {
+    const m = { top: 0, right: 0.25, bottom: 0, left: 0.25 };
+    const l = computeLayout(1920, 1080, { ...layout, margin: m, fit: "cover" }, 1920, 1080);
+    expect(l.video).toEqual({ x: 480, y: 0, w: 960, h: 1080 });
+    expect(l.crop.w / l.crop.h).toBeCloseTo(960 / 1080);
+    expect(l.crop.h).toBe(1080);
+    expect(marginOf(l.video, 1920, 1080)).toEqual(m);
+  });
+
+  it("旧い書き方(帯あり・全画面)を余白に直す", () => {
+    const band = migrateProject({ layout: { mode: "band", margin: 0.04, bandHeight: 0.2 } }) as Project;
+    expect(band.layout?.margin).toEqual({ top: 0.04, right: 0.0225, bottom: 0.2, left: 0.0225 });
+    const full = migrateProject({ layout: { mode: "full" } }) as Project;
+    expect(full.layout?.margin).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    expect(parseProject({ ...proj([]), layout: { mode: "band", shadow: true } }).ok).toBe(true);
   });
 
   it("背景は色・グラデーション・画像を受け付け、既定はプリセット画像", () => {
@@ -109,27 +135,60 @@ describe("layout", () => {
     expect(resolveLayout(proj([])).background).toEqual({ image: "preset:default" });
   });
 
-  it("全画面は全面", () => {
-    const l = computeLayout(1920, 1080, { ...layout, mode: "full" }, 1920, 1080);
-    expect(l.video).toEqual({ x: 0, y: 0, w: 1920, h: 1080 });
-    expect(l.band).toBeNull();
-  });
-
-  it("ズーム範囲は縦横比をそろえて映像内に収める", () => {
-    expect(normalizeZoomRect({ x: 1800, y: 0, w: 400, h: 100 }, 1920, 1080)).toEqual({
+  it("ズームの枠は必ず見せる範囲。表示の縦横比に合わせて広げ、録画の中に収める", () => {
+    expect(zoomViewRect({ x: 1800, y: 0, w: 400, h: 100 }, 16 / 9, 1920, 1080)).toEqual({
       x: 1520,
       y: 0,
       w: 400,
       h: 225,
     });
+    expect(zoomViewRect({ x: 900, y: 0, w: 100, h: 900 }, 16 / 9, 1920, 1080).w).toBeCloseTo(1600);
   });
 
-  it("ズームは遷移時間をかけて入り、戻る", () => {
-    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 }, transition: 0.5 };
-    expect(zoomProgress(z, 0.5)).toBe(0);
-    expect(zoomProgress(z, 1.25)).toBeCloseTo(0.5);
-    expect(zoomProgress(z, 2)).toBe(1);
+  it("帯の区間は拡大したまま。拡大は start の手前、縮小は end の後ろで動く", () => {
+    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    expect(zoomProgress(z, 0.4, 0.5)).toBe(0);
+    expect(zoomProgress(z, 0.75, 0.5)).toBeCloseTo(0.5);
+    expect(zoomProgress(z, 1, 0.5)).toBe(1);
+    expect(zoomProgress(z, 3.25, 0.5)).toBeCloseTo(0.5);
     expect(viewRectAt(step({ zooms: [z] }), 2, 1920, 1080)).toEqual({ x: 0, y: 0, w: 960, h: 540 });
+  });
+
+  it("動きの秒数は倍率から決まる。transition: 0 なら瞬時", () => {
+    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    expect(zoomTransition(z, 2)).toBeCloseTo(0.6 + 0.55 * Math.log(2));
+    const v = viewRectAt(step({ zooms: [{ ...z, transition: 0 }] }), 0.99, 1920, 1080);
+    expect(v.w).toBe(1920);
+  });
+
+  it("間が 1.5 秒未満のズームは戻らずに次の範囲へ移る", () => {
+    const a = { start: 0, end: 1, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    const b = { start: 2, end: 3, rect: { x: 960, y: 540, w: 960, h: 540 } };
+    const mid = viewRectAt(step({ zooms: [a, b] }), 1.5, 1920, 1080);
+    expect(mid.w).toBe(960);
+    expect(mid.x).toBeCloseTo(480);
+  });
+
+  it("ズーム中は既定で映像を止める", () => {
+    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    expect(baseDuration(step({ zooms: [z] }))).toBe(12);
+    expect(baseDuration(step({ zooms: [{ ...z, hold: false }] }))).toBe(10);
+  });
+});
+
+describe("caption and speech", () => {
+  it("テロップの位置はステップ → プロジェクト → 既定の順で決まる", () => {
+    const p = { ...proj([]), styles: { caption: { position: { x: 0.5, y: 0.1 } } } };
+    expect(resolveCaptionPlacement(p, step({ caption: { text: "a" } })).position).toEqual({ x: 0.5, y: 0.1 });
+    const own = step({ caption: { text: "a", position: { x: 0.2, y: 0.3 } } });
+    expect(resolveCaptionPlacement(p, own).position).toEqual({ x: 0.2, y: 0.3 });
+    expect(resolveCaptionPlacement(proj([]), own).width).toBe(0.8);
+  });
+
+  it("speech.text がなければテロップの文を読む。speech がなければ読まない", () => {
+    expect(speechText(step({ caption: { text: "保存します" }, speech: {} }))).toBe("保存します");
+    expect(speechText(step({ caption: { text: "保存" }, speech: { text: "ほぞん" } }))).toBe("ほぞん");
+    expect(speechText(step({ caption: { text: "保存" } }))).toBeNull();
   });
 });
 

@@ -3,13 +3,15 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_BACKGROUND,
-  DEFAULT_ZOOM_TRANSITION,
+  DEFAULT_CAPTION_WIDTH,
   resolveCaptionStyle,
   resolveLayout,
   resolveOutput,
+  speechText,
+  zoomHolds,
 } from "../../core/defaults";
-import { computeLayout, videoPlacementOf } from "../../core/layout";
-import type { Background, Project, Step, VideoPlacement, Zoom } from "../../core/schema";
+import { computeLayout, type Rect, zoomScale } from "../../core/layout";
+import type { Background, Margin, Project, Step, Zoom } from "../../core/schema";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
@@ -55,25 +57,32 @@ export function StepInspector(props: {
   /** タイムラインで選んだ要素。その欄を強調して見える位置へ動かす */
   focus: Selection;
   onDrawZoom: (zoomIndex: number) => void;
+  /** 再生位置にズームを足す */
+  onAddZoom: () => void;
+  onPreviewSpeech: () => void;
+  /** このステップの録画の大きさ */
+  srcSize: { w: number; h: number } | null;
 }) {
   const { project, index, update, voices, focus } = props;
   const step = project.steps[index];
   if (!step) return null;
   const set = (key: string) => patchStep(update, index, key);
   const caption = step.caption ?? { text: "" };
-  const speech = step.speech ?? { text: "" };
+  const speech = step.speech;
+  const synced = speech !== undefined && speech.text === undefined;
   const audio = step.audio ?? {};
   const style = resolveCaptionStyle(project, step);
-  const mode = resolveLayout(project).mode;
-  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const projCap = project.styles?.caption;
+  const overridden = caption.position !== undefined || caption.width !== undefined;
+  const src = props.srcSize ?? { w: 1920, h: 1080 };
+  const out = resolveOutput(project);
+  const crop = computeLayout(out.width, out.height, resolveLayout(project), src.w, src.h).crop;
 
   const setCaption = (key: string, patch: Partial<NonNullable<Step["caption"]>>) =>
     set(`caption.${key}`)((s) => ({ ...s, caption: { ...(s.caption ?? { text: "" }), ...patch } }));
+  // speech があって text がなければテロップの文を読む。speech がなければ読まない
   const setSpeech = (key: string, patch: Partial<NonNullable<Step["speech"]>>) =>
-    set(`speech.${key}`)((s) => {
-      const next = prune({ ...(s.speech ?? { text: "" }), ...patch });
-      return { ...s, speech: next?.text !== undefined ? (next as NonNullable<Step["speech"]>) : undefined };
-    });
+    set(`speech.${key}`)((s) => ({ ...s, speech: prune({ ...s.speech, ...patch }) ?? {} }));
   const setZoom = (k: number, key: string, patch: Partial<Zoom>) =>
     set(`zoom${k}.${key}`)((s) => ({
       ...s,
@@ -148,39 +157,98 @@ export function StepInspector(props: {
           step={2}
           onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
         />
-        {mode === "full" && (
-          <div className="row">
-            <NumField
-              label={t("captionX")}
-              value={caption.position?.x ?? 0.5}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => setCaption("x", { position: { x: v ?? 0.5, y: caption.position?.y ?? 0.88 } })}
-            />
-            <NumField
-              label={t("captionY")}
-              value={caption.position?.y ?? 0.88}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => setCaption("y", { position: { x: caption.position?.x ?? 0.5, y: v ?? 0.88 } })}
-            />
-          </div>
+        <p className="field-label">
+          {t("captionPlacement")}
+          {overridden && <span className="badge">{t("overridden")}</span>}
+        </p>
+        <div className="row">
+          <NumField
+            label={t("captionX")}
+            value={caption.position?.x}
+            step={0.01}
+            min={0}
+            max={1}
+            placeholder={projCap?.position ? String(projCap.position.x) : "auto"}
+            onChange={(v) =>
+              setCaption("x", {
+                position:
+                  v === undefined
+                    ? undefined
+                    : { x: v, y: caption.position?.y ?? projCap?.position?.y ?? 0.88 },
+              })
+            }
+          />
+          <NumField
+            label={t("captionY")}
+            value={caption.position?.y}
+            step={0.01}
+            min={0}
+            max={1}
+            placeholder={projCap?.position ? String(projCap.position.y) : "auto"}
+            onChange={(v) =>
+              setCaption("y", {
+                position:
+                  v === undefined
+                    ? undefined
+                    : { x: caption.position?.x ?? projCap?.position?.x ?? 0.5, y: v },
+              })
+            }
+          />
+          <NumField
+            label={t("captionWidth")}
+            value={caption.width}
+            step={0.05}
+            min={0.1}
+            max={1}
+            placeholder={String(projCap?.width ?? DEFAULT_CAPTION_WIDTH)}
+            onChange={(v) => setCaption("width", { width: v })}
+          />
+        </div>
+        {overridden && (
+          <button
+            type="button"
+            className="small"
+            onClick={() =>
+              set("caption.reset")((s) => {
+                if (!s.caption) return s;
+                const { position: _p, width: _w, ...rest } = s.caption;
+                return { ...s, caption: rest };
+              })
+            }
+          >
+            {t("resetToProject")}
+          </button>
         )}
       </Section>
 
       <Section focused={focus.kind === "speech"}>
         <h4>{t("speech")}</h4>
+        <CheckField
+          label={t("speechSyncCaption")}
+          value={synced}
+          onChange={(v) =>
+            // オフにするとテロップの文をコピーして、別の文に書き換えられるようにする
+            set("speech.sync")((s) => {
+              const { text: _t, ...rest } = s.speech ?? {};
+              return { ...s, speech: v ? rest : { ...rest, text: s.caption?.text ?? "" } };
+            })
+          }
+        />
         <TextField
           label={t("speechText")}
           multiline
-          value={speech.text}
+          value={synced ? caption.text : (speech?.text ?? "")}
+          disabled={synced}
           onChange={(v) => setSpeech("text", { text: v })}
         />
+        <div className="row">
+          <button type="button" onClick={props.onPreviewSpeech} disabled={!speechText(step)}>
+            ▶ {t("previewSpeech")}
+          </button>
+        </div>
         <NumField
           label={t("speechStart")}
-          value={speech.start}
+          value={speech?.start}
           min={0}
           placeholder="0"
           onChange={(v) => setSpeech("start", { start: v === 0 ? undefined : v })}
@@ -189,18 +257,18 @@ export function StepInspector(props: {
         <VoiceSelect
           label={t("voice")}
           voices={voices}
-          value={speech.voice}
+          value={speech?.voice}
           emptyLabel={t("defaultVoice")}
           onChange={(v) => setSpeech("voice", { voice: v })}
         />
         <NumField
           label={t("rate")}
-          value={typeof speech.params?.rate === "number" ? speech.params.rate : undefined}
+          value={typeof speech?.params?.rate === "number" ? speech.params.rate : undefined}
           step={0.1}
           min={0.5}
           max={3}
           placeholder={t("defaultVoice")}
-          onChange={(v) => setSpeech("rate", { params: withParam(speech.params, "rate", v) })}
+          onChange={(v) => setSpeech("rate", { params: withParam(speech?.params, "rate", v) })}
         />
       </Section>
 
@@ -274,9 +342,10 @@ export function StepInspector(props: {
         onClick={() =>
           set("holds")((s) => ({
             ...s,
-            holds: [...(s.holds ?? []), { at: round(props.playheadLocal), duration: 1 }].sort(
-              (a, b) => a.at - b.at,
-            ),
+            holds: [
+              ...(s.holds ?? []),
+              { at: Math.round(props.playheadLocal * 1000) / 1000, duration: 1 },
+            ].sort((a, b) => a.at - b.at),
           }))
         }
       >
@@ -301,23 +370,22 @@ export function StepInspector(props: {
               onChange={(v) => setZoom(k, "end", { end: v ?? 0 })}
             />
           </div>
-          <div className="row">
-            <NumField
-              label={t("transition")}
-              value={z.transition}
-              min={0}
-              placeholder={String(DEFAULT_ZOOM_TRANSITION)}
-              onChange={(v) => setZoom(k, "transition", { transition: v })}
-            />
-            <CheckField
-              label={t("hold")}
-              value={z.hold ?? false}
-              onChange={(v) => setZoom(k, "hold", { hold: v || undefined })}
-            />
-          </div>
-          <p className="hint">
-            x {Math.round(z.rect.x)}, y {Math.round(z.rect.y)}, {Math.round(z.rect.w)}×{Math.round(z.rect.h)}
-          </p>
+          <p className="hint">{t("zoomHeldHint")}</p>
+          <ZoomRectFields
+            rect={z.rect}
+            scale={zoomScale(z, crop, src.w, src.h)}
+            onChange={(rect, key) => setZoom(k, key, { rect })}
+          />
+          <CheckField
+            label={t("zoomInstant")}
+            value={z.transition === 0}
+            onChange={(v) => setZoom(k, "transition", { transition: v ? 0 : undefined })}
+          />
+          <CheckField
+            label={t("hold")}
+            value={zoomHolds(z)}
+            onChange={(v) => setZoom(k, "hold", { hold: v ? undefined : false })}
+          />
           <div className="row">
             <button type="button" onClick={() => props.onDrawZoom(k)}>
               {t("drawRect")}
@@ -332,23 +400,69 @@ export function StepInspector(props: {
           </div>
         </Section>
       ))}
-      <button
-        type="button"
-        onClick={() => {
-          const start = round(props.playheadLocal);
-          set("zooms")((s) => ({
-            ...s,
-            zooms: [
-              ...(s.zooms ?? []),
-              { start, end: round(start + 2), rect: { x: 0, y: 0, w: 960, h: 540 } },
-            ],
-          }));
-          props.onDrawZoom(step.zooms?.length ?? 0);
-        }}
-      >
-        {t("addZoom")}
+      <button type="button" onClick={props.onAddZoom}>
+        {t("addZoom")} (Z)
       </button>
     </div>
+  );
+}
+
+/** ズームの枠の数値。倍率を変えると中心と縦横比を保って枠の大きさが変わる */
+function ZoomRectFields(props: { rect: Rect; scale: number; onChange: (rect: Rect, key: string) => void }) {
+  const r = props.rect;
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const round = (b: Rect) => ({
+    x: Math.round(b.x),
+    y: Math.round(b.y),
+    w: Math.round(b.w),
+    h: Math.round(b.h),
+  });
+  const resize = (w: number, h: number) => round({ x: cx - w / 2, y: cy - h / 2, w, h });
+  return (
+    <>
+      <div className="row">
+        <NumField
+          label={t("zoomScale")}
+          value={Math.round(props.scale * 100) / 100}
+          step={0.1}
+          min={1}
+          onChange={(v) => {
+            if (!v || v < 1) return;
+            const k = props.scale / v;
+            props.onChange(resize(r.w * k, r.h * k), "scale");
+          }}
+        />
+        <NumField
+          label={t("zoomBoxW")}
+          value={Math.round(r.w)}
+          step={10}
+          min={8}
+          onChange={(v) => v && v >= 8 && props.onChange(resize(v, r.h), "w")}
+        />
+        <NumField
+          label={t("zoomBoxH")}
+          value={Math.round(r.h)}
+          step={10}
+          min={8}
+          onChange={(v) => v && v >= 8 && props.onChange(resize(r.w, v), "h")}
+        />
+      </div>
+      <div className="row">
+        <NumField
+          label={t("zoomCenterX")}
+          value={Math.round(cx)}
+          step={10}
+          onChange={(v) => v !== undefined && props.onChange(round({ ...r, x: v - r.w / 2 }), "cx")}
+        />
+        <NumField
+          label={t("zoomCenterY")}
+          value={Math.round(cy)}
+          step={10}
+          onChange={(v) => v !== undefined && props.onChange(round({ ...r, y: v - r.h / 2 }), "cy")}
+        />
+      </div>
+    </>
   );
 }
 
@@ -388,6 +502,12 @@ export function ProjectInspector(props: {
   const capStyle = project.styles?.caption ?? {};
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
+  const setCapPos = (pos: { x: number; y: number } | undefined, key: string) =>
+    set("styles", prune({ ...project.styles, caption: prune({ ...capStyle, position: pos }) }), key);
+  // テロップの位置・幅を個別に設定しているステップの数
+  const overrides = project.steps.filter(
+    (st) => st.caption?.position !== undefined || st.caption?.width !== undefined,
+  ).length;
   const even = (v: number | undefined) => (v === undefined ? undefined : Math.max(16, Math.round(v / 2) * 2));
 
   return (
@@ -445,54 +565,29 @@ export function ProjectInspector(props: {
       />
 
       <h3>{t("layout")}</h3>
-      <SelectField
-        label={t("mode")}
-        value={layout.mode}
-        options={[
-          { value: "band", label: t("band") },
-          { value: "full", label: t("full") },
-        ]}
-        onChange={(v) => set("layout", { ...project.layout, mode: v })}
-      />
       <BackgroundField
         value={layout.background}
         error={props.backgroundError}
         onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
       />
-      {layout.mode === "band" && (
-        <>
-          <div className="row">
-            <NumField
-              label={t("bandHeight")}
-              value={layout.bandHeight}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => set("layout", prune({ ...project.layout, bandHeight: v }), "layout.band")}
-            />
-            <NumField
-              label={t("margin")}
-              value={layout.margin}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => set("layout", prune({ ...project.layout, margin: v }), "layout.margin")}
-            />
-          </div>
-          <Section focused={props.focusVideo}>
-            <VideoPlacementField
-              project={project}
-              srcSize={props.srcSize}
-              onChange={(v, key) => set("layout", prune({ ...project.layout, video: v }), key)}
-            />
-          </Section>
-          <CheckField
-            label={t("shadow")}
-            value={layout.shadow}
-            onChange={(v) => set("layout", { ...project.layout, shadow: v })}
-          />
-        </>
-      )}
+      <Section focused={props.focusVideo}>
+        <MarginField
+          margin={layout.margin}
+          outW={out.width}
+          outH={out.height}
+          onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
+        />
+        <CheckField
+          label={t("fitCover")}
+          value={layout.fit === "cover"}
+          onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
+        />
+      </Section>
+      <CheckField
+        label={t("shadow")}
+        value={layout.shadow}
+        onChange={(v) => set("layout", { ...project.layout, shadow: v })}
+      />
 
       <h3>{t("captionStyle")}</h3>
       <TextField
@@ -535,6 +630,88 @@ export function ProjectInspector(props: {
           />
         </Field>
       </div>
+      <SelectField
+        label={t("captionBg")}
+        value={
+          capStyle.background === undefined || capStyle.background === "auto"
+            ? "auto"
+            : capStyle.background === "#00000000"
+              ? "none"
+              : "color"
+        }
+        options={[
+          { value: "auto", label: t("bgAuto") },
+          { value: "color", label: t("bgColor") },
+          { value: "none", label: t("bgNone") },
+        ]}
+        onChange={(v) =>
+          set(
+            "styles",
+            prune({
+              ...project.styles,
+              caption: prune({
+                ...capStyle,
+                background: v === "auto" ? undefined : v === "none" ? "#00000000" : "#000000AA",
+              }),
+            }),
+            "style.bg",
+          )
+        }
+      />
+      <p className="field-label">{t("captionPlacement")}</p>
+      <div className="row">
+        <NumField
+          label={t("captionX")}
+          value={capStyle.position?.x}
+          step={0.01}
+          min={0}
+          max={1}
+          placeholder="auto"
+          onChange={(v) =>
+            setCapPos(v === undefined ? undefined : { x: v, y: capStyle.position?.y ?? 0.88 }, "style.x")
+          }
+        />
+        <NumField
+          label={t("captionY")}
+          value={capStyle.position?.y}
+          step={0.01}
+          min={0}
+          max={1}
+          placeholder="auto"
+          onChange={(v) =>
+            setCapPos(v === undefined ? undefined : { x: capStyle.position?.x ?? 0.5, y: v }, "style.y")
+          }
+        />
+        <NumField
+          label={t("captionWidth")}
+          value={capStyle.width}
+          step={0.05}
+          min={0.1}
+          max={1}
+          placeholder={String(DEFAULT_CAPTION_WIDTH)}
+          onChange={(v) =>
+            set("styles", prune({ ...project.styles, caption: prune({ ...capStyle, width: v }) }), "style.w")
+          }
+        />
+      </div>
+      {overrides > 0 && (
+        <button
+          type="button"
+          className="small"
+          onClick={() =>
+            update((p) => ({
+              ...p,
+              steps: p.steps.map((st) => {
+                if (!st.caption) return st;
+                const { position: _p, width: _w, ...rest } = st.caption;
+                return { ...st, caption: rest };
+              }),
+            }))
+          }
+        >
+          {t("clearOverrides")} ({overrides})
+        </button>
+      )}
 
       <h3>{t("speech")}</h3>
       <VoiceSelect
@@ -770,48 +947,32 @@ function BackgroundField(props: {
   );
 }
 
-/** 枠付きでの映像の位置(中心)と幅。未指定(自動配置)のときは、いまの自動配置の値を表示する */
-function VideoPlacementField(props: {
-  project: Project;
-  srcSize: { w: number; h: number } | null;
-  onChange: (v: VideoPlacement | undefined, key: string) => void;
+/** 上下左右の余白。表示は出力のピクセル、保存は割合 */
+function MarginField(props: {
+  margin: Margin;
+  outW: number;
+  outH: number;
+  onChange: (m: Margin, key: string) => void;
 }) {
-  const out = resolveOutput(props.project);
-  const layout = resolveLayout(props.project);
-  const src = props.srcSize ?? { w: 1920, h: 1080 };
-  const cur =
-    layout.video ??
-    videoPlacementOf(computeLayout(out.width, out.height, layout, src.w, src.h).video, out.width, out.height);
-  const set = (patch: Partial<VideoPlacement>, key: string) => props.onChange({ ...cur, ...patch }, key);
+  const m = props.margin;
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const field = (side: keyof Margin, label: Parameters<typeof t>[0], size: number) => (
+    <NumField
+      label={t(label)}
+      value={Math.round(m[side] * size)}
+      step={2}
+      onChange={(v) => props.onChange({ ...m, [side]: r4((v ?? 0) / size) }, `margin.${side}`)}
+    />
+  );
   return (
     <>
-      <p className="field-label">{t("videoPos")}</p>
+      <p className="field-label">{t("marginTitle")}</p>
       <div className="row">
-        <NumField
-          label={t("videoX")}
-          value={cur.x}
-          step={0.01}
-          onChange={(v) => set({ x: v ?? 0.5 }, "video.x")}
-        />
-        <NumField
-          label={t("videoY")}
-          value={cur.y}
-          step={0.01}
-          onChange={(v) => set({ y: v ?? 0.5 }, "video.y")}
-        />
-        <NumField
-          label={t("videoWidth")}
-          value={cur.width}
-          step={0.01}
-          min={0.05}
-          onChange={(v) => set({ width: Math.max(0.05, v ?? 0.5) }, "video.w")}
-        />
+        {field("top", "marginTop", props.outH)}
+        {field("bottom", "marginBottom", props.outH)}
+        {field("left", "marginLeft", props.outW)}
+        {field("right", "marginRight", props.outW)}
       </div>
-      {layout.video && (
-        <button type="button" className="small" onClick={() => props.onChange(undefined, "video.auto")}>
-          {t("videoAuto")}
-        </button>
-      )}
     </>
   );
 }

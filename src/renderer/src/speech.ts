@@ -1,5 +1,5 @@
 // ステップの読み上げ音声を用意する。生成はメインプロセス(キャッシュあり)、ここではデコード結果を持つ。
-import { resolveSpeech } from "../../core/defaults";
+import { resolveSpeech, speechText } from "../../core/defaults";
 import type { Project, Step } from "../../core/schema";
 import { applyDictionary } from "../../core/text";
 import type { TtsRequest } from "../../shared/api";
@@ -13,7 +13,7 @@ export interface SpeechAudio {
 }
 
 export function speechRequest(project: Project, step: Step): TtsRequest | null {
-  const text = step.speech?.text.trim();
+  const text = speechText(step);
   if (!text) return null;
   const s = resolveSpeech(project, step);
   return {

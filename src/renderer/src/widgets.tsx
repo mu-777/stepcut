@@ -36,7 +36,8 @@ export function ContextMenu(props: { x: number; y: number; items: MenuItem[]; on
             it.action();
           }}
         >
-          {it.label}
+          <span>{it.label}</span>
+          {it.shortcut && <span className="shortcut">{it.shortcut}</span>}
         </button>
       ))}
     </div>

@@ -2,8 +2,17 @@
 // 目盛りと全トラックで同じ「時刻→ピクセル」変換(x = 時刻 × pps)を使い、表示がずれないようにする。
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { captionWindow } from "../../core/captions";
-import { stepSpeed, zoomTransition } from "../../core/defaults";
-import { addHold, splitStep, trimStep } from "../../core/edit";
+import {
+  DEFAULT_ZOOM_LENGTH,
+  resolveLayout,
+  resolveOutput,
+  speechText,
+  stepSpeed,
+  zoomHolds,
+  zoomTransition,
+} from "../../core/defaults";
+import { addHold, deleteStep, splitStep, trimStep } from "../../core/edit";
+import { computeLayout, zoomScale } from "../../core/layout";
 import type { Project, Step, Zoom } from "../../core/schema";
 import { baseDuration, sourceTimeAt, speechStart, stepHolds, type TimelineEntry } from "../../core/timeline";
 import { t } from "./i18n";
@@ -12,7 +21,7 @@ import { quantize, type ThumbCache } from "./thumbs";
 
 export type Selection =
   | { kind: "project" }
-  /** 枠付きでプレビュー上の映像を選んだ(位置と大きさの編集) */
+  /** プレビュー上の録画を選んだ(位置と大きさの編集) */
   | { kind: "video" }
   | { kind: "step" | "caption" | "speech"; step: number }
   | { kind: "zoom" | "hold"; step: number; index: number };
@@ -23,6 +32,8 @@ export interface MenuItem {
   label: string;
   action: () => void;
   disabled?: boolean;
+  /** 同じ操作のキー(メニューの右に表示する) */
+  shortcut?: string;
 }
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
@@ -30,6 +41,8 @@ type Update = (fn: (p: Project) => Project, key?: string) => void;
 const VIDEO_H = 52;
 const TILE_W = Math.round((VIDEO_H - 4) * (16 / 9));
 const SNAP_PX = 6;
+/** 再生ヘッドを吸着させる距離 */
+const SEEK_SNAP_PX = 8;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
@@ -107,6 +120,8 @@ export function Timeline(props: {
   onTrimPreview: (v: { step: number; time: number } | null) => void;
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
   onEditZoomRect: (step: number, zoom: number) => void;
+  /** 読み上げだけを鳴らす */
+  onPreviewSpeech: (step: number) => void;
   /** 拡大率の操作(親のボタンから)。値が変わるたびに適用する */
   zoomCommand: { n: number; kind: "in" | "out" | "fit" };
 }) {
@@ -201,10 +216,43 @@ export function Timeline(props: {
     return tm;
   };
 
+  /** 再生ヘッドを吸着させる時刻: ステップの切れ目、テロップ・読み上げ・ズーム・保持の始まりと終わり */
+  const seekTargets = () => {
+    const ts: number[] = [total];
+    for (const e of timeline) {
+      const s = e.step;
+      ts.push(e.start);
+      const cw = captionWindow(s, e.duration);
+      if (cw) ts.push(e.start + cw.start, e.start + cw.end);
+      const sd = props.speechDurations.get(s.id);
+      if (speechText(s)) ts.push(e.start + speechStart(s), ...(sd ? [e.start + speechStart(s) + sd] : []));
+      for (const z of s.zooms ?? []) ts.push(e.start + z.start, e.start + z.end);
+      for (const h of stepHolds(s)) ts.push(e.start + h.at, e.start + h.at + h.duration);
+      const base = baseDuration(s);
+      if (e.duration > base) ts.push(e.start + base);
+    }
+    return ts;
+  };
+
+  /** シーク位置。Shift を押している間は吸着しない */
+  const seekAt = (clientX: number, free: boolean) => {
+    const tm = xToTime(clientX);
+    if (free) return tm;
+    let best = tm;
+    let gap = SEEK_SNAP_PX / scale;
+    for (const c of seekTargets()) {
+      if (Math.abs(c - tm) <= gap) {
+        best = c;
+        gap = Math.abs(c - tm);
+      }
+    }
+    return best;
+  };
+
   const scrubFrom = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    props.onSeek(xToTime(e.clientX));
-    const move = (ev: PointerEvent) => props.onSeek(xToTime(ev.clientX));
+    props.onSeek(seekAt(e.clientX, e.shiftKey));
+    const move = (ev: PointerEvent) => props.onSeek(seekAt(ev.clientX, ev.shiftKey));
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -242,9 +290,14 @@ export function Timeline(props: {
     props.onSelect({ kind: "step", step: i });
     props.onSeek(at);
     props.openMenu(e.clientX, e.clientY, [
-      { label: t("split"), action: () => update((p) => splitStep(p, i, local, true)) },
+      { label: t("split"), shortcut: "Ctrl+K", action: () => update((p) => splitStep(p, i, local, true)) },
       { label: t("splitDiscard"), action: () => update((p) => splitStep(p, i, local, false)) },
       { label: t("addHoldHere"), action: () => update((p) => addHold(p, i, local, 1)) },
+      {
+        label: t("addHoldEnd"),
+        action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
+      },
+      { label: t("deleteStep"), shortcut: "Delete", action: () => update((p) => deleteStep(p, i)) },
     ]);
   };
 
@@ -260,13 +313,11 @@ export function Timeline(props: {
         <div className="tl-label">{t("zooms")}</div>
       </div>
       <div className="tl-scroll" ref={scrollRef} onScroll={(e) => setScrollLeft(e.currentTarget.scrollLeft)}>
-        <div className="tl-inner" style={{ width: innerW }}>
-          <div className="tl-ruler" onPointerDown={scrubFrom}>
-            {ticks}
-          </div>
+        <div className="tl-inner" style={{ width: innerW }} onPointerDown={scrubFrom}>
+          <div className="tl-ruler">{ticks}</div>
 
           {/* 映像 */}
-          <div className="tl-lane" style={{ height: VIDEO_H }} onPointerDown={scrubFrom}>
+          <div className="tl-lane" style={{ height: VIDEO_H }}>
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const x0 = entry.start * scale;
@@ -318,6 +369,7 @@ export function Timeline(props: {
                           if (k < 0 || e.button !== 0) return;
                           e.stopPropagation();
                           props.onSelect({ kind: "hold", step: i, index: k });
+                          scrubFrom(e);
                         }}
                       >
                         {k >= 0 && (
@@ -391,7 +443,7 @@ export function Timeline(props: {
           </div>
 
           {/* テロップ */}
-          <div className="tl-lane" onPointerDown={scrubFrom}>
+          <div className="tl-lane">
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const w = captionWindow(step, entry.duration);
@@ -456,10 +508,11 @@ export function Timeline(props: {
           </div>
 
           {/* 読み上げ */}
-          <div className="tl-lane" onPointerDown={scrubFrom}>
+          <div className="tl-lane">
             {timeline.map((entry) => {
               const { step, index: i } = entry;
-              if (!step.speech?.text.trim()) {
+              const text = speechText(step);
+              if (!text) {
                 return (
                   // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある
                   <div
@@ -478,8 +531,16 @@ export function Timeline(props: {
                   className={`speech ${d === undefined ? "pending" : ""} ${isSel("speech", i) ? "selected" : ""}`}
                   left={(entry.start + st) * scale}
                   width={(d ?? 1) * scale}
-                  label={step.speech.text}
+                  label={text}
                   onSelect={() => props.onSelect({ kind: "speech", step: i })}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    props.onSelect({ kind: "speech", step: i });
+                    props.openMenu(e.clientX, e.clientY, [
+                      { label: t("previewSpeech"), action: () => props.onPreviewSpeech(i) },
+                    ]);
+                  }}
                   onMove={(dx, key) => {
                     const s = r3(
                       clamp(snap(entry.start + st + dx / scale) - entry.start, 0, baseDuration(step)),
@@ -488,7 +549,7 @@ export function Timeline(props: {
                       update,
                       i,
                       (x) => {
-                        const { start: _s, ...rest } = x.speech ?? { text: "" };
+                        const { start: _s, ...rest } = x.speech ?? {};
                         return { ...x, speech: s > 0 ? { ...rest, start: s } : rest };
                       },
                       key,
@@ -500,10 +561,20 @@ export function Timeline(props: {
           </div>
 
           {/* ズーム */}
-          <div className="tl-lane" onPointerDown={scrubFrom}>
+          <div className="tl-lane">
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const zooms = step.zooms ?? [];
+              const zm = props.media.get(step.source);
+              const out = resolveOutput(project);
+              const crop = computeLayout(
+                out.width,
+                out.height,
+                resolveLayout(project),
+                zm?.width ?? 1920,
+                zm?.height ?? 1080,
+              ).crop;
+              const scaleOf = (z: Zoom) => zoomScale(z, crop, zm?.width ?? 1920, zm?.height ?? 1080);
               const setZoom = (k: number, start: number, end: number, key: string) =>
                 patchStep(
                   update,
@@ -573,6 +644,7 @@ export function Timeline(props: {
                             { label: t("drawRect"), action: () => props.onEditZoomRect(i, hit) },
                             {
                               label: t("remove"),
+                              shortcut: "Delete",
                               action: () =>
                                 patchStep(
                                   update,
@@ -585,6 +657,7 @@ export function Timeline(props: {
                         : [
                             {
                               label: t("addZoomHere"),
+                              shortcut: "Z",
                               action: () => {
                                 const lo = Math.max(0, ...zooms.filter((z) => z.end <= t0).map((z) => z.end));
                                 const hi = Math.min(
@@ -592,7 +665,7 @@ export function Timeline(props: {
                                   ...zooms.filter((z) => z.start >= t0).map((z) => z.start),
                                 );
                                 const a = clamp(t0, lo, hi);
-                                const b = Math.min(hi, a + 2);
+                                const b = Math.min(hi, a + DEFAULT_ZOOM_LENGTH);
                                 if (b - a < 0.1) return;
                                 const m = props.media.get(step.source);
                                 update(
@@ -613,17 +686,35 @@ export function Timeline(props: {
                     );
                   }}
                 >
-                  {zooms.map((z, k) => {
-                    const tr = Math.min(zoomTransition(z), (z.end - z.start) / 2);
-                    return (
+                  {zooms.flatMap((z, k) => {
+                    // 拡大の動きは帯の手前、縮小の動きは帯の後ろ(ステップの外は切り詰める)
+                    const zs = scaleOf(z);
+                    const tr = zoomTransition(z, zs);
+                    const inFrom = Math.max(0, z.start - tr);
+                    const outTo = Math.min(entry.duration, z.end + tr);
+                    return [
+                      tr > 0 && z.start > inFrom && (
+                        <div
+                          key={`ri${z.start}`}
+                          className="tl-ramp in"
+                          style={{ left: inFrom * scale, width: (z.start - inFrom) * scale }}
+                          title={t("zoomInMotion")}
+                        />
+                      ),
+                      tr > 0 && outTo > z.end && (
+                        <div
+                          key={`ro${z.start}`}
+                          className="tl-ramp out"
+                          style={{ left: z.end * scale, width: (outTo - z.end) * scale }}
+                          title={t("zoomOutMotion")}
+                        />
+                      ),
                       <Bar
-                        // biome-ignore lint/suspicious/noArrayIndexKey: ズームは id を持たない
-                        key={k}
-                        className={`zoom ${z.hold ? "hold" : ""} ${isSel("zoom", i, k) ? "selected" : ""}`}
+                        key={`z${z.start}`}
+                        className={`zoom ${zoomHolds(z) ? "hold" : ""} ${isSel("zoom", i, k) ? "selected" : ""}`}
                         left={z.start * scale}
                         width={(z.end - z.start) * scale}
-                        ramp={tr * scale}
-                        label={`${((props.media.get(step.source)?.width ?? 1920) / z.rect.w).toFixed(1)}×`}
+                        label={`${zs.toFixed(1)}×`}
                         onSelect={() => props.onSelect({ kind: "zoom", step: i, index: k })}
                         onDoubleClick={() => props.onEditZoomRect(i, k)}
                         onMove={(dx, key) => {
@@ -654,8 +745,8 @@ export function Timeline(props: {
                             key,
                           );
                         }}
-                      />
-                    );
+                      />,
+                    ];
                   })}
                 </div>
               );
@@ -670,6 +761,44 @@ export function Timeline(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * ステップ i の時刻 local にズームを足す(Z キー・プレビューの右クリック)。帯の長さは既定 2 秒で、後ろのズームの手前まで。
+ * 既存のズームの中なら何もしない。center を渡すと、その点(ソースの座標)を中心にする。足したズームの番号を返す
+ */
+export function insertZoom(
+  project: Project,
+  i: number,
+  local: number,
+  duration: number,
+  m: SourceMedia | undefined,
+  center?: { x: number; y: number },
+): { project: Project; index: number } | null {
+  const step = project.steps[i];
+  if (!step) return null;
+  const zooms = step.zooms ?? [];
+  if (zooms.some((z) => local >= z.start && local <= z.end)) return null;
+  const end = Math.min(
+    duration,
+    local + DEFAULT_ZOOM_LENGTH,
+    ...zooms.filter((z) => z.start > local).map((z) => z.start),
+  );
+  if (end - local < 0.1) return null;
+  const z = defaultZoom(local, end, m);
+  if (center) {
+    const w = m?.width ?? 1920;
+    const h = m?.height ?? 1080;
+    z.rect.x = Math.round(Math.min(Math.max(0, center.x - z.rect.w / 2), w - z.rect.w));
+    z.rect.y = Math.round(Math.min(Math.max(0, center.y - z.rect.h / 2), h - z.rect.h));
+  }
+  return {
+    project: {
+      ...project,
+      steps: project.steps.map((s, j) => (j === i ? { ...s, zooms: [...zooms, z] } : s)),
+    },
+    index: zooms.length,
+  };
 }
 
 /** 新しいズームの範囲は、録画の中央を 2 倍に拡大する大きさ */
@@ -689,9 +818,9 @@ function Bar(props: {
   left: number;
   width: number;
   label: string;
-  ramp?: number;
   onSelect: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onMove: (dx: number, key: string) => void;
   onLeft?: (dx: number, key: string) => void;
   onRight?: (dx: number, key: string) => void;
@@ -707,13 +836,8 @@ function Bar(props: {
         startDrag(e, props.onMove);
       }}
       onDoubleClick={props.onDoubleClick}
+      onContextMenu={props.onContextMenu}
     >
-      {props.ramp !== undefined && props.ramp > 0 && (
-        <>
-          <div className="tl-ramp in" style={{ width: props.ramp }} />
-          <div className="tl-ramp out" style={{ width: props.ramp }} />
-        </>
-      )}
       <span>{props.label}</span>
       {props.onLeft && (
         <div

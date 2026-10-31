@@ -127,10 +127,21 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     { x: box.x + box.width * 0.6, y: box.y + box.height * 0.5 },
   );
   await page.waitForTimeout(500);
-  const zoomHint = await page.locator(".zoom .hint").first().textContent();
-  check(!zoomHint.includes("960×540"), `ドラッグでズーム範囲が設定される (${zoomHint})`);
+  const areaW = () =>
+    page
+      .getByLabel(/^(Area width \(px\)|枠の幅\(px\))$/)
+      .first()
+      .inputValue();
+  const zoomW = await areaW();
+  check(zoomW !== "640", `ドラッグでズーム範囲が設定される (幅 ${zoomW})`);
   await shot(page, "02-zoom");
   check((await page.locator(".tl-bar.zoom").count()) === 1, "ズームがタイムラインに出る");
+  check((await page.locator(".tl-hold.zoom-hold").count()) === 1, "ズーム中は既定で映像を止める");
+  await page
+    .getByLabel(/Freeze video while zoomed|ズーム中は映像を止める/)
+    .first()
+    .uncheck();
+  check((await page.locator(".tl-hold.zoom-hold").count()) === 0, "映像を止める設定を外せる");
 
   // Ctrl+K で分割、Undo で戻す
   await page.locator("body").click({ position: { x: 5, y: 300 } });
@@ -238,28 +249,89 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".tl-bar.zoom").count()) === zoomsBefore + 1,
     "プレビューの右クリックでズームを作る",
   );
+  const centerX = () =>
+    page
+      .getByLabel(/^(Center X \(px\)|中心 X\(px\))$/)
+      .last()
+      .inputValue();
+  const areaH = () =>
+    page
+      .getByLabel(/^(Area height \(px\)|枠の高さ\(px\))$/)
+      .last()
+      .inputValue();
   const ob = await page.locator(".box-outline").boundingBox();
-  const hintBefore = await page.locator(".zoom.focused .hint").textContent();
+  const cx0 = await centerX();
   await drag(page, center(ob), { x: center(ob).x - 40, y: center(ob).y - 20 });
-  const hintAfter = await page.locator(".zoom.focused .hint").textContent();
-  check(hintBefore !== hintAfter, `ズームの枠をドラッグで移動 (${hintBefore} → ${hintAfter})`);
-  await page.getByRole("button", { name: /^(Done|完了)$/ }).click();
+  const cx1 = await centerX();
+  check(cx0 !== cx1, `ズームの枠をドラッグで移動 (中心 X ${cx0} → ${cx1})`);
+  // 角のハンドル: 中心を固定して縦横比を保ったまま拡大
+  const ob2 = await page.locator(".box-outline").boundingBox();
+  const w0 = Number(
+    await page
+      .getByLabel(/^(Area width \(px\)|枠の幅\(px\))$/)
+      .last()
+      .inputValue(),
+  );
+  await drag(
+    page,
+    { x: ob2.x + ob2.width, y: ob2.y + ob2.height },
+    { x: ob2.x + ob2.width + 30, y: ob2.y + ob2.height + 17 },
+  );
+  const w1 = Number(
+    await page
+      .getByLabel(/^(Area width \(px\)|枠の幅\(px\))$/)
+      .last()
+      .inputValue(),
+  );
+  check(
+    w1 > w0 && Math.abs(Number(await centerX()) - Number(cx1)) <= 2,
+    `角のハンドルは中心固定で拡大 (幅 ${w0} → ${w1})`,
+  );
+  // 辺のハンドル: 中心を固定して縦横比を変える
+  const h0 = await areaH();
+  const ob3 = await page.locator(".box-outline").boundingBox();
+  await drag(
+    page,
+    { x: ob3.x + ob3.width, y: ob3.y + ob3.height / 2 },
+    { x: ob3.x + ob3.width + 40, y: ob3.y + ob3.height / 2 },
+  );
+  check((await areaH()) === h0, "辺のハンドルは高さを変えずに幅だけ変える");
+  await shot(page, "05-zoom-edit");
+  await page.getByRole("button", { name: /^(Done|完了) \(Esc\)$/ }).click();
 
-  // 枠付きで映像を選び、ドラッグで移動(中心線に吸着)、角で縮小(LAY-08)
+  // Z キーで再生位置にズームを足す
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  const zc = await page.locator(".tl-bar.zoom").count();
+  await page.keyboard.press("z");
+  await page.waitForTimeout(300);
+  check((await page.locator(".tl-bar.zoom").count()) === zc + 1, "Z キーでズームを足す");
+  await page.keyboard.press("Escape");
+
+  // 録画を選び、ドラッグで移動(中心線に吸着)、角で縮小(中心固定)、辺で切り取り
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(300);
   await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.4);
   await page.waitForTimeout(200);
   const vb = await page.locator(".box-outline").boundingBox();
-  check(vb !== null, "プレビューの映像をクリックすると枠とハンドルが出る");
-  await drag(page, center(vb), { x: center(vb).x + 3, y: center(vb).y + 60 });
-  const vx = await page.getByLabel("X", { exact: true }).inputValue();
-  check(vx === "0.5", `映像の移動で中心線に吸着する (x=${vx})`);
+  check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
+  await drag(page, center(vb), { x: center(vb).x + 4, y: center(vb).y + 30 });
+  const marginOf = async () =>
+    Promise.all([/^(Left|左)$/, /^(Right|右)$/].map((re) => page.getByLabel(re).inputValue().then(Number)));
+  const [ml, mr] = await marginOf();
+  check(Math.abs(ml - mr) <= 2, `録画の移動で中心線に吸着する (左 ${ml} / 右 ${mr})`);
+  const vb2 = await page.locator(".box-outline").boundingBox();
   await drag(
     page,
-    { x: vb.x + vb.width, y: vb.y + vb.height + 60 },
-    { x: vb.x + vb.width - 100, y: vb.y + vb.height },
+    { x: vb2.x + vb2.width, y: vb2.y + vb2.height },
+    { x: vb2.x + vb2.width - 60, y: vb2.y + vb2.height - 34 },
   );
+  const [ml2, mr2] = await marginOf();
+  check(ml2 > ml && Math.abs(ml2 - mr2) <= 2, `角のハンドルは中心固定で縮小 (左 ${ml2} / 右 ${mr2})`);
+  const vb3 = await page.locator(".box-outline").boundingBox();
+  await drag(page, { x: vb3.x + vb3.width / 2, y: vb3.y }, { x: vb3.x + vb3.width / 2, y: vb3.y + 30 });
   await page.waitForTimeout(300);
-  await shot(page, "05-video-box");
+  await shot(page, "06-video-box");
 
   // 背景をプリセット「ミント」に変える
   await page.locator(".swatch").nth(2).click();
@@ -267,11 +339,29 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.getByRole("button", { name: /^(Save|保存)$/ }).click();
   await page.waitForTimeout(800);
   const saved2 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
-  check(saved2.layout?.video?.y > 0.45, `映像を下へ動かした位置が保存される (y=${saved2.layout?.video?.y})`);
-  check(saved2.layout.video.width < 0.85, `角のドラッグで縮小する (width=${saved2.layout.video.width})`);
+  check(saved2.layout?.margin?.top > 0.04, `録画の余白が保存される (上 ${saved2.layout?.margin?.top})`);
+  check(saved2.layout.fit === "cover", "辺のハンドルで縦横比を変えると切り取りになる");
   check(saved2.layout.background?.image === "preset:mint", "背景のプリセットを選べる");
   await page.keyboard.press("Escape");
-  await shot(page, "06-mint");
+  await shot(page, "07-mint");
+
+  // テロップをプレビュー上でドラッグする(ステップの個別設定になる)
+  await page.locator(".step-item").first().click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(400);
+  const ch = await page.locator(".caption-handle").boundingBox();
+  check(ch !== null, "テロップの上にドラッグ用の枠が出る");
+  await drag(page, center(ch), { x: center(ch).x, y: center(ch).y - 200 });
+  await page.waitForTimeout(300);
+  check((await page.locator(".badge").count()) === 1, "テロップを動かすとステップの個別設定になる");
+  await page.getByRole("button", { name: /Use project setting|プロジェクト設定に戻す/ }).click();
+  check((await page.locator(".badge").count()) === 0, "プロジェクト設定に戻せる");
+  check(
+    (await page.getByLabel(/Read the caption text|テロップと同じ文を読む/).count()) === 1,
+    "読み上げに「テロップと同じ文を読む」がある",
+  );
 
   // プロジェクトの設定
   await page.locator(".nav-item").click();

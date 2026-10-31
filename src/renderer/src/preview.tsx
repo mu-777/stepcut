@@ -1,10 +1,10 @@
 // プレビュー。縮小した大きさで描く(NF-04)。
-// 枠の編集(ズーム範囲、枠付きでの映像の位置と大きさ)は、図形編集ソフトと同じく本体のドラッグで移動、角のドラッグで拡大縮小する。
+// 枠の編集(ズーム範囲、録画の位置と大きさ)は共通の操作: 枠の中のドラッグで移動、四隅で中心固定の拡大縮小、四辺の中央で縦横比の変更。
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { resolveLayout } from "../../core/defaults";
-import { computeLayout, type Rect } from "../../core/layout";
-import type { Project } from "../../core/schema";
-import { outputToSource, sourceToOutput } from "./compositor";
+import { computeLayout, type Rect, zoomViewRect } from "../../core/layout";
+import type { Project, Step } from "../../core/schema";
+import { captionBox, outputToSource, sourceToOutput } from "./compositor";
 import { Player, type PlayerState } from "./player";
 
 export interface DrawingZoom {
@@ -16,8 +16,8 @@ export interface DrawingZoom {
 }
 
 export interface VideoEdit {
-  /** 映像の矩形(出力のピクセル)。key は 1 回のドラッグで同じ */
-  onRect: (rect: Rect, key: string) => void;
+  /** 録画の枠(出力のピクセル)。key は 1 回のドラッグで同じ。shapeChanged は縦横比を変えた操作 */
+  onRect: (rect: Rect, key: string, shapeChanged: boolean) => void;
 }
 
 export function Preview(props: {
@@ -30,12 +30,18 @@ export function Preview(props: {
   drawing: DrawingZoom | null;
   /** 表示中の録画の大きさ(映像の位置の計算に使う) */
   srcSize: { w: number; h: number } | null;
-  /** 映像を選んでいるとき(枠付き)。枠とハンドルを出す */
+  /** 録画を選んでいるとき。枠とハンドルを出す */
   videoEdit: VideoEdit | null;
-  /** 映像の上をクリックした(枠付きで、ほかの編集をしていないとき) */
+  /** プレビューをクリックした(ほかの編集をしていないとき)。inside は録画の上か */
   onVideoClick: (inside: boolean) => void;
   /** 右クリック。点は出力のピクセル */
   onContextMenu: (clientX: number, clientY: number, out: { x: number; y: number }) => void;
+  /** プレビューの上に重ねて出す操作の説明 */
+  hint: string | null;
+  /** いまテロップが出ているステップ。テロップをドラッグで動かせる */
+  captionStep: Step | null;
+  /** テロップの中心(画面側座標) */
+  onCaptionMove: (pos: { x: number; y: number }, key: string) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,26 +104,18 @@ export function Preview(props: {
 
   let editor: React.ReactNode = null;
   if (d) {
-    // ズーム範囲: ソースの座標 ⇔ 画面上の座標
-    const box = d.rect
-      ? (() => {
-          const a = sourceToOutput(props.project, size.w, size.h, d.srcW, d.srcH, d.rect.x, d.rect.y);
-          const b = sourceToOutput(
-            props.project,
-            size.w,
-            size.h,
-            d.srcW,
-            d.srcH,
-            d.rect.x + d.rect.w,
-            d.rect.y + d.rect.h,
-          );
-          return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-        })()
-      : null;
+    // ズーム範囲: ソースの座標 ⇔ 画面上の座標(ズームなしの表示で)
+    const toScreen = (r: Rect) => {
+      const a = sourceToOutput(props.project, size.w, size.h, d.srcW, d.srcH, r.x, r.y);
+      const b = sourceToOutput(props.project, size.w, size.h, d.srcW, d.srcH, r.x + r.w, r.y + r.h);
+      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    };
+    const crop = computeLayout(size.w, size.h, layout, d.srcW, d.srcH).crop;
     editor = (
       <BoxEditor
-        box={box}
-        aspect={d.srcW / d.srcH}
+        box={d.rect ? toScreen(d.rect) : null}
+        // 実際に見える範囲(表示の縦横比に合わせて広げた範囲)を薄く示す
+        visible={d.rect ? toScreen(zoomViewRect(d.rect, crop.w / crop.h, d.srcW, d.srcH)) : null}
         allowDraw
         bounds={videoBox}
         snapX={[]}
@@ -135,20 +133,59 @@ export function Preview(props: {
     );
   } else if (props.videoEdit) {
     const ve = props.videoEdit;
-    const bandTop = size.h * (1 - layout.bandHeight);
     editor = (
       <BoxEditor
         box={videoBox}
-        aspect={src.w / src.h}
         snapX={[size.w / 2]}
-        snapY={[size.h / 2, bandTop / 2]}
-        onChange={(b, key) => ve.onRect({ x: b.x * k, y: b.y * k, w: b.w * k, h: b.h * k }, key)}
+        snapY={[size.h / 2]}
+        onChange={(b, key, shapeChanged) =>
+          ve.onRect({ x: b.x * k, y: b.y * k, w: b.w * k, h: b.h * k }, key, shapeChanged)
+        }
       />
     );
   }
 
+  // テロップのドラッグ(表示中のステップのテロップ)
+  let captionHandle: React.ReactNode = null;
+  const cs = props.captionStep;
+  if (cs && !d && !props.videoEdit) {
+    const ctx = canvasRef.current?.getContext("2d");
+    const c = ctx ? captionBox(ctx, props.project, cs, size.w, size.h, videoBox) : null;
+    if (c) {
+      captionHandle = (
+        <div
+          className="caption-handle"
+          style={{ left: c.box.x, top: c.box.y, width: c.box.w, height: c.box.h }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            const x0 = e.clientX;
+            const y0 = e.clientY;
+            const key = `drag-caption-${Date.now()}`;
+            const move = (ev: PointerEvent) => {
+              let cx = c.cx + ev.clientX - x0;
+              const cy = c.cy + ev.clientY - y0;
+              // 左右の中央に吸着する
+              if (!ev.altKey && Math.abs(cx - size.w / 2) <= 12) cx = size.w / 2;
+              const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
+              props.onCaptionMove({ x: r4(cx / size.w), y: r4(cy / size.h) }, key);
+            };
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+        />
+      );
+    }
+  }
+
   return (
     <div className="preview" ref={wrapRef}>
+      {props.hint && <div className="preview-hint">{props.hint}</div>}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用 */}
       <div
         className="preview-stage"
@@ -166,6 +203,7 @@ export function Preview(props: {
         }}
       >
         <canvas ref={canvasRef} width={pxW} height={pxH} style={{ width: size.w, height: size.h }} />
+        {captionHandle}
         {editor}
       </div>
     </div>
@@ -173,22 +211,25 @@ export function Preview(props: {
 }
 
 type Box = { x: number; y: number; w: number; h: number };
-type Mode = "move" | "draw" | "nw" | "ne" | "sw" | "se";
-const SNAP = 6;
+type Mode = "move" | "draw" | "corner" | "n" | "s" | "e" | "w";
+const SNAP = 12;
+const MIN = 8;
 
 /**
- * 画面上の枠の編集。縦横比は常に保つ(映像やズーム範囲を歪ませない)。
- * snapX / snapY は枠の中心を吸着させる線(画面上の座標)。吸着中はガイド線を出す。
+ * 画面上の枠の編集(ズームの範囲・録画の配置で共通)。
+ * 枠の中のドラッグで移動(中心が変わるのはこれだけ)、四隅は中心を固定して縦横比を保ったまま拡大縮小、
+ * 四辺の中央は中心を固定して縦横比を変える。snapX / snapY は枠の中心を吸着させる線。吸着中はガイド線を出す。
  */
 function BoxEditor(props: {
   box: Box | null;
-  aspect: number;
+  /** 実際に見える範囲(ズーム)。薄い線で示す */
+  visible?: Box | null;
   allowDraw?: boolean;
   /** 新しく描くときに収める範囲 */
   bounds?: Box;
   snapX: number[];
   snapY: number[];
-  onChange: (b: Box, key: string) => void;
+  onChange: (b: Box, key: string, shapeChanged: boolean) => void;
 }) {
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [preview, setPreview] = useState<Box | null>(null);
@@ -201,8 +242,9 @@ function BoxEditor(props: {
     const origin = stage.getBoundingClientRect();
     const p0 = { x: e.clientX - origin.left, y: e.clientY - origin.top };
     const b0 = props.box ?? { x: p0.x, y: p0.y, w: 0, h: 0 };
+    const cx0 = b0.x + b0.w / 2;
+    const cy0 = b0.y + b0.h / 2;
     const key = `drag-box-${Date.now()}`;
-    const { aspect } = props;
     const move = (ev: PointerEvent) => {
       const p = { x: ev.clientX - origin.left, y: ev.clientY - origin.top };
       let b: Box;
@@ -222,21 +264,27 @@ function BoxEditor(props: {
           b.y = sy - b.h / 2;
           gy = sy;
         }
+      } else if (mode === "corner") {
+        // 中心から角までの距離の比で拡大縮小する
+        const k = Math.max(Math.abs(p.x - cx0) / (b0.w / 2), Math.abs(p.y - cy0) / (b0.h / 2));
+        const w = Math.max(MIN, b0.w * k);
+        const h = (w * b0.h) / b0.w;
+        b = { x: cx0 - w / 2, y: cy0 - h / 2, w, h };
+      } else if (mode === "e" || mode === "w") {
+        const w = Math.max(MIN, Math.abs(p.x - cx0) * 2);
+        b = { x: cx0 - w / 2, y: b0.y, w, h: b0.h };
+      } else if (mode === "n" || mode === "s") {
+        const h = Math.max(MIN, Math.abs(p.y - cy0) * 2);
+        b = { x: b0.x, y: cy0 - h / 2, w: b0.w, h };
       } else {
-        // 描くとき・角を動かすときは、反対側の角を固定する
-        const anchor =
-          mode === "draw"
-            ? p0
-            : {
-                x: mode === "nw" || mode === "sw" ? b0.x + b0.w : b0.x,
-                y: mode === "nw" || mode === "ne" ? b0.y + b0.h : b0.y,
-              };
-        const dx = p.x - anchor.x;
-        const dy = p.y - anchor.y;
-        const w = Math.max(8, Math.abs(dx), Math.abs(dy) * aspect);
-        const h = w / aspect;
-        b = { x: dx < 0 ? anchor.x - w : anchor.x, y: dy < 0 ? anchor.y - h : anchor.y, w, h };
-        if (mode === "draw" && props.bounds) {
+        // 新しく描く: 押した点と今の点を対角にする
+        b = {
+          x: Math.min(p0.x, p.x),
+          y: Math.min(p0.y, p.y),
+          w: Math.max(MIN, Math.abs(p.x - p0.x)),
+          h: Math.max(MIN, Math.abs(p.y - p0.y)),
+        };
+        if (props.bounds) {
           const B = props.bounds;
           b.x = Math.min(Math.max(b.x, B.x), B.x + B.w - b.w);
           b.y = Math.min(Math.max(b.y, B.y), B.y + B.h - b.h);
@@ -244,14 +292,14 @@ function BoxEditor(props: {
       }
       setGuides({ x: gx, y: gy });
       if (mode === "draw") setPreview(b);
-      else props.onChange(b, key);
+      else props.onChange(b, key, mode !== "move" && mode !== "corner");
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       setGuides({ x: null, y: null });
       setPreview((pv) => {
-        if (pv) props.onChange(pv, key);
+        if (pv) props.onChange(pv, key, true);
         return null;
       });
     };
@@ -260,11 +308,13 @@ function BoxEditor(props: {
   };
 
   const b = preview ?? props.box;
+  const v = preview ? null : props.visible;
   return (
     <div
       className={`box-layer ${props.allowDraw ? "draw-layer" : ""}`}
       onPointerDown={props.allowDraw ? (e) => begin(e, "draw") : undefined}
     >
+      {v && <div className="box-visible" style={{ left: v.x, top: v.y, width: v.w, height: v.h }} />}
       {b && (
         <div
           className="box-outline"
@@ -272,7 +322,10 @@ function BoxEditor(props: {
           onPointerDown={(e) => begin(e, "move")}
         >
           {(["nw", "ne", "sw", "se"] as const).map((c) => (
-            <div key={c} className={`box-handle ${c}`} onPointerDown={(e) => begin(e, c)} />
+            <div key={c} className={`box-handle ${c}`} onPointerDown={(e) => begin(e, "corner")} />
+          ))}
+          {(["n", "s", "e", "w"] as const).map((c) => (
+            <div key={c} className={`box-handle edge ${c}`} onPointerDown={(e) => begin(e, c)} />
           ))}
         </div>
       )}

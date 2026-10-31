@@ -1,4 +1,5 @@
 // プロジェクトファイルの検証(AI-04)。形(schema.ts)に加え、id の参照や時刻の重なりを調べる。
+import { migrateProject } from "./migrate";
 import { type Project, projectSchema } from "./schema";
 import { baseDuration, stepHolds, videoDuration } from "./timeline";
 
@@ -34,7 +35,7 @@ export function parseProjectText(text: string): ParseResult {
 }
 
 export function parseProject(raw: unknown): ParseResult {
-  const result = projectSchema.safeParse(raw);
+  const result = projectSchema.safeParse(migrateProject(raw));
   if (!result.success) {
     return {
       ok: false,
