@@ -12,13 +12,14 @@ import {
   StreamTarget,
 } from "mediabunny";
 import { captionCues } from "../../core/captions";
-import { resolveOutput } from "../../core/defaults";
+import { resolveLayout, resolveOutput } from "../../core/defaults";
 import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
 import { buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
 import type { ExportResult } from "../../shared/api";
 import { api } from "./api";
 import { renderStepAudio } from "./audio";
+import { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
 import { openExclusive, type SourceMedia } from "./media";
 import { SAMPLE_RATE, SpeechStore } from "./speech";
@@ -50,6 +51,18 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
     if (project.steps.some((st) => st.source === s.id)) {
       media.set(s.id, await openExclusive(await api.resolveSource(opts.projectPath, s.path)));
     }
+  }
+
+  // 画像の背景は先に用意する。読めなければ書き出しを止める(黙って灰色で書き出さない)
+  const bg = resolveLayout(project).background;
+  let backgroundImage: (CanvasImageSource & { width: number; height: number }) | null = null;
+  if (typeof bg !== "string" && "image" in bg) {
+    const store = new BackgroundStore();
+    backgroundImage = await store.load(bg.image, out.width, out.height, opts.projectPath);
+    if (!backgroundImage)
+      throw new Error(
+        `背景の画像を読めません / Cannot load background: ${bg.image} (${store.error(bg.image, opts.projectPath)})`,
+      );
   }
 
   const timeline = buildTimeline(project.steps, speech.durations(project));
@@ -124,6 +137,7 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
           srcH: m?.height ?? 0,
           outW: out.width,
           outH: out.height,
+          backgroundImage,
         });
         await videoSource.add(k / out.fps, 1 / out.fps);
         opts.onProgress?.(k + 1, totalFrames);

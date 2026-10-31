@@ -1,15 +1,16 @@
 // 1 フレームの合成。プレビューと書き出しで同じ処理を使う(OUT-06)。
 import { captionWindow } from "../../core/captions";
 import {
-  DEFAULT_CAPTION_POSITION,
-  DEFAULT_CAPTION_WIDTH,
+  AUTO_CAPTION_BOX,
   type ResolvedLayout,
+  resolveCaptionPlacement,
   resolveCaptionStyle,
   resolveLayout,
 } from "../../core/defaults";
-import { computeLayout, viewRectAt } from "../../core/layout";
+import { computeLayout, type Rect, viewRectAt } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
 import { wrapText } from "../../core/text";
+import { drawSimpleBackground } from "./backgrounds";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Frame = CanvasImageSource & { width: number; height: number };
@@ -29,21 +30,27 @@ export interface FrameInput {
   outH: number;
   /** ズームを無視する(ズーム範囲の編集中) */
   ignoreZoom?: boolean;
+  /** 画像の背景(出力の大きさで用意したもの)。色・グラデーションの背景なら使わない */
+  backgroundImage?: Frame | null;
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
   const layout: ResolvedLayout = resolveLayout(f.project);
   const scale = f.outH / 1080;
   ctx.save();
-  ctx.fillStyle = layout.mode === "band" ? layout.background : "#000000";
-  ctx.fillRect(0, 0, f.outW, f.outH);
+  if (!drawSimpleBackground(ctx, f.outW, f.outH, layout.background)) {
+    // 画像の読み込み中・失敗時は暗い灰色
+    ctx.fillStyle = "#202024";
+    ctx.fillRect(0, 0, f.outW, f.outH);
+    if (f.backgroundImage) ctx.drawImage(f.backgroundImage, 0, 0, f.outW, f.outH);
+  }
 
   const srcW = f.srcW || 1920;
   const srcH = f.srcH || 1080;
   const geo = computeLayout(f.outW, f.outH, layout, srcW, srcH);
   const v = geo.video;
 
-  if (layout.mode === "band" && layout.shadow) {
+  if (layout.shadow) {
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.6)";
     ctx.shadowBlur = 30 * scale;
@@ -54,8 +61,7 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
   }
 
   if (f.frame) {
-    const view =
-      f.step && !f.ignoreZoom ? viewRectAt(f.step, f.local, srcW, srcH) : { x: 0, y: 0, w: srcW, h: srcH };
+    const view = f.step && !f.ignoreZoom ? viewRectAt(f.step, f.local, srcW, srcH, geo.crop) : geo.crop;
     // 素材のフレームはデコード時の大きさ(CanvasSink)なので、ソースの座標から換算する
     const kx = f.frame.width / srcW;
     const ky = f.frame.height / srcH;
@@ -63,62 +69,90 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
     ctx.drawImage(f.frame, view.x * kx, view.y * ky, view.w * kx, view.h * ky, v.x, v.y, v.w, v.h);
   }
 
-  if (f.step) drawCaption(ctx, f, layout, geo.band, scale);
+  if (f.step) {
+    const w = captionWindow(f.step, f.stepDuration);
+    if (w && f.local >= w.start && f.local < w.end) drawCaption(ctx, f, v);
+  }
   ctx.restore();
 }
 
-function drawCaption(
+export interface CaptionBox {
+  lines: string[];
+  /** 中心(出力のピクセル) */
+  cx: number;
+  cy: number;
+  /** 文字の背景の箱 */
+  box: Rect;
+  /** 箱の色。null なら箱を描かない */
+  boxColor: string | null;
+  textW: number;
+  lineH: number;
+}
+
+/**
+ * テロップの置き場所と折り返し。位置の指定がなければ、録画の下の余白に収まるならその中央、
+ * 収まらなければ画面の下寄り(88%)に置く。背景の箱は "auto" なら録画に重なるときだけ付ける。
+ */
+export function captionBox(
   ctx: Ctx,
-  f: FrameInput,
-  layout: ResolvedLayout,
-  band: { x: number; y: number; w: number; h: number } | null,
-  scale: number,
-): void {
-  const step = f.step as Step;
-  const w = captionWindow(step, f.stepDuration);
-  if (!w || f.local < w.start || f.local >= w.end || !step.caption) return;
-  const style = resolveCaptionStyle(f.project, step);
+  project: Project,
+  step: Step,
+  outW: number,
+  outH: number,
+  video: Rect,
+): CaptionBox | null {
+  if (!step.caption || step.caption.text.trim() === "") return null;
+  const scale = outH / 1080;
+  const style = resolveCaptionStyle(project, step);
+  const place = resolveCaptionPlacement(project, step);
   const size = style.size * scale;
   const lineH = size * style.lineHeight;
   ctx.font = `${size}px "${style.font}", "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
-  ctx.textBaseline = "middle";
   const measure = (s: string) => ctx.measureText(s).width;
-
-  if (layout.mode === "band" && band) {
-    const pad = band.h * 0.12 + 16 * scale;
-    const maxW = band.w - pad * 2;
-    const lines = wrapText(step.caption.text, maxW, measure);
-    const top = band.y + band.h / 2 - (lines.length * lineH) / 2 + lineH / 2;
-    ctx.fillStyle = style.color;
-    ctx.textAlign = style.align === "left" ? "left" : "center";
-    const x = style.align === "left" ? band.x + pad : band.x + band.w / 2;
-    lines.forEach((line, i) => {
-      ctx.fillText(line, x, top + i * lineH);
-    });
-    return;
-  }
-
-  const pos = step.caption.position ?? DEFAULT_CAPTION_POSITION;
-  const maxW = (step.caption.width ?? DEFAULT_CAPTION_WIDTH) * f.outW;
-  const lines = wrapText(step.caption.text, maxW, measure);
+  const lines = wrapText(step.caption.text, place.width * outW, measure);
   const textW = Math.max(...lines.map(measure), 0);
   const boxPad = size * 0.4;
   const boxW = textW + boxPad * 2;
   const boxH = lines.length * lineH + boxPad;
-  const cx = pos.x * f.outW;
-  const cy = pos.y * f.outH;
-  ctx.fillStyle = style.background;
-  ctx.fillRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+  let cx = outW / 2;
+  let cy = outH * 0.88;
+  if (place.position) {
+    cx = place.position.x * outW;
+    cy = place.position.y * outH;
+  } else {
+    const below = outH - (video.y + video.h);
+    if (below >= boxH) cy = video.y + video.h + below / 2;
+  }
+  const box = { x: cx - boxW / 2, y: cy - boxH / 2, w: boxW, h: boxH };
+  const overlaps =
+    box.x < video.x + video.w &&
+    box.x + box.w > video.x &&
+    box.y < video.y + video.h &&
+    box.y + box.h > video.y;
+  const boxColor = style.background === "auto" ? (overlaps ? AUTO_CAPTION_BOX : null) : style.background;
+  return { lines, cx, cy, box, boxColor, textW, lineH };
+}
+
+function drawCaption(ctx: Ctx, f: FrameInput, video: Rect): void {
+  const step = f.step as Step;
+  const c = captionBox(ctx, f.project, step, f.outW, f.outH, video);
+  if (!c) return;
+  const style = resolveCaptionStyle(f.project, step);
+  if (c.boxColor) {
+    ctx.fillStyle = c.boxColor;
+    ctx.fillRect(c.box.x, c.box.y, c.box.w, c.box.h);
+  }
+  ctx.textBaseline = "middle";
   ctx.fillStyle = style.color;
   ctx.textAlign = style.align === "left" ? "left" : "center";
-  const x = style.align === "left" ? cx - textW / 2 : cx;
-  const top = cy - (lines.length * lineH) / 2 + lineH / 2;
-  lines.forEach((line, i) => {
-    ctx.fillText(line, x, top + i * lineH);
+  const x = style.align === "left" ? c.cx - c.textW / 2 : c.cx;
+  const top = c.cy - (c.lines.length * c.lineH) / 2 + c.lineH / 2;
+  c.lines.forEach((line, i) => {
+    ctx.fillText(line, x, top + i * c.lineH);
   });
 }
 
-/** プレビュー上の点(出力のピクセル)をソースの座標に変換する。ズーム範囲の指定に使う */
+/** プレビュー上の点(出力のピクセル)をソースの座標に変換する(ズームなしの表示で)。ズーム範囲の指定に使う */
 export function outputToSource(
   project: Project,
   outW: number,
@@ -128,11 +162,10 @@ export function outputToSource(
   px: number,
   py: number,
 ): { x: number; y: number } {
-  const geo = computeLayout(outW, outH, resolveLayout(project), srcW, srcH);
-  const v = geo.video;
+  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project), srcW, srcH);
   return {
-    x: Math.min(srcW, Math.max(0, ((px - v.x) / v.w) * srcW)),
-    y: Math.min(srcH, Math.max(0, ((py - v.y) / v.h) * srcH)),
+    x: Math.min(srcW, Math.max(0, c.x + ((px - v.x) / v.w) * c.w)),
+    y: Math.min(srcH, Math.max(0, c.y + ((py - v.y) / v.h) * c.h)),
   };
 }
 
@@ -145,6 +178,6 @@ export function sourceToOutput(
   sx: number,
   sy: number,
 ): { x: number; y: number } {
-  const v = computeLayout(outW, outH, resolveLayout(project), srcW, srcH).video;
-  return { x: v.x + (sx / srcW) * v.w, y: v.y + (sy / srcH) * v.h };
+  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project), srcW, srcH);
+  return { x: v.x + ((sx - c.x) / c.w) * v.w, y: v.y + ((sy - c.y) / c.h) * v.h };
 }

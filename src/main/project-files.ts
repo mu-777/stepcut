@@ -9,16 +9,23 @@ const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** 素材パスを新しい保存先基準に書き換える。JSON として読めなければそのまま返す */
 export function rebaseSourcePaths(text: string, fromDir: string | null, toDir: string): string {
-  let data: { sources?: { path?: unknown }[] };
+  let data: { sources?: { path?: unknown }[]; layout?: { background?: unknown } };
   try {
     data = JSON.parse(text);
   } catch {
     return text;
   }
+  const rebase = (stored: string) => {
+    const abs = fromDir ? resolveStoredPath(fromDir, stored) : stored;
+    return path.isAbsolute(abs) ? toStoredPath(toDir, abs) : stored;
+  };
   for (const s of data.sources ?? []) {
-    if (typeof s.path !== "string") continue;
-    const abs = fromDir ? resolveStoredPath(fromDir, s.path) : s.path;
-    if (path.isAbsolute(abs)) s.path = toStoredPath(toDir, abs);
+    if (typeof s.path === "string") s.path = rebase(s.path);
+  }
+  // 背景の画像ファイルも素材と同じ規則で保存する(プリセットはそのまま)
+  const bg = data.layout?.background as { image?: unknown } | undefined;
+  if (bg && typeof bg === "object" && typeof bg.image === "string" && !bg.image.startsWith("preset:")) {
+    bg.image = rebase(bg.image);
   }
   return `${JSON.stringify(data, null, 2)}\n`;
 }

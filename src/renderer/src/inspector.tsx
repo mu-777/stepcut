@@ -1,16 +1,23 @@
 // 右側の設定パネル。ステップの設定とプロジェクト全体の設定。
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
-  DEFAULT_ZOOM_TRANSITION,
+  DEFAULT_BACKGROUND,
+  DEFAULT_CAPTION_WIDTH,
   resolveCaptionStyle,
   resolveLayout,
   resolveOutput,
+  speechText,
+  zoomHolds,
 } from "../../core/defaults";
-import type { Project, Step, Zoom } from "../../core/schema";
+import { computeLayout, type Rect, zoomScale } from "../../core/layout";
+import type { Background, Margin, Project, Step, Zoom } from "../../core/schema";
 import type { Voice } from "../../shared/api";
+import { api } from "./api";
+import { drawPresetThumb, PRESETS } from "./backgrounds";
 import { CheckField, Field, NumField, prune, SelectField, TextField, withParam } from "./fields";
 import { t } from "./i18n";
+import type { Selection } from "./timeline";
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
 
@@ -46,28 +53,36 @@ export function StepInspector(props: {
   update: Update;
   voices: Voice[];
   playheadLocal: number;
-  sourceTime: number | null;
   speechInfo: string | null;
+  /** タイムラインで選んだ要素。その欄を強調して見える位置へ動かす */
+  focus: Selection;
   onDrawZoom: (zoomIndex: number) => void;
+  /** 再生位置にズームを足す */
+  onAddZoom: () => void;
+  onPreviewSpeech: () => void;
+  /** このステップの録画の大きさ */
+  srcSize: { w: number; h: number } | null;
 }) {
-  const { project, index, update, voices } = props;
+  const { project, index, update, voices, focus } = props;
   const step = project.steps[index];
   if (!step) return null;
   const set = (key: string) => patchStep(update, index, key);
   const caption = step.caption ?? { text: "" };
-  const speech = step.speech ?? { text: "" };
+  const speech = step.speech;
+  const synced = speech !== undefined && speech.text === undefined;
   const audio = step.audio ?? {};
   const style = resolveCaptionStyle(project, step);
-  const mode = resolveLayout(project).mode;
-  const round = (n: number) => Math.round(n * 1000) / 1000;
+  const projCap = project.styles?.caption;
+  const overridden = caption.position !== undefined || caption.width !== undefined;
+  const src = props.srcSize ?? { w: 1920, h: 1080 };
+  const out = resolveOutput(project);
+  const crop = computeLayout(out.width, out.height, resolveLayout(project), src.w, src.h).crop;
 
   const setCaption = (key: string, patch: Partial<NonNullable<Step["caption"]>>) =>
     set(`caption.${key}`)((s) => ({ ...s, caption: { ...(s.caption ?? { text: "" }), ...patch } }));
+  // speech があって text がなければテロップの文を読む。speech がなければ読まない
   const setSpeech = (key: string, patch: Partial<NonNullable<Step["speech"]>>) =>
-    set(`speech.${key}`)((s) => {
-      const next = prune({ ...(s.speech ?? { text: "" }), ...patch });
-      return { ...s, speech: next?.text !== undefined ? (next as NonNullable<Step["speech"]>) : undefined };
-    });
+    set(`speech.${key}`)((s) => ({ ...s, speech: prune({ ...s.speech, ...patch }) ?? {} }));
   const setZoom = (k: number, key: string, patch: Partial<Zoom>) =>
     set(`zoom${k}.${key}`)((s) => ({
       ...s,
@@ -76,133 +91,186 @@ export function StepInspector(props: {
 
   return (
     <div className="inspector">
-      <h3>
-        {t("step")} {index + 1}
-      </h3>
-      <TextField
-        label={t("id")}
-        value={step.id}
-        onChange={(v) => set("id")((s) => ({ ...s, id: v.replace(/[^A-Za-z0-9_-]/g, "") }))}
-      />
-      <SelectField
-        label={t("source")}
-        value={step.source}
-        options={project.sources.map((s) => ({ value: s.id, label: `${s.id} — ${s.path}` }))}
-        onChange={(v) => set("source")((s) => ({ ...s, source: v }))}
-      />
-      <div className="row">
-        <NumField
-          label={t("in")}
-          value={step.in}
-          min={0}
-          onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
+      <Section focused={focus.kind === "step"}>
+        <TextField
+          label={t("id")}
+          value={step.id}
+          onChange={(v) => set("id")((s) => ({ ...s, id: v.replace(/[^A-Za-z0-9_-]/g, "") }))}
         />
-        <NumField
-          label={t("out")}
-          value={step.out}
-          min={0}
-          onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
+        <SelectField
+          label={t("source")}
+          value={step.source}
+          options={project.sources.map((s) => ({ value: s.id, label: `${s.id} — ${s.path}` }))}
+          onChange={(v) => set("source")((s) => ({ ...s, source: v }))}
         />
-      </div>
-      {props.sourceTime !== null && (
         <div className="row">
-          <button
-            type="button"
-            onClick={() => set("in")((s) => ({ ...s, in: round(props.sourceTime ?? 0) }))}
-          >
-            {t("setIn")}
-          </button>
-          <button
-            type="button"
-            onClick={() => set("out")((s) => ({ ...s, out: round(props.sourceTime ?? 0) }))}
-          >
-            {t("setOut")}
-          </button>
+          <NumField
+            label={t("in")}
+            value={step.in}
+            min={0}
+            onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
+          />
+          <NumField
+            label={t("out")}
+            value={step.out}
+            min={0}
+            onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
+          />
         </div>
-      )}
-      <NumField
-        label={t("speed")}
-        value={step.speed ?? 1}
-        min={1}
-        step={0.5}
-        onChange={(v) =>
-          set("speed")((s) => ({ ...s, speed: v === undefined || v === 1 ? undefined : Math.max(1, v) }))
-        }
-      />
+        <NumField
+          label={t("speed")}
+          value={step.speed ?? 1}
+          min={1}
+          step={0.5}
+          onChange={(v) =>
+            set("speed")((s) => ({ ...s, speed: v === undefined || v === 1 ? undefined : Math.max(1, v) }))
+          }
+        />
+      </Section>
 
-      <h4>{t("caption")}</h4>
-      <TextField
-        label={t("caption")}
-        multiline
-        value={caption.text}
-        onChange={(v) => setCaption("text", { text: v })}
-      />
-      <div className="row">
-        <NumField
-          label={t("captionStart")}
-          value={caption.start}
-          min={0}
-          onChange={(v) => setCaption("start", { start: v })}
+      <Section focused={focus.kind === "caption"}>
+        <h4>{t("caption")}</h4>
+        <TextField
+          label={t("caption")}
+          multiline
+          value={caption.text}
+          onChange={(v) => setCaption("text", { text: v })}
         />
+        <div className="row">
+          <NumField
+            label={t("captionStart")}
+            value={caption.start}
+            min={0}
+            onChange={(v) => setCaption("start", { start: v })}
+          />
+          <NumField
+            label={t("captionEnd")}
+            value={caption.end}
+            min={0}
+            onChange={(v) => setCaption("end", { end: v })}
+          />
+        </div>
         <NumField
-          label={t("captionEnd")}
-          value={caption.end}
-          min={0}
-          onChange={(v) => setCaption("end", { end: v })}
+          label={t("captionSize")}
+          value={caption.style?.size}
+          placeholder={String(style.size)}
+          step={2}
+          onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
         />
-      </div>
-      <NumField
-        label={t("captionSize")}
-        value={caption.style?.size}
-        placeholder={String(style.size)}
-        step={2}
-        onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
-      />
-      {mode === "full" && (
+        <p className="field-label">
+          {t("captionPlacement")}
+          {overridden && <span className="badge">{t("overridden")}</span>}
+        </p>
         <div className="row">
           <NumField
             label={t("captionX")}
-            value={caption.position?.x ?? 0.5}
+            value={caption.position?.x}
             step={0.01}
             min={0}
             max={1}
-            onChange={(v) => setCaption("x", { position: { x: v ?? 0.5, y: caption.position?.y ?? 0.88 } })}
+            placeholder={projCap?.position ? String(projCap.position.x) : "auto"}
+            onChange={(v) =>
+              setCaption("x", {
+                position:
+                  v === undefined
+                    ? undefined
+                    : { x: v, y: caption.position?.y ?? projCap?.position?.y ?? 0.88 },
+              })
+            }
           />
           <NumField
             label={t("captionY")}
-            value={caption.position?.y ?? 0.88}
+            value={caption.position?.y}
             step={0.01}
             min={0}
             max={1}
-            onChange={(v) => setCaption("y", { position: { x: caption.position?.x ?? 0.5, y: v ?? 0.88 } })}
+            placeholder={projCap?.position ? String(projCap.position.y) : "auto"}
+            onChange={(v) =>
+              setCaption("y", {
+                position:
+                  v === undefined
+                    ? undefined
+                    : { x: caption.position?.x ?? projCap?.position?.x ?? 0.5, y: v },
+              })
+            }
+          />
+          <NumField
+            label={t("captionWidth")}
+            value={caption.width}
+            step={0.05}
+            min={0.1}
+            max={1}
+            placeholder={String(projCap?.width ?? DEFAULT_CAPTION_WIDTH)}
+            onChange={(v) => setCaption("width", { width: v })}
           />
         </div>
-      )}
+        {overridden && (
+          <button
+            type="button"
+            className="small"
+            onClick={() =>
+              set("caption.reset")((s) => {
+                if (!s.caption) return s;
+                const { position: _p, width: _w, ...rest } = s.caption;
+                return { ...s, caption: rest };
+              })
+            }
+          >
+            {t("resetToProject")}
+          </button>
+        )}
+      </Section>
 
-      <h4>{t("speech")}</h4>
-      <TextField
-        label={t("speechText")}
-        multiline
-        value={speech.text}
-        onChange={(v) => setSpeech("text", { text: v })}
-      />
-      {props.speechInfo && <p className="hint">{props.speechInfo}</p>}
-      <VoiceSelect
-        label={t("voice")}
-        voices={voices}
-        value={speech.voice}
-        emptyLabel={t("defaultVoice")}
-        onChange={(v) => setSpeech("voice", { voice: v })}
-      />
-      <NumField
-        label={t("rate")}
-        value={typeof speech.params?.rate === "number" ? speech.params.rate : undefined}
-        step={0.1}
-        min={0.5}
-        max={3}
-        placeholder={t("defaultVoice")}
-        onChange={(v) => setSpeech("rate", { params: withParam(speech.params, "rate", v) })}
-      />
+      <Section focused={focus.kind === "speech"}>
+        <h4>{t("speech")}</h4>
+        <CheckField
+          label={t("speechSyncCaption")}
+          value={synced}
+          onChange={(v) =>
+            // オフにするとテロップの文をコピーして、別の文に書き換えられるようにする
+            set("speech.sync")((s) => {
+              const { text: _t, ...rest } = s.speech ?? {};
+              return { ...s, speech: v ? rest : { ...rest, text: s.caption?.text ?? "" } };
+            })
+          }
+        />
+        <TextField
+          label={t("speechText")}
+          multiline
+          value={synced ? caption.text : (speech?.text ?? "")}
+          disabled={synced}
+          onChange={(v) => setSpeech("text", { text: v })}
+        />
+        <div className="row">
+          <button type="button" onClick={props.onPreviewSpeech} disabled={!speechText(step)}>
+            ▶ {t("previewSpeech")}
+          </button>
+        </div>
+        <NumField
+          label={t("speechStart")}
+          value={speech?.start}
+          min={0}
+          placeholder="0"
+          onChange={(v) => setSpeech("start", { start: v === 0 ? undefined : v })}
+        />
+        {props.speechInfo && <p className="hint">{props.speechInfo}</p>}
+        <VoiceSelect
+          label={t("voice")}
+          voices={voices}
+          value={speech?.voice}
+          emptyLabel={t("defaultVoice")}
+          onChange={(v) => setSpeech("voice", { voice: v })}
+        />
+        <NumField
+          label={t("rate")}
+          value={typeof speech?.params?.rate === "number" ? speech.params.rate : undefined}
+          step={0.1}
+          min={0.5}
+          max={3}
+          placeholder={t("defaultVoice")}
+          onChange={(v) => setSpeech("rate", { params: withParam(speech?.params, "rate", v) })}
+        />
+      </Section>
 
       <h4>{t("sourceAudio")}</h4>
       <div className="row">
@@ -235,46 +303,49 @@ export function StepInspector(props: {
       <h4>{t("holds")}</h4>
       {(step.holds ?? []).map((h, k) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: 保持は id を持たない
-        <div className="row" key={k}>
-          <NumField
-            label={t("at")}
-            value={h.at}
-            min={0}
-            onChange={(v) =>
-              set(`hold${k}.at`)((s) => ({
-                ...s,
-                holds: s.holds?.map((x, i) => (i === k ? { ...x, at: v ?? 0 } : x)),
-              }))
-            }
-          />
-          <NumField
-            label={t("duration")}
-            value={h.duration}
-            min={0.1}
-            onChange={(v) =>
-              set(`hold${k}.duration`)((s) => ({
-                ...s,
-                holds: s.holds?.map((x, i) => (i === k ? { ...x, duration: v ?? 1 } : x)),
-              }))
-            }
-          />
-          <button
-            type="button"
-            className="small"
-            onClick={() => set("holds")((s) => ({ ...s, holds: s.holds?.filter((_, i) => i !== k) }))}
-          >
-            {t("remove")}
-          </button>
-        </div>
+        <Section key={k} focused={focus.kind === "hold" && focus.index === k}>
+          <div className="row">
+            <NumField
+              label={t("at")}
+              value={h.at}
+              min={0}
+              onChange={(v) =>
+                set(`hold${k}.at`)((s) => ({
+                  ...s,
+                  holds: s.holds?.map((x, i) => (i === k ? { ...x, at: v ?? 0 } : x)),
+                }))
+              }
+            />
+            <NumField
+              label={t("duration")}
+              value={h.duration}
+              min={0.1}
+              onChange={(v) =>
+                set(`hold${k}.duration`)((s) => ({
+                  ...s,
+                  holds: s.holds?.map((x, i) => (i === k ? { ...x, duration: v ?? 1 } : x)),
+                }))
+              }
+            />
+            <button
+              type="button"
+              className="small"
+              onClick={() => set("holds")((s) => ({ ...s, holds: s.holds?.filter((_, i) => i !== k) }))}
+            >
+              {t("remove")}
+            </button>
+          </div>
+        </Section>
       ))}
       <button
         type="button"
         onClick={() =>
           set("holds")((s) => ({
             ...s,
-            holds: [...(s.holds ?? []), { at: round(props.playheadLocal), duration: 1 }].sort(
-              (a, b) => a.at - b.at,
-            ),
+            holds: [
+              ...(s.holds ?? []),
+              { at: Math.round(props.playheadLocal * 1000) / 1000, duration: 1 },
+            ].sort((a, b) => a.at - b.at),
           }))
         }
       >
@@ -284,7 +355,7 @@ export function StepInspector(props: {
       <h4>{t("zooms")}</h4>
       {(step.zooms ?? []).map((z, k) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: ズームは id を持たない
-        <div className="zoom" key={k}>
+        <Section key={k} className="zoom" focused={focus.kind === "zoom" && focus.index === k}>
           <div className="row">
             <NumField
               label={t("start")}
@@ -299,23 +370,22 @@ export function StepInspector(props: {
               onChange={(v) => setZoom(k, "end", { end: v ?? 0 })}
             />
           </div>
-          <div className="row">
-            <NumField
-              label={t("transition")}
-              value={z.transition}
-              min={0}
-              placeholder={String(DEFAULT_ZOOM_TRANSITION)}
-              onChange={(v) => setZoom(k, "transition", { transition: v })}
-            />
-            <CheckField
-              label={t("hold")}
-              value={z.hold ?? false}
-              onChange={(v) => setZoom(k, "hold", { hold: v || undefined })}
-            />
-          </div>
-          <p className="hint">
-            x {Math.round(z.rect.x)}, y {Math.round(z.rect.y)}, {Math.round(z.rect.w)}×{Math.round(z.rect.h)}
-          </p>
+          <p className="hint">{t("zoomHeldHint")}</p>
+          <ZoomRectFields
+            rect={z.rect}
+            scale={zoomScale(z, crop, src.w, src.h)}
+            onChange={(rect, key) => setZoom(k, key, { rect })}
+          />
+          <CheckField
+            label={t("zoomInstant")}
+            value={z.transition === 0}
+            onChange={(v) => setZoom(k, "transition", { transition: v ? 0 : undefined })}
+          />
+          <CheckField
+            label={t("hold")}
+            value={zoomHolds(z)}
+            onChange={(v) => setZoom(k, "hold", { hold: v ? undefined : false })}
+          />
           <div className="row">
             <button type="button" onClick={() => props.onDrawZoom(k)}>
               {t("drawRect")}
@@ -328,24 +398,83 @@ export function StepInspector(props: {
               {t("remove")}
             </button>
           </div>
-        </div>
+        </Section>
       ))}
-      <button
-        type="button"
-        onClick={() => {
-          const start = round(props.playheadLocal);
-          set("zooms")((s) => ({
-            ...s,
-            zooms: [
-              ...(s.zooms ?? []),
-              { start, end: round(start + 2), rect: { x: 0, y: 0, w: 960, h: 540 } },
-            ],
-          }));
-          props.onDrawZoom(step.zooms?.length ?? 0);
-        }}
-      >
-        {t("addZoom")}
+      <button type="button" onClick={props.onAddZoom}>
+        {t("addZoom")} (Z)
       </button>
+    </div>
+  );
+}
+
+/** ズームの枠の数値。倍率を変えると中心と縦横比を保って枠の大きさが変わる */
+function ZoomRectFields(props: { rect: Rect; scale: number; onChange: (rect: Rect, key: string) => void }) {
+  const r = props.rect;
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const round = (b: Rect) => ({
+    x: Math.round(b.x),
+    y: Math.round(b.y),
+    w: Math.round(b.w),
+    h: Math.round(b.h),
+  });
+  const resize = (w: number, h: number) => round({ x: cx - w / 2, y: cy - h / 2, w, h });
+  return (
+    <>
+      <div className="row">
+        <NumField
+          label={t("zoomScale")}
+          value={Math.round(props.scale * 100) / 100}
+          step={0.1}
+          min={1}
+          onChange={(v) => {
+            if (!v || v < 1) return;
+            const k = props.scale / v;
+            props.onChange(resize(r.w * k, r.h * k), "scale");
+          }}
+        />
+        <NumField
+          label={t("zoomBoxW")}
+          value={Math.round(r.w)}
+          step={10}
+          min={8}
+          onChange={(v) => v && v >= 8 && props.onChange(resize(v, r.h), "w")}
+        />
+        <NumField
+          label={t("zoomBoxH")}
+          value={Math.round(r.h)}
+          step={10}
+          min={8}
+          onChange={(v) => v && v >= 8 && props.onChange(resize(r.w, v), "h")}
+        />
+      </div>
+      <div className="row">
+        <NumField
+          label={t("zoomCenterX")}
+          value={Math.round(cx)}
+          step={10}
+          onChange={(v) => v !== undefined && props.onChange(round({ ...r, x: v - r.w / 2 }), "cx")}
+        />
+        <NumField
+          label={t("zoomCenterY")}
+          value={Math.round(cy)}
+          step={10}
+          onChange={(v) => v !== undefined && props.onChange(round({ ...r, y: v - r.h / 2 }), "cy")}
+        />
+      </div>
+    </>
+  );
+}
+
+/** 設定の欄。タイムラインで選ばれたら強調し、見える位置へ動かす */
+function Section(props: { focused: boolean; className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (props.focused) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [props.focused]);
+  return (
+    <div ref={ref} className={`section ${props.className ?? ""} ${props.focused ? "focused" : ""}`}>
+      {props.children}
     </div>
   );
 }
@@ -357,13 +486,28 @@ const RESOLUTIONS = [
   { label: "3840×2160", w: 3840, h: 2160 },
 ];
 
-export function ProjectInspector(props: { project: Project; update: Update; voices: Voice[] }) {
+export function ProjectInspector(props: {
+  project: Project;
+  update: Update;
+  voices: Voice[];
+  /** プレビューで映像を選んでいる。映像の位置の欄を強調する */
+  focusVideo: boolean;
+  srcSize: { w: number; h: number } | null;
+  projectPath: string | null;
+  backgroundError: string | null;
+}) {
   const { project, update, voices } = props;
   const out = resolveOutput(project);
   const layout = resolveLayout(project);
   const capStyle = project.styles?.caption ?? {};
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
+  const setCapPos = (pos: { x: number; y: number } | undefined, key: string) =>
+    set("styles", prune({ ...project.styles, caption: prune({ ...capStyle, position: pos }) }), key);
+  // テロップの位置・幅を個別に設定しているステップの数
+  const overrides = project.steps.filter(
+    (st) => st.caption?.position !== undefined || st.caption?.width !== undefined,
+  ).length;
   const even = (v: number | undefined) => (v === undefined ? undefined : Math.max(16, Math.round(v / 2) * 2));
 
   return (
@@ -421,51 +565,29 @@ export function ProjectInspector(props: { project: Project; update: Update; voic
       />
 
       <h3>{t("layout")}</h3>
-      <SelectField
-        label={t("mode")}
-        value={layout.mode}
-        options={[
-          { value: "band", label: t("band") },
-          { value: "full", label: t("full") },
-        ]}
-        onChange={(v) => set("layout", { ...project.layout, mode: v })}
+      <BackgroundField
+        value={layout.background}
+        error={props.backgroundError}
+        onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
       />
-      {layout.mode === "band" && (
-        <>
-          <Field label={t("background")}>
-            <input
-              type="color"
-              value={layout.background.slice(0, 7)}
-              onChange={(e) =>
-                set("layout", { ...project.layout, background: e.target.value.toUpperCase() }, "layout.bg")
-              }
-            />
-          </Field>
-          <div className="row">
-            <NumField
-              label={t("bandHeight")}
-              value={layout.bandHeight}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => set("layout", prune({ ...project.layout, bandHeight: v }), "layout.band")}
-            />
-            <NumField
-              label={t("margin")}
-              value={layout.margin}
-              step={0.01}
-              min={0}
-              max={1}
-              onChange={(v) => set("layout", prune({ ...project.layout, margin: v }), "layout.margin")}
-            />
-          </div>
-          <CheckField
-            label={t("shadow")}
-            value={layout.shadow}
-            onChange={(v) => set("layout", { ...project.layout, shadow: v })}
-          />
-        </>
-      )}
+      <Section focused={props.focusVideo}>
+        <MarginField
+          margin={layout.margin}
+          outW={out.width}
+          outH={out.height}
+          onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
+        />
+        <CheckField
+          label={t("fitCover")}
+          value={layout.fit === "cover"}
+          onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
+        />
+      </Section>
+      <CheckField
+        label={t("shadow")}
+        value={layout.shadow}
+        onChange={(v) => set("layout", { ...project.layout, shadow: v })}
+      />
 
       <h3>{t("captionStyle")}</h3>
       <TextField
@@ -508,6 +630,88 @@ export function ProjectInspector(props: { project: Project; update: Update; voic
           />
         </Field>
       </div>
+      <SelectField
+        label={t("captionBg")}
+        value={
+          capStyle.background === undefined || capStyle.background === "auto"
+            ? "auto"
+            : capStyle.background === "#00000000"
+              ? "none"
+              : "color"
+        }
+        options={[
+          { value: "auto", label: t("bgAuto") },
+          { value: "color", label: t("bgColor") },
+          { value: "none", label: t("bgNone") },
+        ]}
+        onChange={(v) =>
+          set(
+            "styles",
+            prune({
+              ...project.styles,
+              caption: prune({
+                ...capStyle,
+                background: v === "auto" ? undefined : v === "none" ? "#00000000" : "#000000AA",
+              }),
+            }),
+            "style.bg",
+          )
+        }
+      />
+      <p className="field-label">{t("captionPlacement")}</p>
+      <div className="row">
+        <NumField
+          label={t("captionX")}
+          value={capStyle.position?.x}
+          step={0.01}
+          min={0}
+          max={1}
+          placeholder="auto"
+          onChange={(v) =>
+            setCapPos(v === undefined ? undefined : { x: v, y: capStyle.position?.y ?? 0.88 }, "style.x")
+          }
+        />
+        <NumField
+          label={t("captionY")}
+          value={capStyle.position?.y}
+          step={0.01}
+          min={0}
+          max={1}
+          placeholder="auto"
+          onChange={(v) =>
+            setCapPos(v === undefined ? undefined : { x: capStyle.position?.x ?? 0.5, y: v }, "style.y")
+          }
+        />
+        <NumField
+          label={t("captionWidth")}
+          value={capStyle.width}
+          step={0.05}
+          min={0.1}
+          max={1}
+          placeholder={String(DEFAULT_CAPTION_WIDTH)}
+          onChange={(v) =>
+            set("styles", prune({ ...project.styles, caption: prune({ ...capStyle, width: v }) }), "style.w")
+          }
+        />
+      </div>
+      {overrides > 0 && (
+        <button
+          type="button"
+          className="small"
+          onClick={() =>
+            update((p) => ({
+              ...p,
+              steps: p.steps.map((st) => {
+                if (!st.caption) return st;
+                const { position: _p, width: _w, ...rest } = st.caption;
+                return { ...st, caption: rest };
+              }),
+            }))
+          }
+        >
+          {t("clearOverrides")} ({overrides})
+        </button>
+      )}
 
       <h3>{t("speech")}</h3>
       <VoiceSelect
@@ -583,5 +787,192 @@ function DictionaryField(props: { value: Dict; onChange: (d: Dict) => void }) {
         }}
       />
     </Field>
+  );
+}
+
+const PRESET_LABELS: Record<string, Parameters<typeof t>[0]> = {
+  default: "presetDefault",
+  sunset: "presetSunset",
+  mint: "presetMint",
+  ocean: "presetOcean",
+  graphite: "presetGraphite",
+  paper: "presetPaper",
+};
+
+function PresetSwatch(props: { id: string; selected: boolean; onClick: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (ref.current) drawPresetThumb(ref.current, props.id);
+  }, [props.id]);
+  const label = t(PRESET_LABELS[props.id] ?? "presetDefault");
+  return (
+    <button
+      type="button"
+      className={`swatch ${props.selected ? "selected" : ""}`}
+      title={label}
+      aria-label={label}
+      onClick={props.onClick}
+    >
+      <canvas ref={ref} width={64} height={36} />
+    </button>
+  );
+}
+
+/** 背景(LAY-04)。種類を選び、種類ごとの設定を出す */
+function BackgroundField(props: {
+  value: Background;
+  error: string | null;
+  onChange: (bg: Background, key: string) => void;
+}) {
+  const bg = props.value;
+  const kind = typeof bg === "string" ? "color" : "gradient" in bg ? "gradient" : "image";
+  const grad = typeof bg !== "string" && "gradient" in bg ? bg.gradient : null;
+  const image = typeof bg !== "string" && "image" in bg ? bg.image : null;
+  return (
+    <>
+      <SelectField
+        label={t("bgType")}
+        value={kind}
+        options={[
+          { value: "image", label: t("bgImage") },
+          { value: "gradient", label: t("bgGradient") },
+          { value: "color", label: t("bgColor") },
+        ]}
+        onChange={(v) =>
+          props.onChange(
+            v === "color"
+              ? "#000000"
+              : v === "gradient"
+                ? { gradient: { angle: 135, colors: ["#1E2A5A", "#6A3093"] } }
+                : DEFAULT_BACKGROUND,
+            "layout.bgType",
+          )
+        }
+      />
+      {typeof bg === "string" && (
+        <Field label={t("color")}>
+          <input
+            type="color"
+            value={bg.slice(0, 7)}
+            onChange={(e) => props.onChange(e.target.value.toUpperCase(), "layout.bg")}
+          />
+        </Field>
+      )}
+      {grad && (
+        <>
+          <NumField
+            label={t("angle")}
+            value={grad.angle ?? 180}
+            step={15}
+            onChange={(v) => props.onChange({ gradient: { ...grad, angle: v ?? 180 } }, "layout.angle")}
+          />
+          <div className="row">
+            {grad.colors.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 色は並び順で区別する
+              <div className="grad-color" key={i}>
+                <input
+                  type="color"
+                  value={c.slice(0, 7)}
+                  onChange={(e) =>
+                    props.onChange(
+                      {
+                        gradient: {
+                          ...grad,
+                          colors: grad.colors.map((x, j) => (j === i ? e.target.value.toUpperCase() : x)),
+                        },
+                      },
+                      `layout.grad${i}`,
+                    )
+                  }
+                />
+                {grad.colors.length > 2 && (
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() =>
+                      props.onChange(
+                        { gradient: { ...grad, colors: grad.colors.filter((_, j) => j !== i) } },
+                        "layout.gradRemove",
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            {grad.colors.length < 4 && (
+              <button
+                type="button"
+                className="small"
+                onClick={() =>
+                  props.onChange(
+                    { gradient: { ...grad, colors: [...grad.colors, grad.colors.at(-1) ?? "#FFFFFF"] } },
+                    "layout.gradAdd",
+                  )
+                }
+              >
+                {t("addColor")}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {image !== null && (
+        <>
+          <div className="swatches">
+            {PRESETS.map((p) => (
+              <PresetSwatch
+                key={p.id}
+                id={p.id}
+                selected={image === `preset:${p.id}`}
+                onClick={() => props.onChange({ image: `preset:${p.id}` }, "layout.preset")}
+              />
+            ))}
+          </div>
+          {!image.startsWith("preset:") && <p className="hint">{image}</p>}
+          {props.error && <p className="hint error">⚠ {props.error}</p>}
+          <button
+            type="button"
+            onClick={async () => {
+              const path = await api.pickImage();
+              if (path) props.onChange({ image: path }, "layout.image");
+            }}
+          >
+            {t("chooseImage")}
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+/** 上下左右の余白。表示は出力のピクセル、保存は割合 */
+function MarginField(props: {
+  margin: Margin;
+  outW: number;
+  outH: number;
+  onChange: (m: Margin, key: string) => void;
+}) {
+  const m = props.margin;
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const field = (side: keyof Margin, label: Parameters<typeof t>[0], size: number) => (
+    <NumField
+      label={t(label)}
+      value={Math.round(m[side] * size)}
+      step={2}
+      onChange={(v) => props.onChange({ ...m, [side]: r4((v ?? 0) / size) }, `margin.${side}`)}
+    />
+  );
+  return (
+    <>
+      <p className="field-label">{t("marginTitle")}</p>
+      <div className="row">
+        {field("top", "marginTop", props.outH)}
+        {field("bottom", "marginBottom", props.outH)}
+        {field("left", "marginLeft", props.outW)}
+        {field("right", "marginRight", props.outW)}
+      </div>
+    </>
   );
 }

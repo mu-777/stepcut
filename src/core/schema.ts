@@ -20,8 +20,15 @@ export const captionStyleSchema = z.strictObject({
   color: color.optional(),
   lineHeight: z.number().positive().optional(),
   align: z.enum(["center", "left"]).optional(),
-  background: color.optional(),
+  /** 文字の背景の箱。"auto" は録画に重なるときだけ付ける */
+  background: z.union([color, z.literal("auto")]).optional(),
 });
+
+/** テロップの置き方。中心の位置(画面側座標)と折り返し幅(出力の幅に対する割合) */
+const captionPlacement = {
+  position: z.strictObject({ x: ratio, y: ratio }).optional(),
+  width: ratio.optional(),
+};
 
 export const pointerStyleSchema = z.strictObject({
   preset: z.string().min(1).optional(),
@@ -40,6 +47,18 @@ const audioSchema = z.strictObject({
 });
 
 const speechParams = z.record(z.string(), z.union([z.number(), z.string(), z.boolean()]));
+
+/** 背景。色・グラデーション・画像のどれか(LAY-04)。画像は "preset:<名前>" か画像ファイルのパス */
+export const backgroundSchema = z.union([
+  color,
+  z.strictObject({
+    gradient: z.strictObject({
+      angle: z.number().optional(),
+      colors: z.array(color).min(2).max(4),
+    }),
+  }),
+  z.strictObject({ image: z.string().min(1) }),
+]);
 
 const pointSchema = z.strictObject({ t: time, x: z.number(), y: z.number() });
 const transitionKind = z.enum(["none", "fade", "flash"]);
@@ -78,14 +97,15 @@ export const stepSchema = z.strictObject({
       text: z.string(),
       start: time.optional(),
       end: time.nullable().optional(),
-      position: z.strictObject({ x: ratio, y: ratio }).optional(),
-      width: ratio.optional(),
+      ...captionPlacement,
       style: captionStyleSchema.optional(),
     })
     .optional(),
   speech: z
     .strictObject({
-      text: z.string(),
+      /** 省略するとテロップの文を読む */
+      text: z.string().optional(),
+      start: time.optional(),
       voice: z.string().nullable().optional(),
       params: speechParams.optional(),
     })
@@ -113,16 +133,24 @@ export const projectSchema = z.strictObject({
     .optional(),
   layout: z
     .strictObject({
-      mode: z.enum(["band", "full"]).optional(),
-      background: color.optional(),
-      bandHeight: ratio.optional(),
-      margin: ratio.optional(),
+      background: backgroundSchema.optional(),
+      /** 録画の周りの余白。上下は出力の高さ、左右は出力の幅に対する割合 */
+      margin: z
+        .strictObject({
+          top: z.number().min(-1).max(1),
+          right: z.number().min(-1).max(1),
+          bottom: z.number().min(-1).max(1),
+          left: z.number().min(-1).max(1),
+        })
+        .optional(),
+      /** 余白の内側への録画の置き方。contain = 全体を収める、cover = 枠に合わせて端を切り取る */
+      fit: z.enum(["contain", "cover"]).optional(),
       shadow: z.boolean().optional(),
     })
     .optional(),
   styles: z
     .strictObject({
-      caption: captionStyleSchema.optional(),
+      caption: captionStyleSchema.extend(captionPlacement).optional(),
       pointer: pointerStyleSchema.optional(),
       highlighter: highlighterStyleSchema.optional(),
     })
@@ -145,3 +173,5 @@ export type Step = z.infer<typeof stepSchema>;
 export type Zoom = z.infer<typeof zoomSchema>;
 export type Hold = z.infer<typeof holdSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
+export type Background = z.infer<typeof backgroundSchema>;
+export type Margin = NonNullable<NonNullable<Project["layout"]>["margin"]>;

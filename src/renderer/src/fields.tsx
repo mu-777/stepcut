@@ -53,14 +53,21 @@ export function TextField(props: {
   onChange: (v: string) => void;
   multiline?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <Field label={props.label}>
       {props.multiline ? (
-        <textarea value={props.value} rows={3} onChange={(e) => props.onChange(e.target.value)} />
+        <textarea
+          value={props.value}
+          rows={3}
+          disabled={props.disabled}
+          onChange={(e) => props.onChange(e.target.value)}
+        />
       ) : (
         <input
           type="text"
+          disabled={props.disabled}
           value={props.value}
           placeholder={props.placeholder}
           onChange={(e) => props.onChange(e.target.value)}

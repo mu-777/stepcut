@@ -1,24 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { resolveOutput } from "../../core/defaults";
+import { captionWindow } from "../../core/captions";
+import { resolveLayout, resolveOutput } from "../../core/defaults";
 import { deleteStep, duplicateStep, moveStep, newProject, splitStep, uniqueStepId } from "../../core/edit";
+import { computeLayout, marginOf, viewRectAt } from "../../core/layout";
 import type { Project } from "../../core/schema";
 import { buildTimeline, locate, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
+import { BackgroundStore } from "./backgrounds";
 import { exportProject } from "./exporter";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
+import { Icon } from "./icons";
 import { ProjectInspector, StepInspector } from "./inspector";
 import { openMedia, type SourceMedia } from "./media";
-import type { Player, PlayerState } from "./player";
+import { PLAYBACK_RATES, type Player, type PlayerState } from "./player";
 import { Preview } from "./preview";
 import { SpeechStore } from "./speech";
-
-const fmt = (s: number) => {
-  const m = Math.floor(s / 60);
-  return `${m}:${(s - m * 60).toFixed(2).padStart(5, "0")}`;
-};
+import { ThumbCache } from "./thumbs";
+import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
+import { ContextMenu, loadPref, Splitter, savePref } from "./widgets";
 
 const isTyping = () => {
   const el = document.activeElement;
@@ -32,46 +34,64 @@ export function App() {
   const project = hist.present;
   const [filePath, setFilePath] = useState<string | null>(null);
   const [savedText, setSavedText] = useState(() => serializeProject(newProject()));
-  const [selected, setSelected] = useState<number | null>(null);
-  const [tab, setTab] = useState<"step" | "project">("project");
+  const [selection, setSelection] = useState<Selection>({ kind: "project" });
   const [media, setMedia] = useState<Map<string, SourceMedia>>(new Map());
   const [mediaErrors, setMediaErrors] = useState<string[]>([]);
   const [speechVersion, setSpeechVersion] = useState(0);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [sourceView, setSourceView] = useState<number | null>(null);
+  const [rate, setRate] = useState(1);
+  const [muted, setMuted] = useState(false);
+  useEffect(() => playerRef.current?.setMuted(muted), [muted]);
+  const [trimPreview, setTrimPreview] = useState<{ step: number; time: number } | null>(null);
   const [drawingZoom, setDrawingZoom] = useState<{ step: number; zoom: number } | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [banner, setBanner] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const [leftW, setLeftW] = useState(() => loadPref("leftWidth", 220));
+  const [rightW, setRightW] = useState(() => loadPref("rightWidth", 320));
+  const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
+  const [zoomCommand, setZoomCommand] = useState<{ n: number; kind: "in" | "out" | "fit" }>({
+    n: 0,
+    kind: "fit",
+  });
+  useEffect(() => savePref("leftWidth", leftW), [leftW]);
+  useEffect(() => savePref("rightWidth", rightW), [rightW]);
+  useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
+  const [thumbsVersion, setThumbsVersion] = useState(0);
+  const thumbs = useMemo(() => new ThumbCache(() => setThumbsVersion((v) => v + 1)), []);
+  const [bgVersion, setBgVersion] = useState(0);
+  const backgrounds = useMemo(() => new BackgroundStore(() => setBgVersion((v) => v + 1)), []);
   const speech = useMemo(() => new SpeechStore(), []);
   const playerRef = useRef<Player | null>(null);
 
   const dirty = serializeProject(project) !== savedText;
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で読み上げの長さの更新を拾う
-  const timeline = useMemo(
-    () => buildTimeline(project.steps, speech.durations(project)),
-    [project, speechVersion],
-  );
+  const speechDurations = useMemo(() => speech.durations(project), [project, speechVersion]);
+  const timeline = useMemo(() => buildTimeline(project.steps, speechDurations), [project, speechDurations]);
   const total = totalDuration(timeline);
   const issues = useMemo(() => {
     const r = parseProject(project);
     return [...(r.ok ? [] : r.errors), ...r.warnings];
   }, [project]);
+  const selected = selectedStep(selection);
 
   const update = useCallback((fn: (p: Project) => Project, key?: string) => {
     setHist((h) => commit(h, fn(h.present), key ?? null));
   }, []);
 
   // 状態は ref 経由でプレーヤーに渡す(再生中のループが古い値を見ないように)
-  const [sourceTime, setSourceTime] = useState(0);
   const playerState: PlayerState = {
     project,
     timeline,
     media,
     speech,
-    sourceView: sourceView !== null ? { stepIndex: sourceView, time: sourceTime } : null,
+    sourceView: trimPreview ? { stepIndex: trimPreview.step, time: trimPreview.time } : null,
     ignoreZoom: drawingZoom !== null,
+    thumbs,
+    backgrounds,
+    projectPath: filePath,
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -120,7 +140,12 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
   useEffect(() => {
     playerRef.current?.renderStill();
-  }, [project, timeline, media, sourceView, sourceTime, drawingZoom]);
+  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion]);
+
+  // 選択が範囲外になったら(削除・外部変更)プロジェクトの選択に戻す
+  useEffect(() => {
+    if (selected !== null && selected >= project.steps.length) setSelection({ kind: "project" });
+  }, [selected, project.steps.length]);
 
   const loadProject = useCallback((path: string, text: string, keepHistory: boolean) => {
     const r = parseProjectText(text);
@@ -133,8 +158,7 @@ export function App() {
     setSavedText(serializeProject(r.project));
     setBanner(null);
     if (!keepHistory) {
-      setSelected(null);
-      setTab("project");
+      setSelection({ kind: "project" });
       playerRef.current?.seek(0);
     }
     return true;
@@ -150,7 +174,7 @@ export function App() {
       setHist(initHistory(p));
       setSavedText(serializeProject(p));
       setFilePath(null);
-      setSelected(null);
+      setSelection({ kind: "project" });
     },
     open: async () => {
       if (!confirmDiscard()) return;
@@ -174,7 +198,14 @@ export function App() {
             sources: [...p.sources, { id, path }],
             steps: [
               ...p.steps,
-              { id: uniqueStepId(p, "step"), source: id, in: 0, out: Math.round(m.duration * 1000) / 1000 },
+              {
+                id: uniqueStepId(p, "step"),
+                source: id,
+                in: 0,
+                out: Math.round(m.duration * 1000) / 1000,
+                // テロップと同じ文を読む(既定でオン)
+                speech: {},
+              },
             ],
           };
         } catch (e) {
@@ -182,8 +213,7 @@ export function App() {
         }
       }
       update(() => p);
-      setSelected(p.steps.length - 1);
-      setTab("step");
+      setSelection({ kind: "step", step: p.steps.length - 1 });
     },
     export: () => doExport(),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
@@ -250,17 +280,70 @@ export function App() {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTyping()) return;
-      if (e.key === "Escape") setDrawingZoom(null);
-      if (e.key === " ") {
-        e.preventDefault();
-        const pl = playerRef.current;
-        if (pl?.playing) pl.stop();
-        else pl?.play();
-      }
+  /** 選んだ要素を消す(Delete キー) */
+  const deleteSelection = () => {
+    const s = selection;
+    if (!("step" in s)) return;
+    const patch = (fn: (st: Project["steps"][number]) => Project["steps"][number]) =>
+      update((p) => ({ ...p, steps: p.steps.map((st, i) => (i === s.step ? fn(st) : st)) }));
+    if (s.kind === "step") {
+      update((p) => deleteStep(p, s.step));
+      setSelection({ kind: "project" });
+      return;
+    }
+    if (s.kind === "zoom") patch((st) => ({ ...st, zooms: st.zooms?.filter((_, i) => i !== s.index) }));
+    else if (s.kind === "hold") patch((st) => ({ ...st, holds: st.holds?.filter((_, i) => i !== s.index) }));
+    else if (s.kind === "caption") patch((st) => ({ ...st, caption: undefined }));
+    else if (s.kind === "speech") patch((st) => ({ ...st, speech: undefined }));
+    setSelection({ kind: "step", step: s.step });
+  };
+
+  // キー操作は一般的な動画編集アプリに合わせる(docs/decisions/20261029-timeline-ui.md)
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if (isTyping()) return;
+    const pl = playerRef.current;
+    if (!pl) return;
+    const changeRate = (r: number) => {
+      setRate(r);
+      pl.setRate(r);
+      if (!pl.playing) pl.play();
     };
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
+    let handled = true;
+    if (key === "Escape") {
+      setDrawingZoom(null);
+      if (selection.kind === "video") setSelection({ kind: "project" });
+    } else if (key === " ") {
+      if (pl.playing) pl.stop();
+      else {
+        if (pl.rate < 0) changeRate(1);
+        pl.play();
+      }
+    } else if (key === "k" && !e.ctrlKey && !e.metaKey) pl.stop();
+    else if (key === "l") changeRate(pl.playing && pl.rate >= 1 ? Math.min(3, Math.floor(pl.rate) + 1) : 1);
+    else if (key === "j") changeRate(pl.playing && pl.rate < 0 ? Math.max(-3, pl.rate - 1) : -1);
+    else if (key === "ArrowLeft" || key === "ArrowRight") {
+      // ←→ は 1 秒、Shift+←→ は 1 フレーム
+      const d = e.shiftKey ? 1 / resolveOutput(project).fps : 1;
+      pl.seek(pl.time + (key === "ArrowLeft" ? -d : d));
+    } else if (key === "ArrowUp") pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
+    else if (key === "ArrowDown") pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    else if (key === "Home") pl.seek(0);
+    else if (key === "End") pl.seek(total);
+    else if (key === "k" && (e.ctrlKey || e.metaKey)) {
+      const l = locate(timeline, pl.time);
+      if (l) update((p) => splitStep(p, l.entry.index, l.local, true));
+    } else if (key === "Delete" || key === "Backspace") deleteSelection();
+    else if (key === "z" && !e.ctrlKey && !e.metaKey) addZoomAtPlayhead();
+    else if (key === "f" && !e.ctrlKey && !e.metaKey) toggleFullscreen();
+    else if (key === "m" && !e.ctrlKey && !e.metaKey) setMuted((m) => !m);
+    else handled = false;
+    if (handled) e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyRef.current(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -280,27 +363,183 @@ export function App() {
     return a ? `${a.duration.toFixed(2)} s` : null;
   }, [selStep, project, speech, speechVersion]);
 
+  /** ステップ一覧から選ぶ。再生ヘッドがそのステップの外なら先頭へ移す */
   const selectStep = (i: number) => {
-    setSelected(i);
-    setTab("step");
-    setSourceView(null);
+    setSelection({ kind: "step", step: i });
     setDrawingZoom(null);
     const e = timeline[i];
     if (e && !(loc && loc.entry.index === i)) playerRef.current?.seek(e.start);
   };
 
+  /** タイムラインで要素を選ぶ。ズームの範囲の編集は別の要素を選んだら終える */
+  const select = (s: Selection) => {
+    setSelection(s);
+    if (drawingZoom && !(s.kind === "zoom" && s.step === drawingZoom.step && s.index === drawingZoom.zoom))
+      setDrawingZoom(null);
+  };
+
+  const stepMenu = (e: React.MouseEvent, i: number) => {
+    e.preventDefault();
+    selectStep(i);
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: t("moveStepUp"),
+          disabled: i === 0,
+          action: () => {
+            update((p) => moveStep(p, i, i - 1));
+            setSelection({ kind: "step", step: i - 1 });
+          },
+        },
+        {
+          label: t("moveStepDown"),
+          disabled: i >= project.steps.length - 1,
+          action: () => {
+            update((p) => moveStep(p, i, i + 1));
+            setSelection({ kind: "step", step: i + 1 });
+          },
+        },
+        { label: t("duplicate"), action: () => update((p) => duplicateStep(p, i)) },
+        {
+          label: t("delete"),
+          shortcut: "Delete",
+          action: () => {
+            update((p) => deleteStep(p, i));
+            setSelection({ kind: "project" });
+          },
+        },
+      ],
+    });
+  };
+
+  const editZoomRect = (step: number, zoom: number) => {
+    playerRef.current?.stop();
+    setSelection({ kind: "zoom", step, index: zoom });
+    setDrawingZoom({ step, zoom });
+  };
+
+  // ズーム範囲の指定を始めたら、ズームの途中に移して範囲を指定する場面を見せる
+  // (追加した直後のズームはこの時点で project に入っているので、effect で行う)
+  const drawingKey = drawingZoom ? `${drawingZoom.step}:${drawingZoom.zoom}` : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 指定を始めたときだけ移す
+  useEffect(() => {
+    if (!drawingZoom) return;
+    const e = timeline[drawingZoom.step];
+    const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
+    if (e && z) playerRef.current?.seek(e.start + (z.start + z.end) / 2);
+  }, [drawingKey]);
+
   const out = resolveOutput(project);
+  const locMedia = loc ? media.get(loc.entry.step.source) : [...media.values()][0];
+
+  /** 再生位置のステップにズームを足し、範囲の編集を始める。center はソースの座標 */
+  const addZoomAtPlayhead = (center?: { x: number; y: number }) => {
+    if (!loc) return;
+    const r = insertZoom(project, loc.entry.index, loc.local, loc.entry.duration, locMedia, center);
+    if (!r) return;
+    update(() => r.project, "zoom-add");
+    editZoomRect(loc.entry.index, r.index);
+  };
+
+  /** プレビューの右クリック。再生ヘッドのステップに、クリックした点を中心にズームを作る(UI-05) */
+  const previewMenu = (x: number, y: number, pt: { x: number; y: number }) => {
+    const items: MenuItem[] = [];
+    if (loc && locMedia && !drawingZoom) {
+      const { entry, local } = loc;
+      const step = entry.step;
+      const zooms = step.zooms ?? [];
+      const hit = zooms.findIndex((z) => local >= z.start && local <= z.end);
+      const geo = computeLayout(
+        out.width,
+        out.height,
+        resolveLayout(project),
+        locMedia.width,
+        locMedia.height,
+      );
+      const v = geo.video;
+      const fx = (pt.x - v.x) / v.w;
+      const fy = (pt.y - v.y) / v.h;
+      if (hit >= 0) {
+        items.push({ label: t("drawRect"), action: () => editZoomRect(entry.index, hit) });
+      } else if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
+        // 表示中の範囲(ズーム中ならその範囲)の中で、クリックした点をソースの座標にする
+        const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop);
+        const center = { x: view.x + fx * view.w, y: view.y + fy * view.h };
+        items.push({ label: t("addZoomHere"), shortcut: "Z", action: () => addZoomAtPlayhead(center) });
+      }
+    }
+    items.push({ label: t("editVideoBox"), action: () => setSelection({ kind: "video" }) });
+    setMenu({ x, y, items });
+  };
+
+  /** 読み上げだけを鳴らす */
+  const speechPlayer = useRef<AudioContext | null>(null);
+  const previewSpeech = (i: number) => {
+    const step = project.steps[i];
+    const a = step ? speech.get(project, step) : null;
+    if (!a) {
+      setBanner({ kind: "info", text: t("speechPending") });
+      return;
+    }
+    speechPlayer.current?.close();
+    const ac = new AudioContext();
+    speechPlayer.current = ac;
+    const node = ac.createBufferSource();
+    node.buffer = a.buffer;
+    node.connect(ac.destination);
+    node.start();
+  };
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.querySelector(".center .preview")?.requestFullscreen();
+  };
+
+  // テロップのドラッグ: いまテロップが出ているステップ
+  const captionStep =
+    loc && !playing
+      ? (() => {
+          const w = captionWindow(loc.entry.step, loc.entry.duration);
+          return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
+        })()
+      : null;
+  const moveCaption = (pos: { x: number; y: number }, key: string) => {
+    if (!loc) return;
+    // プロジェクトの設定を開いているときはプロジェクトの値、それ以外はそのステップの個別設定
+    if (selection.kind === "project")
+      update(
+        (p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, position: pos } } }),
+        key,
+      );
+    else {
+      const i = loc.entry.index;
+      update(
+        (p) => ({
+          ...p,
+          steps: p.steps.map((s, j) =>
+            j === i && s.caption ? { ...s, caption: { ...s.caption, position: pos } } : s,
+          ),
+        }),
+        key,
+      );
+      if (selection.kind !== "step" || selection.step !== i) setSelection({ kind: "caption", step: i });
+    }
+  };
+
+  const clampW = (v: number) => Math.min(Math.max(v, 160), 640);
 
   return (
     <div className="app">
       <header className="toolbar">
-        <button type="button" onClick={() => actions.current.new?.()}>
+        <button type="button" title="Ctrl+N" onClick={() => actions.current.new?.()}>
           {t("new")}
         </button>
-        <button type="button" onClick={() => actions.current.open?.()}>
+        <button type="button" title="Ctrl+O" onClick={() => actions.current.open?.()}>
           {t("open")}
         </button>
-        <button type="button" onClick={() => actions.current.save?.()}>
+        <button type="button" title="Ctrl+S" onClick={() => actions.current.save?.()}>
           {t("save")}
         </button>
         <button type="button" onClick={() => actions.current.addSource?.()}>
@@ -308,6 +547,7 @@ export function App() {
         </button>
         <button
           type="button"
+          title="Ctrl+E"
           onClick={() => doExport()}
           disabled={exporting !== null || project.steps.length === 0}
         >
@@ -316,10 +556,15 @@ export function App() {
             : t("export")}
         </button>
         <span className="sep" />
-        <button type="button" onClick={() => setHist(undo)} disabled={hist.past.length === 0}>
+        <button type="button" title="Ctrl+Z" onClick={() => setHist(undo)} disabled={hist.past.length === 0}>
           {t("undo")}
         </button>
-        <button type="button" onClick={() => setHist(redo)} disabled={hist.future.length === 0}>
+        <button
+          type="button"
+          title="Ctrl+Shift+Z"
+          onClick={() => setHist(redo)}
+          disabled={hist.future.length === 0}
+        >
           {t("redo")}
         </button>
         <span className="title">
@@ -337,14 +582,26 @@ export function App() {
         </div>
       )}
 
-      <main className="main">
-        <aside className="steps">
-          <h3>{t("steps")}</h3>
+      <main className="main" style={{ gridTemplateColumns: `${leftW}px 5px minmax(0, 1fr) 5px ${rightW}px` }}>
+        <aside className="left-pane">
+          <button
+            type="button"
+            className={`nav-item ${selection.kind === "project" || selection.kind === "video" ? "selected" : ""}`}
+            onClick={() => select({ kind: "project" })}
+          >
+            {t("project")}
+          </button>
+          <h3>{t("stepList")}</h3>
           {project.sources.length === 0 && <p className="hint">{t("noSources")}</p>}
-          <ol>
+          <ol className="step-list">
             {timeline.map((e) => (
               <li key={`${e.index}-${e.step.id}`} className={e.index === selected ? "selected" : ""}>
-                <button type="button" className="step-item" onClick={() => selectStep(e.index)}>
+                <button
+                  type="button"
+                  className="step-item"
+                  onClick={() => selectStep(e.index)}
+                  onContextMenu={(ev) => stepMenu(ev, e.index)}
+                >
                   <span className="step-id">
                     {e.index + 1}. {e.step.id}
                     {(e.step.speed ?? 1) > 1 ? ` ×${e.step.speed}` : ""}
@@ -355,75 +612,13 @@ export function App() {
               </li>
             ))}
           </ol>
-          {selected !== null && selStep && (
-            <div className="step-actions">
-              <button
-                type="button"
-                onClick={() => {
-                  update((p) => moveStep(p, selected, selected - 1));
-                  setSelected(Math.max(0, selected - 1));
-                }}
-              >
-                {t("moveUp")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  update((p) => moveStep(p, selected, selected + 1));
-                  setSelected(Math.min(project.steps.length - 1, selected + 1));
-                }}
-              >
-                {t("moveDown")}
-              </button>
-              <button type="button" onClick={() => update((p) => duplicateStep(p, selected))}>
-                {t("duplicate")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  update((p) => deleteStep(p, selected));
-                  setSelected(null);
-                  setTab("project");
-                }}
-              >
-                {t("delete")}
-              </button>
-            </div>
-          )}
-          {project.sources.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                const src = selStep
-                  ? project.sources.find((s) => s.id === selStep.source)
-                  : project.sources[0];
-                if (!src) return;
-                const m = media.get(src.id);
-                update((p) => ({
-                  ...p,
-                  steps: [
-                    ...p.steps,
-                    {
-                      id: uniqueStepId(p, "step"),
-                      source: src.id,
-                      in: 0,
-                      out: Math.round((m?.duration ?? 1) * 1000) / 1000,
-                    },
-                  ],
-                }));
-                setSelected(project.steps.length);
-                setTab("step");
-              }}
-            >
-              {t("addStep")}
-            </button>
-          )}
           <p className="hint">
-            {t("total")}: {fmt(total)}
+            {t("total")}: {fmtTime(total)}
           </p>
         </aside>
+        <Splitter dir="col" onDrag={(d) => setLeftW((w) => clampW(w + d))} />
 
-        <section className="center">
+        <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
           <Preview
             outW={out.width}
             outH={out.height}
@@ -440,137 +635,246 @@ export function App() {
                     srcW: selMedia.width,
                     srcH: selMedia.height,
                     rect: project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.rect ?? null,
-                    onRect: (rect) => {
-                      update((p) => ({
-                        ...p,
-                        steps: p.steps.map((s, i) =>
-                          i === drawingZoom.step
-                            ? {
-                                ...s,
-                                zooms: s.zooms?.map((z, k) => (k === drawingZoom.zoom ? { ...z, rect } : z)),
-                              }
-                            : s,
-                        ),
-                      }));
-                      setDrawingZoom(null);
+                    onRect: (rect, key) => {
+                      update(
+                        (p) => ({
+                          ...p,
+                          steps: p.steps.map((s, i) =>
+                            i === drawingZoom.step
+                              ? {
+                                  ...s,
+                                  zooms: s.zooms?.map((z, k) =>
+                                    k === drawingZoom.zoom ? { ...z, rect } : z,
+                                  ),
+                                }
+                              : s,
+                          ),
+                        }),
+                        key,
+                      );
                     },
                   }
                 : null
             }
+            srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
+            videoEdit={
+              selection.kind === "video" && !drawingZoom && !playing
+                ? {
+                    // 枠をちょうど囲む余白にする。縦横比を変えたら、枠に合わせて録画の端を切り取る
+                    onRect: (rect, key, shapeChanged) =>
+                      update(
+                        (p) => ({
+                          ...p,
+                          layout: {
+                            ...p.layout,
+                            margin: marginOf(rect, out.width, out.height),
+                            ...(shapeChanged ? { fit: "cover" as const } : {}),
+                          },
+                        }),
+                        key,
+                      ),
+                  }
+                : null
+            }
+            onVideoClick={(inside) => {
+              if (playing) return;
+              if (inside) setSelection({ kind: "video" });
+              else if (selection.kind === "video") setSelection({ kind: "project" });
+            }}
+            onContextMenu={previewMenu}
+            hint={drawingZoom ? t("drawingRect") : null}
+            captionStep={captionStep}
+            onCaptionMove={moveCaption}
           />
-          {drawingZoom && <p className="hint">{t("drawingRect")}</p>}
           <div className="transport">
-            <button
-              type="button"
-              onClick={() => (playing ? playerRef.current?.stop() : playerRef.current?.play())}
-              disabled={sourceView !== null}
-            >
-              {playing ? t("pause") : t("play")}
-            </button>
-            {sourceView !== null && selMedia ? (
-              <input
-                type="range"
-                min={0}
-                max={selMedia.duration}
-                step={1 / 30}
-                value={sourceTime}
-                onChange={(e) => setSourceTime(Number(e.target.value))}
-              />
-            ) : (
-              <input
-                type="range"
-                min={0}
-                max={Math.max(total, 0.01)}
-                step={0.01}
-                value={time}
-                onChange={(e) => playerRef.current?.seek(Number(e.target.value))}
-              />
-            )}
-            <span className="time">
-              {sourceView !== null ? `rec ${fmt(sourceTime)}` : `${fmt(time)} / ${fmt(total)}`}
-            </span>
-          </div>
-          <div className="timeline-strip">
-            {timeline.map((e) => (
-              <button
-                type="button"
-                key={`${e.index}-${e.step.id}`}
-                className={`seg ${e.index === selected ? "selected" : ""}`}
-                style={{ flexGrow: e.duration }}
-                title={e.step.id}
-                onClick={() => selectStep(e.index)}
-              >
-                {e.index + 1}
-              </button>
-            ))}
-          </div>
-          {selected !== null && selStep && (
-            <div className="step-tools">
-              <button
-                type="button"
-                disabled={!(loc && loc.entry.index === selected)}
-                onClick={() => update((p) => splitStep(p, selected, playheadLocal, true))}
-              >
-                {t("split")}
-              </button>
-              <button
-                type="button"
-                disabled={!(loc && loc.entry.index === selected)}
-                onClick={() => update((p) => splitStep(p, selected, playheadLocal, false))}
-              >
-                {t("splitDiscard")}
-              </button>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={sourceView !== null}
-                  onChange={(e) => {
-                    playerRef.current?.stop();
-                    setSourceTime(selStep.in);
-                    setSourceView(e.target.checked ? selected : null);
-                  }}
-                />
-                {t("sourceView")}
-              </label>
+            <div className="transport-left">
+              <span className="time">
+                {fmtTime(time)} / {fmtTime(total)}
+              </span>
+              {drawingZoom && (
+                <>
+                  <button type="button" className="small" onClick={() => setDrawingZoom(null)}>
+                    {t("done")} (Esc)
+                  </button>
+                </>
+              )}
             </div>
-          )}
+            <div className="transport-center">
+              {(
+                [
+                  ["toStart", "toStart", "Home", () => playerRef.current?.seek(0)],
+                  [
+                    "prev",
+                    "prevBoundary",
+                    "↑",
+                    () => keyRef.current(new KeyboardEvent("keydown", { key: "ArrowUp" })),
+                  ],
+                  ["back", "back1s", "←", () => playerRef.current?.seek(time - 1)],
+                ] as const
+              ).map(([icon, label, key, fn]) => (
+                <button
+                  key={icon}
+                  type="button"
+                  className="icon"
+                  title={`${t(label)} (${key})`}
+                  aria-label={t(label)}
+                  onClick={fn}
+                >
+                  <Icon name={icon} />
+                </button>
+              ))}
+              <button
+                type="button"
+                className="icon play"
+                title={`${t(playing ? "pause" : "play")} (Space)`}
+                aria-label={t(playing ? "pause" : "play")}
+                onClick={() => (playing ? playerRef.current?.stop() : playerRef.current?.play())}
+              >
+                <Icon name={playing ? "pause" : "play"} />
+              </button>
+              {(
+                [
+                  ["forward", "forward1s", "→", () => playerRef.current?.seek(time + 1)],
+                  [
+                    "next",
+                    "nextBoundary",
+                    "↓",
+                    () => keyRef.current(new KeyboardEvent("keydown", { key: "ArrowDown" })),
+                  ],
+                  ["toEnd", "toEnd", "End", () => playerRef.current?.seek(total)],
+                ] as const
+              ).map(([icon, label, key, fn]) => (
+                <button
+                  key={icon}
+                  type="button"
+                  className="icon"
+                  title={`${t(label)} (${key})`}
+                  aria-label={t(label)}
+                  onClick={fn}
+                >
+                  <Icon name={icon} />
+                </button>
+              ))}
+            </div>
+            <div className="transport-right">
+              <select
+                className="rate"
+                aria-label={t("playbackRate")}
+                title={`${t("playbackRate")} (J / K / L)`}
+                value={PLAYBACK_RATES.includes(rate as (typeof PLAYBACK_RATES)[number]) ? rate : ""}
+                onChange={(e) => {
+                  const r = Number(e.target.value);
+                  setRate(r);
+                  playerRef.current?.setRate(r);
+                }}
+              >
+                {rate < 0 && <option value="">◀ ×{-rate}</option>}
+                {PLAYBACK_RATES.map((r) => (
+                  <option key={r} value={r}>
+                    ×{r}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="icon"
+                title={`${t(muted ? "unmute" : "mute")} (M)`}
+                aria-label={t(muted ? "unmute" : "mute")}
+                onClick={() => setMuted((m) => !m)}
+              >
+                <Icon name={muted ? "muted" : "volume"} />
+              </button>
+              <button
+                type="button"
+                className="icon"
+                title={`${t("fullscreen")} (F)`}
+                aria-label={t("fullscreen")}
+                onClick={toggleFullscreen}
+              >
+                <Icon name="fullscreen" />
+              </button>
+              <span className="sep" />
+              <button
+                type="button"
+                className="small"
+                title={`${t("zoomOut")} (Ctrl+Wheel)`}
+                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "out" }))}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="small"
+                title={`${t("zoomIn")} (Ctrl+Wheel)`}
+                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "in" }))}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="small"
+                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "fit" }))}
+              >
+                {t("zoomFit")}
+              </button>
+            </div>
+          </div>
+          <Splitter dir="row" onDrag={(d) => setTimelineH((h) => Math.min(Math.max(h - d, 120), 480))} />
+          <Timeline
+            project={project}
+            timeline={timeline}
+            total={total}
+            time={time}
+            playing={playing}
+            media={media}
+            thumbs={thumbs}
+            thumbsVersion={thumbsVersion}
+            speechDurations={speechDurations}
+            selection={selection}
+            onSelect={select}
+            onSeek={(tm) => playerRef.current?.seek(tm)}
+            update={update}
+            onTrimPreview={setTrimPreview}
+            openMenu={(x, y, items) => setMenu({ x, y, items })}
+            onEditZoomRect={editZoomRect}
+            onPreviewSpeech={previewSpeech}
+            zoomCommand={zoomCommand}
+          />
         </section>
+        <Splitter dir="col" onDrag={(d) => setRightW((w) => clampW(w - d))} />
 
         <aside className="side">
-          <div className="tabs">
-            <button
-              type="button"
-              className={tab === "step" ? "active" : ""}
-              disabled={selected === null}
-              onClick={() => setTab("step")}
-            >
-              {t("step")}
-            </button>
-            <button
-              type="button"
-              className={tab === "project" ? "active" : ""}
-              onClick={() => setTab("project")}
-            >
-              {t("project")}
-            </button>
-          </div>
-          {tab === "step" && selected !== null ? (
+          <h3 className="side-title">
+            {t("settingsOf")}:{" "}
+            {selected !== null && selStep ? `${t("step")} ${selected + 1} (${selStep.id})` : t("project")}
+          </h3>
+          {selected !== null && selStep ? (
             <StepInspector
               project={project}
               index={selected}
               update={update}
               voices={voices}
               playheadLocal={playheadLocal}
-              sourceTime={sourceView !== null ? sourceTime : null}
               speechInfo={speechInfo}
-              onDrawZoom={(zoom) => {
-                playerRef.current?.stop();
-                setSourceView(null);
-                setDrawingZoom({ step: selected, zoom });
-              }}
+              focus={selection}
+              onDrawZoom={(zoom) => editZoomRect(selected, zoom)}
+              onAddZoom={() => addZoomAtPlayhead()}
+              onPreviewSpeech={() => previewSpeech(selected)}
+              srcSize={selMedia ? { w: selMedia.width, h: selMedia.height } : null}
             />
           ) : (
-            <ProjectInspector project={project} update={update} voices={voices} />
+            <ProjectInspector
+              project={project}
+              update={update}
+              voices={voices}
+              focusVideo={selection.kind === "video"}
+              srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
+              projectPath={filePath}
+              backgroundError={(() => {
+                const bg = resolveLayout(project).background;
+                return typeof bg !== "string" && "image" in bg ? backgrounds.error(bg.image, filePath) : null;
+              })()}
+            />
           )}
         </aside>
       </main>
@@ -592,6 +896,7 @@ export function App() {
           </ul>
         </footer>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -54,26 +54,95 @@
     "layout": {
       "type": "object",
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "band",
-            "full"
+        "background": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "gradient": {
+                  "type": "object",
+                  "properties": {
+                    "angle": {
+                      "type": "number"
+                    },
+                    "colors": {
+                      "minItems": 2,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "colors"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "gradient"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "image"
+              ],
+              "additionalProperties": false
+            }
           ]
         },
-        "background": {
-          "type": "string",
-          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
-        },
-        "bandHeight": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
         "margin": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
+          "type": "object",
+          "properties": {
+            "top": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "right": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "bottom": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "left": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "top",
+            "right",
+            "bottom",
+            "left"
+          ],
+          "additionalProperties": false
+        },
+        "fit": {
+          "type": "string",
+          "enum": [
+            "contain",
+            "cover"
+          ]
         },
         "shadow": {
           "type": "boolean"
@@ -111,8 +180,41 @@
               ]
             },
             "background": {
-              "type": "string",
-              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                },
+                {
+                  "type": "string",
+                  "const": "auto"
+                }
+              ]
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           },
           "additionalProperties": false
@@ -352,8 +454,16 @@
                     ]
                   },
                   "background": {
-                    "type": "string",
-                    "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+                      },
+                      {
+                        "type": "string",
+                        "const": "auto"
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -369,6 +479,10 @@
             "properties": {
               "text": {
                 "type": "string"
+              },
+              "start": {
+                "type": "number",
+                "minimum": 0
               },
               "voice": {
                 "type": [
@@ -390,9 +504,6 @@
                 }
               }
             },
-            "required": [
-              "text"
-            ],
             "additionalProperties": false
           },
           "audio": {

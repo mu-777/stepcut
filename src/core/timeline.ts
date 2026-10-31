@@ -1,15 +1,15 @@
 // ステップ内の出力時刻とソース時刻の対応(docs/project-format.md 4 章)。
-import { stepSpeed } from "./defaults";
+import { stepSpeed, zoomHolds } from "./defaults";
 import type { Hold, Step } from "./schema";
 
 // ソースの out ちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
 const LAST_FRAME_EPSILON = 0.001;
 
-/** 明示した保持と、hold: true のズームを合わせて開始順に並べる */
+/** 明示した保持と、映像を止めるズーム(hold の既定は true)を合わせて開始順に並べる */
 export function stepHolds(step: Step): Hold[] {
   const holds: Hold[] = [...(step.holds ?? [])];
   for (const z of step.zooms ?? []) {
-    if (z.hold && z.end > z.start) holds.push({ at: z.start, duration: z.end - z.start });
+    if (zoomHolds(z) && z.end > z.start) holds.push({ at: z.start, duration: z.end - z.start });
   }
   return holds.sort((a, b) => a.at - b.at);
 }
@@ -24,9 +24,15 @@ export function baseDuration(step: Step): number {
   return videoDuration(step) + stepHolds(step).reduce((sum, h) => sum + h.duration, 0);
 }
 
-/** ステップの出力上の長さ。読み上げが長ければ最終フレームを保持して合わせる(TIM-03) */
+/** 読み上げを始めるステップ内の出力時刻 */
+export function speechStart(step: Step): number {
+  return step.speech?.start ?? 0;
+}
+
+/** ステップの出力上の長さ。読み上げの終わりが映像より後なら最終フレームを保持して合わせる(TIM-03) */
 export function stepDuration(step: Step, speechDuration = 0): number {
-  return Math.max(baseDuration(step), speechDuration);
+  const speechEnd = speechDuration > 0 ? speechStart(step) + speechDuration : 0;
+  return Math.max(baseDuration(step), speechEnd);
 }
 
 /** 出力時刻 t に表示するソースの時刻 */
