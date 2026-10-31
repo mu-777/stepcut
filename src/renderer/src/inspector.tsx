@@ -2,16 +2,24 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  CAPTION_BOX_COLOR,
+  captionBoxColor,
   DEFAULT_BACKGROUND,
   DEFAULT_CAPTION_WIDTH,
+  DEFAULT_MARGIN,
   resolveCaptionStyle,
   resolveLayout,
   resolveOutput,
+  speechPieces,
+  speechSynced,
   speechText,
+  withSpeechPieces,
   zoomHolds,
+  zoomTransition,
 } from "../../core/defaults";
-import { computeLayout, type Rect, zoomScale } from "../../core/layout";
-import type { Background, Margin, Project, Step, Zoom } from "../../core/schema";
+import { computeLayout, type Rect, resetZoomAspect, zoomScale } from "../../core/layout";
+import type { Background, Margin, Project, SpeechPiece, Step, Zoom } from "../../core/schema";
+import { speechTimes } from "../../core/timeline";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
@@ -53,10 +61,16 @@ export function StepInspector(props: {
   update: Update;
   voices: Voice[];
   playheadLocal: number;
-  speechInfo: string | null;
+  /** 読み上げの生成の状況(失敗・生成中・読み上げごとの長さ) */
+  speechStatus: { error: string | null; pending: boolean; durations: number[] } | null;
+  /** このステップの読み上げを試聴中 */
+  speechPlaying: boolean;
   /** タイムラインで選んだ要素。その欄を強調して見える位置へ動かす */
   focus: Selection;
-  onDrawZoom: (zoomIndex: number) => void;
+  /** プレビューで範囲を編集中のズーム */
+  drawing: { zoom: number; end?: boolean } | null;
+  /** プレビューでズームの範囲の編集を始める。end は移動するズームの終了枠 */
+  onDrawZoom: (zoomIndex: number, end?: boolean) => void;
   /** 再生位置にズームを足す */
   onAddZoom: () => void;
   onPreviewSpeech: () => void;
@@ -68,8 +82,11 @@ export function StepInspector(props: {
   if (!step) return null;
   const set = (key: string) => patchStep(update, index, key);
   const caption = step.caption ?? { text: "" };
-  const speech = step.speech;
-  const synced = speech !== undefined && speech.text === undefined;
+  const pieces = speechPieces(step);
+  const first = pieces[0];
+  const synced = speechSynced(step);
+  const status = props.speechStatus;
+  const times = speechTimes(step, status?.durations ?? []);
   const audio = step.audio ?? {};
   const style = resolveCaptionStyle(project, step);
   const projCap = project.styles?.caption;
@@ -80,9 +97,16 @@ export function StepInspector(props: {
 
   const setCaption = (key: string, patch: Partial<NonNullable<Step["caption"]>>) =>
     set(`caption.${key}`)((s) => ({ ...s, caption: { ...(s.caption ?? { text: "" }), ...patch } }));
-  // speech があって text がなければテロップの文を読む。speech がなければ読まない
-  const setSpeech = (key: string, patch: Partial<NonNullable<Step["speech"]>>) =>
-    set(`speech.${key}`)((s) => ({ ...s, speech: prune({ ...s.speech, ...patch }) ?? {} }));
+  // 読み上げ k を書き換える。最初の読み上げで text がなければテロップの文を読む。読み上げがなければ読まない
+  const setPiece = (k: number, key: string, patch: Partial<SpeechPiece>) =>
+    set(`speech${k}.${key}`)((s) =>
+      withSpeechPieces(
+        s,
+        speechPieces(s.speech ? s : { ...s, speech: {} }).map((p, j) =>
+          j === k ? (prune({ ...p, ...patch }) ?? {}) : p,
+        ),
+      ),
+    );
   const setZoom = (k: number, key: string, patch: Partial<Zoom>) =>
     set(`zoom${k}.${key}`)((s) => ({
       ...s,
@@ -134,6 +158,7 @@ export function StepInspector(props: {
           label={t("caption")}
           multiline
           value={caption.text}
+          placeholder={t("captionPlaceholder")}
           onChange={(v) => setCaption("text", { text: v })}
         />
         <div className="row">
@@ -150,13 +175,41 @@ export function StepInspector(props: {
             onChange={(v) => setCaption("end", { end: v })}
           />
         </div>
-        <NumField
-          label={t("captionSize")}
-          value={caption.style?.size}
-          placeholder={String(style.size)}
-          step={2}
-          onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
-        />
+        <div className="row">
+          <NumField
+            label={t("captionSize")}
+            value={caption.style?.size}
+            placeholder={String(style.size)}
+            step={2}
+            onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
+          />
+          <SelectField
+            label={t("captionBg")}
+            value={
+              caption.style?.background === undefined
+                ? "inherit"
+                : captionBoxColor(caption.style.background)
+                  ? "on"
+                  : "none"
+            }
+            options={[
+              {
+                value: "inherit",
+                label: `${t("bgInherit")}(${t(captionBoxColor(style.background) && caption.style?.background === undefined ? "bgOn" : "bgNone")})`,
+              },
+              { value: "none", label: t("bgNone") },
+              { value: "on", label: t("bgOn") },
+            ]}
+            onChange={(v) =>
+              setCaption("bg", {
+                style: prune({
+                  ...caption.style,
+                  background: v === "inherit" ? undefined : v === "none" ? "#00000000" : CAPTION_BOX_COLOR,
+                }),
+              })
+            }
+          />
+        </div>
         <p className="field-label">
           {t("captionPlacement")}
           {overridden && <span className="badge">{t("overridden")}</span>}
@@ -221,55 +274,121 @@ export function StepInspector(props: {
         )}
       </Section>
 
-      <Section focused={focus.kind === "speech"}>
-        <h4>{t("speech")}</h4>
-        <CheckField
-          label={t("speechSyncCaption")}
-          value={synced}
-          onChange={(v) =>
-            // オフにするとテロップの文をコピーして、別の文に書き換えられるようにする
-            set("speech.sync")((s) => {
-              const { text: _t, ...rest } = s.speech ?? {};
-              return { ...s, speech: v ? rest : { ...rest, text: s.caption?.text ?? "" } };
-            })
-          }
-        />
-        <TextField
-          label={t("speechText")}
-          multiline
-          value={synced ? caption.text : (speech?.text ?? "")}
-          disabled={synced}
-          onChange={(v) => setSpeech("text", { text: v })}
-        />
+      <h4>{t("speech")}</h4>
+      {pieces.length > 1 && <p className="hint">{t("speechPieceHint")}</p>}
+      {pieces.map((p, k) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 読み上げは id を持たない
+        <Section key={k} focused={focus.kind === "speech" && focus.index === k}>
+          {pieces.length > 1 && (
+            <p className="field-label">
+              {t("speech")} {k + 1}
+            </p>
+          )}
+          {k === 0 && (
+            <CheckField
+              label={t("speechSyncCaption")}
+              value={synced}
+              onChange={(v) =>
+                // オフにするとテロップの文をコピーして、別の文に書き換えられるようにする
+                set("speech.sync")((s) =>
+                  withSpeechPieces(
+                    s,
+                    speechPieces(s).map((x, j) => {
+                      if (j !== 0) return x;
+                      const { text: _t, ...rest } = x;
+                      return v ? rest : { ...rest, text: s.caption?.text ?? "" };
+                    }),
+                  ),
+                )
+              }
+            />
+          )}
+          <TextField
+            label={t("speechText")}
+            multiline
+            value={speechSynced(step, k) ? caption.text : (p.text ?? "")}
+            disabled={speechSynced(step, k)}
+            placeholder={t("speechPlaceholder")}
+            onChange={(v) => setPiece(k, "text", { text: v })}
+          />
+          <div className="row">
+            <NumField
+              label={t("speechStart")}
+              value={p.start}
+              min={0}
+              placeholder={k === 0 ? "0" : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`}
+              onChange={(v) => setPiece(k, "start", { start: v === 0 && k === 0 ? undefined : v })}
+            />
+            {status?.durations[k] ? <p className="hint">{status.durations[k]?.toFixed(2)} s</p> : null}
+            {pieces.length > 1 && (
+              <button
+                type="button"
+                className="small"
+                onClick={() =>
+                  set("speech.remove")((s) =>
+                    withSpeechPieces(
+                      s,
+                      speechPieces(s).filter((_, j) => j !== k),
+                    ),
+                  )
+                }
+              >
+                {t("remove")}
+              </button>
+            )}
+          </div>
+        </Section>
+      ))}
+      <Section focused={false}>
         <div className="row">
-          <button type="button" onClick={props.onPreviewSpeech} disabled={!speechText(step)}>
-            ▶ {t("previewSpeech")}
+          <button
+            type="button"
+            onClick={props.onPreviewSpeech}
+            // 生成中は押せない。試聴中は「読み上げを終了」
+            disabled={
+              !props.speechPlaying && (status?.pending || !pieces.some((_, k) => speechText(step, k)))
+            }
+          >
+            {props.speechPlaying
+              ? `■ ${t("stopSpeech")}`
+              : status?.pending
+                ? t("speechPending")
+                : `▶ ${t("previewSpeech")}`}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              set("speech.add")((s) => {
+                const cur = speechPieces(s);
+                // 1 つ目はテロップと同じ文を読む設定で作る。2 つ目からは文を書いてもらう
+                return withSpeechPieces(s, [...cur, cur.length === 0 ? {} : { text: "" }]);
+              })
+            }
+          >
+            {t("addSpeech")}
           </button>
         </div>
-        <NumField
-          label={t("speechStart")}
-          value={speech?.start}
-          min={0}
-          placeholder="0"
-          onChange={(v) => setSpeech("start", { start: v === 0 ? undefined : v })}
-        />
-        {props.speechInfo && <p className="hint">{props.speechInfo}</p>}
-        <VoiceSelect
-          label={t("voice")}
-          voices={voices}
-          value={speech?.voice}
-          emptyLabel={t("defaultVoice")}
-          onChange={(v) => setSpeech("voice", { voice: v })}
-        />
-        <NumField
-          label={t("rate")}
-          value={typeof speech?.params?.rate === "number" ? speech.params.rate : undefined}
-          step={0.1}
-          min={0.5}
-          max={3}
-          placeholder={t("defaultVoice")}
-          onChange={(v) => setSpeech("rate", { params: withParam(speech?.params, "rate", v) })}
-        />
+        {status?.error && <p className="hint">⚠ {status.error}</p>}
+        {pieces.length > 0 && (
+          <>
+            <VoiceSelect
+              label={t("voice")}
+              voices={voices}
+              value={first?.voice}
+              emptyLabel={t("defaultVoice")}
+              onChange={(v) => setPiece(0, "voice", { voice: v })}
+            />
+            <NumField
+              label={t("rate")}
+              value={typeof first?.params?.rate === "number" ? first.params.rate : undefined}
+              step={0.1}
+              min={0.5}
+              max={3}
+              placeholder={t("defaultVoice")}
+              onChange={(v) => setPiece(0, "rate", { params: withParam(first?.params, "rate", v) })}
+            />
+          </>
+        )}
       </Section>
 
       <h4>{t("sourceAudio")}</h4>
@@ -376,20 +495,73 @@ export function StepInspector(props: {
             scale={zoomScale(z, crop, src.w, src.h)}
             onChange={(rect, key) => setZoom(k, key, { rect })}
           />
-          <CheckField
-            label={t("zoomInstant")}
-            value={z.transition === 0}
-            onChange={(v) => setZoom(k, "transition", { transition: v ? 0 : undefined })}
+          <button
+            type="button"
+            className="small"
+            onClick={() =>
+              setZoom(k, "aspect", {
+                rect: resetZoomAspect(z, crop, src.w, src.h),
+                to: z.to && resetZoomAspect({ ...z, rect: z.to }, crop, src.w, src.h),
+              })
+            }
+          >
+            {t("zoomResetAspect")}
+          </button>
+          <NumField
+            label={t("zoomTime")}
+            value={z.transition}
+            min={0}
+            step={0.1}
+            placeholder={zoomTransition(
+              { ...z, transition: undefined },
+              zoomScale(z, crop, src.w, src.h),
+            ).toFixed(2)}
+            onChange={(v) => setZoom(k, "transition", { transition: v })}
           />
+          <p className="hint">{t("zoomTimeHint")}</p>
           <CheckField
             label={t("hold")}
             value={zoomHolds(z)}
             onChange={(v) => setZoom(k, "hold", { hold: v ? undefined : false })}
           />
+          <CheckField
+            label={t("zoomExact")}
+            value={z.exact ?? false}
+            onChange={(v) => setZoom(k, "exact", { exact: v ? true : undefined })}
+          />
+          <CheckField
+            label={t("zoomMove")}
+            value={z.to !== undefined}
+            onChange={(v) => {
+              // 終了枠は開始枠と同じところから始め、すぐ動かせるように終了枠の編集を始める
+              setZoom(k, "to", { to: v ? { ...z.rect } : undefined });
+              if (v) props.onDrawZoom(k, true);
+            }}
+          />
+          {z.to && <p className="hint">{t("zoomMoveHint")}</p>}
           <div className="row">
-            <button type="button" onClick={() => props.onDrawZoom(k)}>
-              {t("drawRect")}
-            </button>
+            {z.to ? (
+              <>
+                <button
+                  type="button"
+                  className={props.drawing?.zoom === k && !props.drawing.end ? "on" : ""}
+                  onClick={() => props.onDrawZoom(k, false)}
+                >
+                  {t("editStartRect")}
+                </button>
+                <button
+                  type="button"
+                  className={props.drawing?.zoom === k && props.drawing.end ? "on" : ""}
+                  onClick={() => props.onDrawZoom(k, true)}
+                >
+                  {t("editEndRect")}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => props.onDrawZoom(k)}>
+                {t("drawRect")}
+              </button>
+            )}
             <button
               type="button"
               className="small"
@@ -479,6 +651,9 @@ function Section(props: { focused: boolean; className?: string; children: ReactN
   );
 }
 
+/** 「余白なし」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
+let savedMargin: { margin: Margin | undefined; fit: "contain" | "cover" | undefined } | null = null;
+
 const RESOLUTIONS = [
   { label: "1920×1080", w: 1920, h: 1080 },
   { label: "1280×720", w: 1280, h: 720 },
@@ -508,6 +683,7 @@ export function ProjectInspector(props: {
   const overrides = project.steps.filter(
     (st) => st.caption?.position !== undefined || st.caption?.width !== undefined,
   ).length;
+  const noMargin = layout.fit === "contain" && Object.values(layout.margin).every((v) => Math.abs(v) < 1e-9);
   const even = (v: number | undefined) => (v === undefined ? undefined : Math.max(16, Math.round(v / 2) * 2));
 
   return (
@@ -578,6 +754,28 @@ export function ProjectInspector(props: {
           onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
         />
         <CheckField
+          label={t("noMargin")}
+          value={noMargin}
+          onChange={(v) => {
+            if (v) {
+              // 直前の余白と置き方を覚えておき、外したら戻す(アプリを閉じるまで)
+              savedMargin = { margin: project.layout?.margin, fit: project.layout?.fit };
+              set(
+                "layout",
+                prune({
+                  ...project.layout,
+                  margin: { top: 0, right: 0, bottom: 0, left: 0 },
+                  fit: undefined,
+                }),
+              );
+            } else {
+              const back = savedMargin ?? { margin: DEFAULT_MARGIN, fit: undefined };
+              savedMargin = null;
+              set("layout", prune({ ...project.layout, margin: back.margin, fit: back.fit }));
+            }
+          }}
+        />
+        <CheckField
           label={t("fitCover")}
           value={layout.fit === "cover"}
           onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
@@ -632,27 +830,17 @@ export function ProjectInspector(props: {
       </div>
       <SelectField
         label={t("captionBg")}
-        value={
-          capStyle.background === undefined || capStyle.background === "auto"
-            ? "auto"
-            : capStyle.background === "#00000000"
-              ? "none"
-              : "color"
-        }
+        value={captionBoxColor(capStyle.background ?? "auto") ? "on" : "none"}
         options={[
-          { value: "auto", label: t("bgAuto") },
-          { value: "color", label: t("bgColor") },
           { value: "none", label: t("bgNone") },
+          { value: "on", label: t("bgOn") },
         ]}
         onChange={(v) =>
           set(
             "styles",
             prune({
               ...project.styles,
-              caption: prune({
-                ...capStyle,
-                background: v === "auto" ? undefined : v === "none" ? "#00000000" : "#000000AA",
-              }),
+              caption: prune({ ...capStyle, background: v === "on" ? CAPTION_BOX_COLOR : undefined }),
             }),
             "style.bg",
           )
@@ -955,13 +1143,13 @@ function MarginField(props: {
   onChange: (m: Margin, key: string) => void;
 }) {
   const m = props.margin;
-  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
   const field = (side: keyof Margin, label: Parameters<typeof t>[0], size: number) => (
     <NumField
       label={t(label)}
       value={Math.round(m[side] * size)}
       step={2}
-      onChange={(v) => props.onChange({ ...m, [side]: r4((v ?? 0) / size) }, `margin.${side}`)}
+      onChange={(v) => props.onChange({ ...m, [side]: r6((v ?? 0) / size) }, `margin.${side}`)}
     />
   );
   return (

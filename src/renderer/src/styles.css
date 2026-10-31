@@ -262,14 +262,55 @@ h4 {
   min-height: 0;
   overflow: hidden;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+}
+
+/* プレビューを拡大したときに表示位置を動かす領域。小さいときは中央に置く(margin: auto) */
+.preview-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: grid;
 }
 
 .preview-stage {
   position: relative;
+  margin: auto;
   background: #000;
+}
+
+.preview-zoom {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+}
+
+.box-ghost {
+  position: absolute;
+  border: 2px dashed #ffb44d;
+  pointer-events: none;
+}
+
+.seg {
+  display: inline-flex;
+  margin-left: 8px;
+}
+
+.seg button {
+  border-radius: 0;
+}
+
+.seg button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.seg button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.seg button.on {
+  background: var(--accent);
+  color: #fff;
 }
 
 .preview-stage canvas {
@@ -668,6 +709,12 @@ button.icon.play {
 .tl-bar.speech.pending {
   opacity: 0.5;
   border: 1px dashed var(--muted);
+}
+
+/* 文が空の読み上げ・テロップ(仮の文を出す) */
+.tl-bar.speech.empty {
+  opacity: 0.5;
+  font-style: italic;
 }
 
 .tl-bar.zoom {

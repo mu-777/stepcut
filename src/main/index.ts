@@ -1,4 +1,4 @@
-import { type FileHandle, open, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, type FileHandle, mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
 import type { ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
@@ -268,6 +268,21 @@ app.whenReady().then(async () => {
     watcher.stop();
   });
 });
+
+// GPU プロセスやレンダラーが落ちたときの記録。画面が一瞬白くなる現象の原因を後から確かめるため
+async function logProcessGone(kind: string, details: { reason: string; exitCode: number }): Promise<void> {
+  const line = `${new Date().toISOString()} ${kind} reason=${details.reason} exitCode=${details.exitCode}\n`;
+  process.stderr.write(line);
+  try {
+    const dir = app.getPath("logs");
+    await mkdir(dir, { recursive: true });
+    await appendFile(path.join(dir, "process-gone.log"), line, "utf8");
+  } catch {
+    // 記録できなくても動作は続ける
+  }
+}
+app.on("child-process-gone", (_e, d) => void logProcessGone(`child:${d.type}`, d));
+app.on("render-process-gone", (_e, _wc, d) => void logProcessGone("renderer", d));
 
 app.on("window-all-closed", () => {
   if (!cli) app.quit();

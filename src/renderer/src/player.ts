@@ -28,6 +28,8 @@ export interface PlayerState {
   backgrounds: BackgroundStore | null;
   /** 背景画像のパスの基準 */
   projectPath: string | null;
+  /** テロップの文が空のときにプレビューにだけ出す文 */
+  captionPlaceholder?: string;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -35,7 +37,7 @@ type Img = CanvasImageSource & { width: number; height: number };
 const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
 
 /** プレビューの再生速度。書き出しには影響しない */
-export const PLAYBACK_RATES = [0.5, 1, 2, 3] as const;
+export const PLAYBACK_RATES = [0.5, 1, 1.5, 2, 3] as const;
 
 export class Player {
   time = 0;
@@ -49,6 +51,11 @@ export class Player {
   private master: GainNode | null = null;
   /** プレビューの音を消す(書き出しには影響しない) */
   muted = false;
+  /**
+   * 停止中に最後にデコードしたフレームの写し。時刻が同じなら(配置・ズーム枠・テロップの編集中)デコードし直さず
+   * すぐ描き直す。デコードを待つと、編集中の枠と映像の動きがずれるため
+   */
+  private still: { m: SourceMedia; t: number; canvas: HTMLCanvasElement } | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -79,6 +86,7 @@ export class Player {
       outH: this.canvas.height,
       ignoreZoom: st.ignoreZoom,
       backgroundImage: this.backgroundImage(st),
+      captionPlaceholder: st.captionPlaceholder,
     });
   }
 
@@ -90,9 +98,12 @@ export class Player {
 
   /** 停止中の表示を更新する。デコード中に呼ばれたら、近い縮小フレームを仮に描き、終わってから最新の状態で描き直す */
   renderStill(): Promise<void> {
+    // 同じ時刻のフレームが手元にあれば、デコードを待たずに描く
+    const hit = this.paintCached();
+    if (hit && !this.stillRunning) return Promise.resolve();
     this.stillWanted = true;
     if (this.stillRunning) {
-      this.paintPlaceholder();
+      if (!hit) this.paintPlaceholder();
       return this.stillRunning;
     }
     this.stillRunning = this.stillLoop().finally(() => {
@@ -114,6 +125,33 @@ export class Player {
     return { entry: loc.entry, local: loc.local, m, srcT: sourceTimeAt(loc.entry.step, loc.local) };
   }
 
+  /** 保持しているフレームが今の表示に使えれば描く */
+  private paintCached(): boolean {
+    if (this.playing) return false;
+    const st = this.getState();
+    const tg = this.target(st);
+    const c = this.still;
+    if (!tg?.m || !c || c.m !== tg.m || c.t !== tg.srcT) return false;
+    this.paint(st, tg.entry, tg.local, c.canvas, tg.m);
+    return true;
+  }
+
+  /** 保持しているフレームを捨てる(GPU のコンテキストが失われたときなど) */
+  dropCache(): void {
+    this.still = null;
+  }
+
+  private keepStill(m: SourceMedia, t: number, frame: Img): HTMLCanvasElement {
+    const canvas = this.still?.canvas ?? document.createElement("canvas");
+    if (canvas.width !== frame.width || canvas.height !== frame.height) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+    }
+    canvas.getContext("2d")?.drawImage(frame, 0, 0);
+    this.still = { m, t, canvas };
+    return canvas;
+  }
+
   private paintPlaceholder(): void {
     if (this.playing) return;
     const st = this.getState();
@@ -133,8 +171,19 @@ export class Player {
         this.paint(st, null, 0, null, null);
         continue;
       }
+      if (tg.m && this.still?.m === tg.m && this.still.t === tg.srcT) {
+        this.paint(st, tg.entry, tg.local, this.still.canvas, tg.m);
+        continue;
+      }
       const wc = tg.m ? await tg.m.video.getCanvas(tg.srcT).catch(() => null) : null;
-      if (!this.playing) this.paint(st, tg.entry, tg.local, wc?.canvas ?? null, tg.m);
+      // デコード中に状態が変わっていれば、最新の状態で描く
+      const frame = wc && tg.m ? this.keepStill(tg.m, tg.srcT, wc.canvas as Img) : null;
+      if (!this.playing) {
+        const now = this.getState();
+        const tg2 = this.target(now);
+        if (tg2 && tg2.m === tg.m && tg2.srcT === tg.srcT) this.paint(now, tg2.entry, tg2.local, frame, tg.m);
+        else this.paint(st, tg.entry, tg.local, frame, tg.m);
+      }
     }
   }
 
@@ -192,7 +241,10 @@ export class Player {
     this.master = master;
     const startT = this.time;
     const first = locate(st.timeline, startT);
-    if (!first) return;
+    if (!first) {
+      this.stop();
+      return;
+    }
     const alive = () => run === this.runId;
 
     const audioFor = (entry: TimelineEntry) =>
@@ -201,7 +253,7 @@ export class Player {
         entry.step,
         entry.duration,
         st.media.get(entry.step.source) ?? null,
-        st.speech.get(st.project, entry.step)?.buffer ?? null,
+        st.speech.placed(st.project, entry.step),
       );
 
     // 音声を待たずに映像を動かし始める(シークのたびにステップ全体の音声の用意を待たないため)。
@@ -269,6 +321,8 @@ export class Player {
       })();
       while (alive()) {
         await nextFrame();
+        // 待っている間に止められたら何もしない(止めた後に「再生中」と知らせないため)
+        if (!alive()) break;
         const local = clock() - entry.start;
         if (local >= entry.duration) break;
         const l = Math.max(0, local);

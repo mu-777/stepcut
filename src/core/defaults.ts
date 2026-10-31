@@ -1,5 +1,5 @@
 // 省略された項目の既定値を解決する(STY-02: 個別設定がなければ共通設定、それもなければ既定値)。
-import type { Background, CaptionStyle, Margin, Project, Step, Zoom } from "./schema";
+import type { Background, CaptionStyle, Margin, Project, SpeechPiece, Step, Zoom } from "./schema";
 
 export interface ResolvedOutput {
   width: number;
@@ -42,11 +42,17 @@ export const DEFAULT_CAPTION_STYLE: ResolvedCaptionStyle = {
   color: "#FFFFFF",
   lineHeight: 1.4,
   align: "center",
-  background: "auto",
+  background: "#00000000",
 };
 
-/** background が "auto" で、テロップが録画に重なるときの箱の色 */
-export const AUTO_CAPTION_BOX = "#000000AA";
+/** テロップの背景の箱を付けるときの既定の色 */
+export const CAPTION_BOX_COLOR = "#000000AA";
+
+/** テロップの背景の箱の色。なし(透明・旧い "auto")なら null */
+export function captionBoxColor(background: string): string | null {
+  if (background === "auto" || /^#[0-9a-fA-F]{6}00$/.test(background)) return null;
+  return background;
+}
 export const DEFAULT_CAPTION_WIDTH = 0.8;
 /** 新しく作るズームの、拡大したまま保つ長さ(秒) */
 export const DEFAULT_ZOOM_LENGTH = 2;
@@ -91,10 +97,30 @@ export function resolveCaptionPlacement(
   };
 }
 
-/** 読み上げる文。speech.text がなければテロップの文を読む(テロップと一致) */
-export function speechText(step: Step): string | null {
-  if (!step.speech) return null;
-  const text = (step.speech.text ?? step.caption?.text ?? "").trim();
+/** ステップの読み上げを並べたもの。書かれていなければ空 */
+export function speechPieces(step: Step): SpeechPiece[] {
+  if (!step.speech) return [];
+  return Array.isArray(step.speech) ? step.speech : [step.speech];
+}
+
+/** 読み上げを書き戻す。1 つならオブジェクト、なければ省略、複数なら配列にする */
+export function withSpeechPieces(step: Step, pieces: SpeechPiece[]): Step {
+  const { speech: _s, ...rest } = step;
+  if (pieces.length === 0) return rest;
+  return { ...rest, speech: pieces.length === 1 ? (pieces[0] as SpeechPiece) : pieces };
+}
+
+/** k 番目の読み上げがテロップの文を読むか(最初の 1 つで text を書いていないとき) */
+export function speechSynced(step: Step, k = 0): boolean {
+  const p = speechPieces(step)[k];
+  return k === 0 && p !== undefined && p.text === undefined;
+}
+
+/** k 番目に読む文。最初の 1 つは text がなければテロップの文を読む(テロップと一致) */
+export function speechText(step: Step, k = 0): string | null {
+  const p = speechPieces(step)[k];
+  if (!p) return null;
+  const text = (p.text ?? (k === 0 ? step.caption?.text : "") ?? "").trim();
   return text === "" ? null : text;
 }
 
@@ -106,11 +132,15 @@ export function resolveAudio(p: Project, step: Step): ResolvedAudio {
   };
 }
 
-export function resolveSpeech(p: Project, step: Step): ResolvedSpeech {
+/** k 番目の読み上げの声。2 つ目以降は書いていなければ最初の読み上げに合わせる */
+export function resolveSpeech(p: Project, step: Step, k = 0): ResolvedSpeech {
+  const pieces = speechPieces(step);
+  const first = pieces[0];
+  const piece = pieces[k];
   return {
     engine: p.speech?.engine ?? "os",
-    voice: step.speech?.voice ?? p.speech?.voice ?? null,
-    params: { ...p.speech?.params, ...step.speech?.params },
+    voice: piece?.voice ?? first?.voice ?? p.speech?.voice ?? null,
+    params: { ...p.speech?.params, ...first?.params, ...piece?.params },
   };
 }
 

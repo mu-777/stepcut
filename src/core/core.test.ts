@@ -2,14 +2,26 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { captionCues } from "./captions";
 import {
+  captionBoxColor,
   type ResolvedLayout,
   resolveCaptionPlacement,
   resolveLayout,
+  resolveSpeech,
   speechText,
   zoomTransition,
 } from "./defaults";
-import { addHold, duplicateStep, splitStep, trimStep, uniqueStepId } from "./edit";
-import { computeLayout, marginOf, viewRectAt, zoomProgress, zoomViewRect } from "./layout";
+import { addHold, canMergeSteps, duplicateStep, mergeSteps, splitStep, trimStep, uniqueStepId } from "./edit";
+import {
+  computeLayout,
+  marginOf,
+  resetZoomAspect,
+  videoBoxFor,
+  viewRectAt,
+  zoomProgress,
+  zoomRectAt,
+  zoomScale,
+  zoomViewRect,
+} from "./layout";
 import { migrateProject } from "./migrate";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
@@ -19,6 +31,7 @@ import {
   locate,
   sourceSegments,
   sourceTimeAt,
+  speechTimes,
   stepDuration,
   totalDuration,
 } from "./timeline";
@@ -62,8 +75,8 @@ describe("timeline", () => {
 
   it("読み上げが長いと最終フレームで保持する", () => {
     const s = step();
-    expect(stepDuration(s, 15)).toBe(15);
-    expect(stepDuration(s, 5)).toBe(10);
+    expect(stepDuration(step({ speech: { text: "a" } }), [15])).toBe(15);
+    expect(stepDuration(step({ speech: { text: "a" } }), [5])).toBe(10);
     expect(sourceTimeAt(s, 14)).toBeCloseTo(19.999);
   });
 
@@ -76,7 +89,10 @@ describe("timeline", () => {
   });
 
   it("全体の並びと位置", () => {
-    const tl = buildTimeline([step({ id: "a" }), step({ id: "b", in: 0, out: 2 })], new Map([["b", 5]]));
+    const tl = buildTimeline(
+      [step({ id: "a" }), step({ id: "b", in: 0, out: 2, speech: { text: "x" } })],
+      new Map([["b", [5]]]),
+    );
     expect(totalDuration(tl)).toBe(15);
     expect(locate(tl, 12)?.entry.step.id).toBe("b");
     expect(locate(tl, 12)?.local).toBe(2);
@@ -309,8 +325,8 @@ describe("edit", () => {
 
 describe("speech.start", () => {
   it("読み上げの終わりが映像より後なら、その分だけ長くなる", () => {
-    expect(stepDuration(step({ speech: { text: "a", start: 8 } }), 4)).toBe(12);
-    expect(stepDuration(step({ speech: { text: "a", start: 2 } }), 4)).toBe(10);
+    expect(stepDuration(step({ speech: { text: "a", start: 8 } }), [4])).toBe(12);
+    expect(stepDuration(step({ speech: { text: "a", start: 2 } }), [4])).toBe(10);
   });
 
   it("映像より後に始まる読み上げは検証エラー", () => {
@@ -338,7 +354,7 @@ describe("trim", () => {
     expect(out.caption).toMatchObject({ start: 3, end: 5 });
     expect(out.zooms?.[0]).toMatchObject({ start: 4, end: 6 });
     expect(out.holds?.[0]?.at).toBe(7);
-    expect(out.speech?.start).toBe(3);
+    expect(out.speech).toMatchObject({ start: 3 });
   });
 
   it("In を後ろへ詰めると、要素は前へずれ、はみ出した分は切り詰める", () => {
@@ -367,5 +383,116 @@ describe("addHold", () => {
       { at: 3, duration: 1 },
     ]);
     expect(addHold(p(s), 0, 3.5, 1).steps[0]?.holds).toHaveLength(1);
+  });
+});
+
+describe("複数の読み上げ", () => {
+  const s = step({
+    caption: { text: "前半と後半" },
+    speech: [{}, { text: "後半", start: 6 }, { text: "続き" }],
+  });
+
+  it("最初はテロップの文、2 つ目からは書いた文を読む", () => {
+    expect(speechText(s, 0)).toBe("前半と後半");
+    expect(speechText(s, 1)).toBe("後半");
+    expect(speechText(step({ speech: [{ text: "a" }, {}] }), 1)).toBeNull();
+  });
+
+  it("開始を書かなければ前の読み上げの直後。ステップは最後の読み上げの終わりまで伸びる", () => {
+    expect(speechTimes(s, [2, 3, 4])).toEqual([
+      { start: 0, end: 2 },
+      { start: 6, end: 9 },
+      { start: 9, end: 13 },
+    ]);
+    expect(stepDuration(s, [2, 3, 4])).toBe(13);
+  });
+
+  it("2 つ目以降の声は最初の読み上げに合わせる", () => {
+    const v = step({ speech: [{ voice: "A", params: { rate: 1.2 } }, { text: "b" }] });
+    expect(resolveSpeech(proj([v]), v, 1)).toMatchObject({ voice: "A", params: { rate: 1.2 } });
+  });
+
+  it("配置を検証する", () => {
+    expect(parseProject(proj([s])).ok).toBe(true);
+    expect(parseProject(proj([step({ speech: [] as never })])).ok).toBe(false);
+  });
+});
+
+describe("ステップをまとめる", () => {
+  const a = step({ id: "a", in: 0, out: 4, caption: { text: "同じ" }, speech: {} });
+  const b = step({
+    id: "b",
+    in: 4,
+    out: 10,
+    caption: { text: "同じ" },
+    speech: {},
+    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }],
+  });
+
+  it("同じ録画の続いた区間だけまとめられる", () => {
+    expect(canMergeSteps(proj([a, b]), 0)).toBe(true);
+    expect(canMergeSteps(proj([a, { ...b, in: 5 }]), 0)).toBe(false);
+    expect(canMergeSteps(proj([a, { ...b, speed: 2 }]), 0)).toBe(false);
+  });
+
+  it("後ろの要素は前の長さ(自動保持を含む)だけずらし、自動保持は明示した保持にする", () => {
+    const r = mergeSteps(proj([a, b]), 0, 5);
+    expect(r.steps).toHaveLength(1);
+    const m = r.steps[0] as Step;
+    expect(m).toMatchObject({ id: "a", in: 0, out: 10, caption: { text: "同じ" } });
+    expect(m.holds).toEqual([{ at: 4, duration: 1 }]);
+    // hold が既定(true)のズームも保持になる
+    expect(m.zooms?.[0]).toMatchObject({ start: 6, end: 7 });
+    expect(m.speech).toEqual([{}, { text: "同じ", start: 5 }]);
+    expect(parseProject(r).ok).toBe(true);
+  });
+
+  it("違う文のテロップは改行でつなぎ、テロップと一致の読み上げは元の文を書き出す", () => {
+    const r = mergeSteps(proj([a, { ...b, caption: { text: "別" } }]), 0);
+    const m = r.steps[0] as Step;
+    expect(m.caption?.text).toBe("同じ\n別");
+    expect(m.speech).toEqual([{ text: "同じ" }, { text: "別", start: 4 }]);
+  });
+});
+
+describe("ズームの移動と枠どおりの表示", () => {
+  const z = {
+    start: 2,
+    end: 4,
+    rect: { x: 0, y: 0, w: 960, h: 540 },
+    to: { x: 960, y: 540, w: 960, h: 540 },
+  };
+
+  it("拡大を保つ区間で一定の速さで移る", () => {
+    expect(zoomRectAt(z, 2)).toEqual(z.rect);
+    expect(zoomRectAt(z, 3)).toEqual({ x: 480, y: 270, w: 960, h: 540 });
+    expect(zoomRectAt(z, 5)).toEqual(z.to);
+    const s = step({ zooms: [{ ...z, transition: 0 }] });
+    expect(viewRectAt(s, 3, 1920, 1080)).toEqual({ x: 480, y: 270, w: 960, h: 540 });
+  });
+
+  it("exact は枠どおりの範囲を映し、描く領域を枠の縦横比で余白の内側に収める", () => {
+    const e = { start: 0, end: 1, rect: { x: 100, y: 100, w: 400, h: 400 }, exact: true, transition: 0 };
+    const view = viewRectAt(step({ zooms: [e] }), 0.5, 1920, 1080);
+    expect(view).toEqual(e.rect);
+    expect(videoBoxFor(view, { x: 0, y: 0, w: 1920, h: 1080 })).toEqual({ x: 420, y: 0, w: 1080, h: 1080 });
+    expect(zoomScale(e, { x: 0, y: 0, w: 1920, h: 1080 }, 1920, 1080)).toBeCloseTo(2.7);
+  });
+
+  it("縦横比を戻すと倍率と中心を保つ", () => {
+    const base = { x: 0, y: 0, w: 1920, h: 1080 };
+    const w = { start: 0, end: 1, rect: { x: 760, y: 340, w: 400, h: 400 } };
+    const r = resetZoomAspect(w, base, 1920, 1080);
+    expect(r.w / r.h).toBeCloseTo(16 / 9, 2);
+    expect(Math.abs(r.x + r.w / 2 - 960)).toBeLessThanOrEqual(1);
+    expect(zoomScale({ ...w, rect: r }, base, 1920, 1080)).toBeCloseTo(zoomScale(w, base, 1920, 1080), 2);
+  });
+});
+
+describe("テロップの背景", () => {
+  it("透明と旧い auto は箱なし", () => {
+    expect(captionBoxColor("auto")).toBeNull();
+    expect(captionBoxColor("#00000000")).toBeNull();
+    expect(captionBoxColor("#000000AA")).toBe("#000000AA");
   });
 });

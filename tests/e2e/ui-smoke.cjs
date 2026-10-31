@@ -143,8 +143,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     .uncheck();
   check((await page.locator(".tl-hold.zoom-hold").count()) === 0, "映像を止める設定を外せる");
 
-  // Ctrl+K で分割、Undo で戻す
+  // Ctrl+K で分割、Undo で戻す(ズーム範囲の編集中は矢印キーで枠が動くので、Esc で編集を終えてから)
   await page.locator("body").click({ position: { x: 5, y: 300 } });
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
@@ -297,7 +298,11 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   );
   check((await areaH()) === h0, "辺のハンドルは高さを変えずに幅だけ変える");
   await shot(page, "05-zoom-edit");
-  await page.getByRole("button", { name: /^(Done|完了) \(Esc\)$/ }).click();
+  // 枠の外をクリック(ドラッグなし)で確定する
+  const layer = await page.locator(".draw-layer").boundingBox();
+  await page.mouse.click(layer.x + 3, layer.y + 3);
+  await page.waitForTimeout(200);
+  check((await page.locator(".draw-layer").count()) === 0, "枠の外のクリックでズーム範囲の編集を終える");
 
   // Z キーで再生位置にズームを足す
   await page.keyboard.press("End");
@@ -328,6 +333,16 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   );
   const [ml2, mr2] = await marginOf();
   check(ml2 > ml && Math.abs(ml2 - mr2) <= 2, `角のハンドルは中心固定で縮小 (左 ${ml2} / 右 ${mr2})`);
+  // 矢印キーで 1px ずつ動かす
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(100);
+  const [ml3] = await marginOf();
+  check(ml3 === ml2 + 1, `→ で録画を 1px 右へ動かす (左 ${ml2} → ${ml3})`);
+  // 画面の左辺に吸着する
+  const vb4 = await page.locator(".box-outline").boundingBox();
+  await drag(page, center(vb4), { x: center(vb4).x - (vb4.x - stage.x) + 4, y: center(vb4).y });
+  const [ml4] = await marginOf();
+  check(ml4 === 0, `録画の移動で画面の左辺に吸着する (左 ${ml4})`);
   const vb3 = await page.locator(".box-outline").boundingBox();
   await drag(page, { x: vb3.x + vb3.width / 2, y: vb3.y }, { x: vb3.x + vb3.width / 2, y: vb3.y + 30 });
   await page.waitForTimeout(300);
@@ -345,6 +360,19 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("Escape");
   await shot(page, "07-mint");
 
+  // 余白なし: オンで余白 0、オフで元に戻す
+  await page.locator(".nav-item").click();
+  const noMargin = page.getByLabel(/No margins|余白なし/);
+  const before = await marginOf();
+  await noMargin.check();
+  check(
+    (await marginOf()).every((v) => v === 0),
+    "余白なしで上下左右の余白が 0",
+  );
+  await noMargin.uncheck();
+  const after = await marginOf();
+  check(after[0] === before[0] && after[1] === before[1], `余白なしを外すと元の余白に戻る (${after})`);
+
   // テロップをプレビュー上でドラッグする(ステップの個別設定になる)
   await page.locator(".step-item").first().click();
   await page.keyboard.press("Home");
@@ -358,6 +386,45 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check((await page.locator(".badge").count()) === 1, "テロップを動かすとステップの個別設定になる");
   await page.getByRole("button", { name: /Use project setting|プロジェクト設定に戻す/ }).click();
   check((await page.locator(".badge").count()) === 0, "プロジェクト設定に戻せる");
+  // テロップのクリックでテロップの設定へ
+  await page.locator(".nav-item").click();
+  await page.waitForTimeout(200);
+  const ch2 = await page.locator(".caption-handle").boundingBox();
+  await page.mouse.click(center(ch2).x, center(ch2).y);
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ",
+    "プレビューのテロップをクリックするとテロップの設定へ移る",
+  );
+
+  // テロップのラインのダブルクリックで、テロップのないステップにテロップを作る
+  const capLane = page.locator(".tl-lane").nth(1);
+  const clips = page.locator(".tl-clip");
+  const second = await clips.nth(1).boundingBox();
+  const laneBox = await capLane.boundingBox();
+  const capsBefore = await page.locator(".tl-bar.caption").count();
+  await page.mouse.dblclick(second.x + second.width / 2, laneBox.y + laneBox.height / 2);
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".tl-bar.caption").count()) >= capsBefore,
+    "テロップのラインのダブルクリックでテロップを選ぶ・作る",
+  );
+
+  // 読み上げを追加すると読み上げが 2 つになる
+  await page.locator(".step-item").first().click();
+  await page.getByRole("button", { name: /^(Add speech|読み上げを追加)$/ }).click();
+  await page.waitForTimeout(200);
+  check((await page.locator(".tl-bar.speech").count()) >= 2, "読み上げを 1 ステップに 2 つ置ける");
+
+  // 再生して止めると再生ボタンが再生の表示に戻る
+  await page.getByRole("button", { name: /^(Play|再生)$/ }).click();
+  await page.waitForTimeout(600);
+  await page.getByRole("button", { name: /^(Pause|停止)$/ }).click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.getByRole("button", { name: /^(Play|再生)$/ }).count()) === 1,
+    "停止すると再生ボタンが ▶ に戻る",
+  );
   check(
     (await page.getByLabel(/Read the caption text|テロップと同じ文を読む/).count()) === 1,
     "読み上げに「テロップと同じ文を読む」がある",

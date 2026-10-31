@@ -1,7 +1,7 @@
 // ステップの編集操作(STP-05, STP-06)。プロジェクトは書き換えず、新しいオブジェクトを返す。
 
-import { stepSpeed } from "./defaults";
-import type { Project, Step } from "./schema";
+import { speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
+import type { Project, SpeechPiece, Step } from "./schema";
 import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
 
 export function uniqueStepId(project: Project, base: string): string {
@@ -81,10 +81,15 @@ export function shiftStepElements(step: Step, dt: number): Step {
     if (c.start === 0) delete c.start;
     next.caption = c;
   }
-  if (step.speech?.start !== undefined) {
-    const start = r3(Math.max(0, step.speech.start + dt));
-    next.speech = { ...step.speech, start };
-    if (start === 0) delete next.speech.start;
+  if (step.speech) {
+    const pieces = speechPieces(step).map((p, k) => {
+      if (p.start === undefined) return p;
+      const start = r3(Math.max(0, p.start + dt));
+      const { start: _s, ...rest } = p;
+      // 最初の読み上げの 0 は既定値なので書かない
+      return start === 0 && k === 0 ? rest : { ...rest, start };
+    });
+    Object.assign(next, withSpeechPieces(next, pieces));
   }
   for (const key of ["pointers", "highlights"] as const) {
     const list = step[key];
@@ -151,6 +156,82 @@ export function addHold(project: Project, index: number, at: number, duration: n
     ...s,
     holds: [...(s.holds ?? []), { at: a, duration: r3(d) }].sort((x, y) => x.at - y.at),
   }));
+}
+
+/**
+ * ステップ index と次のステップを 1 つにまとめられるか。同じ録画の続いた区間で、速度が同じなら可
+ */
+export function canMergeSteps(project: Project, index: number): boolean {
+  const a = project.steps[index];
+  const b = project.steps[index + 1];
+  return (
+    !!a && !!b && a.source === b.source && Math.abs(a.out - b.in) < 1e-3 && stepSpeed(a) === stepSpeed(b)
+  );
+}
+
+/**
+ * ステップ index と次のステップを 1 つにまとめる。firstDuration は前のステップの出力上の長さ
+ * (読み上げによる自動保持を含む)。自動保持の分は明示した保持にして、後ろの要素の時刻を保つ。
+ * テロップは同じ文なら 1 つに、違えば改行でつなぐ。読み上げは順に並べ、テロップと一致の読み上げは文を書き出して保つ
+ */
+export function mergeSteps(project: Project, index: number, firstDuration?: number): Project {
+  if (!canMergeSteps(project, index)) return project;
+  const a = project.steps[index] as Step;
+  const b = project.steps[index + 1] as Step;
+  const baseA = baseDuration(a);
+  const offset = Math.max(baseA, firstDuration ?? baseA);
+  const autoHold = r3(offset - baseA);
+  const shiftedB = shiftStepElements(b, offset);
+  const merged: Step = { ...a, out: b.out };
+
+  const holds = [
+    ...(a.holds ?? []),
+    ...(autoHold > 0 ? [{ at: r3(baseA), duration: autoHold }] : []),
+    ...(shiftedB.holds ?? []),
+  ];
+  if (holds.length) merged.holds = holds;
+  const zooms = [...(a.zooms ?? []), ...(shiftedB.zooms ?? [])];
+  if (zooms.length) merged.zooms = zooms;
+  for (const key of ["pointers", "highlights"] as const) {
+    const list = [...(a[key] ?? []), ...(shiftedB[key] ?? [])];
+    if (list.length) merged[key] = list as never;
+  }
+
+  // テロップ
+  const ca = a.caption;
+  const cb = shiftedB.caption;
+  if (ca || cb) {
+    const ta = ca?.text.trim() ?? "";
+    const tb = cb?.text.trim() ?? "";
+    const text =
+      ta === tb || tb === "" ? (ca?.text ?? "") : ta === "" ? (cb?.text ?? "") : `${ca?.text}\n${cb?.text}`;
+    const caption: NonNullable<Step["caption"]> = ca
+      ? { ...ca, text }
+      : { ...(cb as NonNullable<Step["caption"]>), text, start: cb?.start ?? r3(offset) };
+    // 前のテロップが途中で終わる指定でも、後ろのテロップの終わりまで出す。後ろになければ前の区間のまま
+    if (cb) {
+      if (cb.end != null) caption.end = cb.end;
+      else delete caption.end;
+    } else if (ca?.end == null) caption.end = r3(offset);
+    merged.caption = caption;
+  }
+
+  // 読み上げ。テロップと一致の読み上げは、まとめた後のテロップと文が変わるので文を書き出す
+  const fix = (st: Step, pieces: SpeechPiece[], keep: boolean) =>
+    pieces.map((p, k) =>
+      k === 0 && p.text === undefined && !keep ? { ...p, text: st.caption?.text ?? "" } : p,
+    );
+  const mergedText = merged.caption?.text;
+  const piecesA = fix(a, speechPieces(a), mergedText === a.caption?.text);
+  const piecesB = fix(b, speechPieces(shiftedB), piecesA.length === 0 && mergedText === b.caption?.text).map(
+    (p, k) => (k === 0 && p.start === undefined ? { ...p, start: r3(offset) } : p),
+  );
+  const result = withSpeechPieces(merged, [...piecesA, ...piecesB]);
+  if (b.audio && !a.audio) result.audio = b.audio;
+
+  const steps = [...project.steps];
+  steps.splice(index, 2, result);
+  return replaceSteps(project, steps);
 }
 
 export function duplicateStep(project: Project, index: number): Project {

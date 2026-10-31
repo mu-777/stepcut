@@ -20,7 +20,7 @@ export const captionStyleSchema = z.strictObject({
   color: color.optional(),
   lineHeight: z.number().positive().optional(),
   align: z.enum(["center", "left"]).optional(),
-  /** 文字の背景の箱。"auto" は録画に重なるときだけ付ける */
+  /** 文字の背景の箱の色。"auto" は旧い書き方で、箱なしとして扱う */
   background: z.union([color, z.literal("auto")]).optional(),
 });
 
@@ -71,17 +71,32 @@ const annotationBase = {
   exit: transitionKind.optional(),
 };
 
+const rectSchema = z.strictObject({
+  x: z.number(),
+  y: z.number(),
+  w: z.number().positive(),
+  h: z.number().positive(),
+});
+
 export const zoomSchema = z.strictObject({
   start: time,
   end: time,
-  rect: z.strictObject({
-    x: z.number(),
-    y: z.number(),
-    w: z.number().positive(),
-    h: z.number().positive(),
-  }),
+  rect: rectSchema,
+  /** 拡大を保つ区間(start〜end)の間に、rect からこの範囲へ一定の速さで移る */
+  to: rectSchema.optional(),
+  /** true なら枠どおりの範囲だけを映す(録画の表示の縦横比が枠に合わせて変わる) */
+  exact: z.boolean().optional(),
   hold: z.boolean().optional(),
   transition: time.optional(),
+});
+
+export const speechPieceSchema = z.strictObject({
+  /** 省略すると(最初の 1 つだけ)テロップの文を読む */
+  text: z.string().optional(),
+  /** 読み始めるステップ内の出力時刻。省略すると、最初は 0、2 つ目からは前の読み上げの直後 */
+  start: time.optional(),
+  voice: z.string().nullable().optional(),
+  params: speechParams.optional(),
 });
 
 export const holdSchema = z.strictObject({ at: time, duration: z.number().positive() });
@@ -101,15 +116,8 @@ export const stepSchema = z.strictObject({
       style: captionStyleSchema.optional(),
     })
     .optional(),
-  speech: z
-    .strictObject({
-      /** 省略するとテロップの文を読む */
-      text: z.string().optional(),
-      start: time.optional(),
-      voice: z.string().nullable().optional(),
-      params: speechParams.optional(),
-    })
-    .optional(),
+  /** 読み上げ。1 つならオブジェクト、複数なら配列(順に読む) */
+  speech: z.union([speechPieceSchema, z.array(speechPieceSchema).min(1)]).optional(),
   audio: audioSchema.optional(),
   holds: z.array(holdSchema).optional(),
   zooms: z.array(zoomSchema).optional(),
@@ -172,6 +180,7 @@ export type Project = z.infer<typeof projectSchema>;
 export type Step = z.infer<typeof stepSchema>;
 export type Zoom = z.infer<typeof zoomSchema>;
 export type Hold = z.infer<typeof holdSchema>;
+export type SpeechPiece = z.infer<typeof speechPieceSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
 export type Background = z.infer<typeof backgroundSchema>;
 export type Margin = NonNullable<NonNullable<Project["layout"]>["margin"]>;

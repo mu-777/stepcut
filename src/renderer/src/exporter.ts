@@ -116,10 +116,9 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
     await output.start();
     for (const entry of timeline) {
       const m = media.get(entry.step.source) ?? null;
-      const speechAudio = speech.get(project, entry.step);
       if (audioSource) {
         await audioSource.add(
-          await renderStepAudio(project, entry.step, entry.duration, m, speechAudio?.buffer ?? null),
+          await renderStepAudio(project, entry.step, entry.duration, m, speech.placed(project, entry.step)),
         );
       }
       const endFrame = Math.round((entry.start + entry.duration) * out.fps);
