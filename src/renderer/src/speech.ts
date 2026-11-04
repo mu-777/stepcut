@@ -1,7 +1,9 @@
 // ステップの読み上げ音声を用意する。生成はメインプロセス(キャッシュあり)、ここではデコード結果を持つ。
-import { resolveSpeech, speechText } from "../../core/defaults";
+// 1 ステップに読み上げが複数あれば、それぞれを別に生成する。
+import { resolveSpeech, speechPieces, speechText } from "../../core/defaults";
 import type { Project, Step } from "../../core/schema";
 import { applyDictionary } from "../../core/text";
+import { speechTimes } from "../../core/timeline";
 import type { TtsRequest } from "../../shared/api";
 import { api } from "./api";
 
@@ -12,10 +14,10 @@ export interface SpeechAudio {
   duration: number;
 }
 
-export function speechRequest(project: Project, step: Step): TtsRequest | null {
-  const text = speechText(step);
+export function speechRequest(project: Project, step: Step, k = 0): TtsRequest | null {
+  const text = speechText(step, k);
   if (!text) return null;
-  const s = resolveSpeech(project, step);
+  const s = resolveSpeech(project, step, k);
   return {
     engine: s.engine,
     voice: s.voice,
@@ -42,38 +44,63 @@ export class SpeechStore {
     return JSON.stringify(req);
   }
 
-  get(project: Project, step: Step): SpeechAudio | null {
-    const req = speechRequest(project, step);
+  /** k 番目の読み上げの音声。未生成・文が空なら null */
+  get(project: Project, step: Step, k = 0): SpeechAudio | null {
+    const req = speechRequest(project, step, k);
     return req ? (this.results.get(this.key(req)) ?? null) : null;
   }
 
+  /** ステップの読み上げのうち、最初に見つかった生成の失敗 */
   error(project: Project, step: Step): string | null {
-    const req = speechRequest(project, step);
-    return req ? (this.errors.get(this.key(req)) ?? null) : null;
+    for (let k = 0; k < speechPieces(step).length; k++) {
+      const req = speechRequest(project, step, k);
+      const e = req ? this.errors.get(this.key(req)) : undefined;
+      if (e) return e;
+    }
+    return null;
   }
 
+  /** ステップの読み上げのどれかを生成中か */
   isPending(project: Project, step: Step): boolean {
-    const req = speechRequest(project, step);
-    return req ? this.pending.has(this.key(req)) : false;
+    return speechPieces(step).some((_, k) => {
+      const req = speechRequest(project, step, k);
+      return req ? this.pending.has(this.key(req)) : false;
+    });
   }
 
-  /** 読み上げの長さ。未生成は 0 */
-  durations(project: Project): Map<string, number> {
-    const m = new Map<string, number>();
+  /** 読み上げごとの長さ。未生成・文が空は 0 */
+  stepDurations(project: Project, step: Step): number[] {
+    return speechPieces(step).map((_, k) => this.get(project, step, k)?.duration ?? 0);
+  }
+
+  /** 読み上げの長さ(ステップ id → 読み上げごとの長さ) */
+  durations(project: Project): Map<string, number[]> {
+    const m = new Map<string, number[]>();
     for (const step of project.steps) {
-      const a = this.get(project, step);
-      if (a) m.set(step.id, a.duration);
+      if (speechPieces(step).length > 0) m.set(step.id, this.stepDurations(project, step));
     }
     return m;
   }
 
-  load(project: Project, step: Step): Promise<SpeechAudio> | null {
-    const req = speechRequest(project, step);
+  /** 鳴らす音声と開始時刻(ステップ内の出力時刻)。用意できたものだけ */
+  placed(project: Project, step: Step): { buffer: AudioBuffer; start: number }[] {
+    const times = speechTimes(step, this.stepDurations(project, step));
+    const out: { buffer: AudioBuffer; start: number }[] = [];
+    speechPieces(step).forEach((_, k) => {
+      const a = this.get(project, step, k);
+      const tm = times[k];
+      if (a && tm) out.push({ buffer: a.buffer, start: tm.start });
+    });
+    return out;
+  }
+
+  load(project: Project, step: Step, k = 0): Promise<SpeechAudio> | null {
+    const req = speechRequest(project, step, k);
     if (!req) return null;
-    const k = this.key(req);
-    const done = this.results.get(k);
+    const key = this.key(req);
+    const done = this.results.get(key);
     if (done) return Promise.resolve(done);
-    let p = this.pending.get(k);
+    let p = this.pending.get(key);
     if (!p) {
       p = api
         .ttsSynthesize(req)
@@ -81,16 +108,16 @@ export class SpeechStore {
           if (r.notice) this.notices.add(r.notice);
           const buffer = await decodeWav(r.wav);
           const audio = { buffer, duration: buffer.duration };
-          this.results.set(k, audio);
-          this.errors.delete(k);
+          this.results.set(key, audio);
+          this.errors.delete(key);
           return audio;
         })
         .catch((e: Error) => {
-          this.errors.set(k, e.message);
+          this.errors.set(key, e.message);
           throw e;
         })
-        .finally(() => this.pending.delete(k));
-      this.pending.set(k, p);
+        .finally(() => this.pending.delete(key));
+      this.pending.set(key, p);
     }
     return p;
   }
@@ -99,12 +126,14 @@ export class SpeechStore {
   async loadAll(project: Project, onProgress?: () => void): Promise<string[]> {
     const errors: string[] = [];
     await Promise.all(
-      project.steps.map((step) =>
-        this.load(project, step)
-          ?.catch((e: Error) => {
-            errors.push(`${step.id}: ${e.message}`);
-          })
-          .finally(() => onProgress?.()),
+      project.steps.flatMap((step) =>
+        speechPieces(step).map((_, k) =>
+          this.load(project, step, k)
+            ?.catch((e: Error) => {
+              errors.push(`${step.id}: ${e.message}`);
+            })
+            .finally(() => onProgress?.()),
+        ),
       ),
     );
     return errors;

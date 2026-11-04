@@ -31,14 +31,14 @@ export function marginArea(outW: number, outH: number, m: Margin): Rect {
   return { x, y, w: Math.max(1, outW - x - m.right * outW), h: Math.max(1, outH - y - m.bottom * outH) };
 }
 
-/** 領域(出力のピクセル)をちょうど囲む余白。プレビュー上で枠を動かしたときに使う。小数 4 桁に丸める */
+/** 領域(出力のピクセル)をちょうど囲む余白。プレビュー上で枠を動かしたときに使う。小数 6 桁に丸める(1px 単位の移動がずれないように) */
 export function marginOf(r: Rect, outW: number, outH: number): Margin {
-  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
   return {
-    top: r4(r.y / outH),
-    right: r4((outW - r.x - r.w) / outW),
-    bottom: r4((outH - r.y - r.h) / outH),
-    left: r4(r.x / outW),
+    top: r6(r.y / outH),
+    right: r6((outW - r.x - r.w) / outW),
+    bottom: r6((outH - r.y - r.h) / outH),
+    left: r6(r.x / outW),
   };
 }
 
@@ -89,9 +89,52 @@ export function zoomViewRect(rect: Rect, aspect: number, srcW: number, srcH: num
   return expandToAspect(rect, aspect, srcW, srcH);
 }
 
+/** 枠をソースの範囲に収める(大きさは変えず位置をずらす。大きすぎれば縮める) */
+export function clampRect(r: Rect, srcW: number, srcH: number): Rect {
+  const w = Math.min(r.w, srcW);
+  const h = Math.min(r.h, srcH);
+  return { x: Math.min(Math.max(0, r.x), srcW - w), y: Math.min(Math.max(0, r.y), srcH - h), w, h };
+}
+
+/** ズームの枠(ソースのピクセル)。移動ありなら、拡大を保つ区間の間に rect から to へ一定の速さで移る */
+export function zoomRectAt(z: Zoom, t: number): Rect {
+  if (!z.to) return z.rect;
+  const len = z.end - z.start;
+  const p = len > 0 ? Math.min(1, Math.max(0, (t - z.start) / len)) : 1;
+  return lerpRect(z.rect, z.to, p);
+}
+
+/** ズームで映す範囲。exact なら枠そのもの、そうでなければ表示の縦横比に合わせて広げた範囲 */
+function zoomView(z: Zoom, r: Rect, aspect: number, srcW: number, srcH: number): Rect {
+  return z.exact ? clampRect(r, srcW, srcH) : zoomViewRect(r, aspect, srcW, srcH);
+}
+
 /** ズームの倍率(ズームしていないときの見える範囲に対して) */
 export function zoomScale(z: Zoom, base: Rect, srcW: number, srcH: number): number {
+  if (z.exact) {
+    const r = clampRect(z.rect, srcW, srcH);
+    return Math.max(1, Math.min(base.w / r.w, base.h / r.h));
+  }
   return base.w / zoomViewRect(z.rect, base.w / base.h, srcW, srcH).w;
+}
+
+/** 倍率と中心を保ったまま、枠を表示の縦横比(base)に戻す */
+export function resetZoomAspect(z: Zoom, base: Rect, srcW: number, srcH: number): Rect {
+  const s = zoomScale(z, base, srcW, srcH);
+  const w = base.w / s;
+  const h = base.h / s;
+  const cx = z.rect.x + z.rect.w / 2;
+  const cy = z.rect.y + z.rect.h / 2;
+  const r = clampRect({ x: cx - w / 2, y: cy - h / 2, w, h }, srcW, srcH);
+  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) };
+}
+
+/**
+ * 録画を描く領域(出力のピクセル)。映す範囲(view)の縦横比で、余白の内側(area)に収めて中央に置く。
+ * ズームなし・枠を広げるズームでは view の縦横比が変わらないので、computeLayout の video と同じになる
+ */
+export function videoBoxFor(view: Rect, area: Rect): Rect {
+  return fitContain(view.w, view.h, area);
 }
 
 function easeInOut(p: number): number {
@@ -135,8 +178,8 @@ export function viewRectAt(step: Step, t: number, srcW: number, srcH: number, ba
     if (next && t > z.end && t < next.start && next.start - z.end < CHAIN_GAP) {
       const p = easeInOut((t - z.end) / (next.start - z.end));
       return lerpRect(
-        zoomViewRect(z.rect, aspect, srcW, srcH),
-        zoomViewRect(next.rect, aspect, srcW, srcH),
+        zoomView(z, zoomRectAt(z, z.end), aspect, srcW, srcH),
+        zoomView(next, next.rect, aspect, srcW, srcH),
         p,
       );
     }
@@ -154,5 +197,5 @@ export function viewRectAt(step: Step, t: number, srcW: number, srcH: number, ba
     if (p > 0 && (!best || p > best.p)) best = { p, z };
   }
   if (!best) return b;
-  return lerpRect(b, zoomViewRect(best.z.rect, aspect, srcW, srcH), best.p);
+  return lerpRect(b, zoomView(best.z, zoomRectAt(best.z, t), aspect, srcW, srcH), best.p);
 }

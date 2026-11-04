@@ -475,36 +475,76 @@
             "additionalProperties": false
           },
           "speech": {
-            "type": "object",
-            "properties": {
-              "text": {
-                "type": "string"
-              },
-              "start": {
-                "type": "number",
-                "minimum": 0
-              },
-              "voice": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "params": {
+            "anyOf": [
+              {
                 "type": "object",
-                "propertyNames": {
-                  "type": "string"
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "start": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "voice": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": [
+                        "number",
+                        "string",
+                        "boolean"
+                      ]
+                    }
+                  }
                 },
-                "additionalProperties": {
-                  "type": [
-                    "number",
-                    "string",
-                    "boolean"
-                  ]
+                "additionalProperties": false
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "voice": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "params": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": [
+                          "number",
+                          "string",
+                          "boolean"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false
                 }
               }
-            },
-            "additionalProperties": false
+            ]
           },
           "audio": {
             "type": "object",
@@ -596,6 +636,35 @@
                     "h"
                   ],
                   "additionalProperties": false
+                },
+                "to": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "w": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "h": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "w",
+                    "h"
+                  ],
+                  "additionalProperties": false
+                },
+                "exact": {
+                  "type": "boolean"
                 },
                 "hold": {
                   "type": "boolean"

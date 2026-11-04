@@ -62,6 +62,7 @@ export function TextField(props: {
           value={props.value}
           rows={3}
           disabled={props.disabled}
+          placeholder={props.placeholder}
           onChange={(e) => props.onChange(e.target.value)}
         />
       ) : (

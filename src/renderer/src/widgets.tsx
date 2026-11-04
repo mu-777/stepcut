@@ -86,3 +86,21 @@ export function savePref(key: string, value: number): void {
     // 覚えられなくても動く
   }
 }
+
+/** 文字の画面設定を覚えておく。choices にない値なら fallback */
+export function loadChoice<T extends string>(key: string, choices: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(`pref.${key}`);
+    return choices.includes(v as T) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveChoice(key: string, value: string): void {
+  try {
+    localStorage.setItem(`pref.${key}`, value);
+  } catch {
+    // 覚えられなくても動く
+  }
+}

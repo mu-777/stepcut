@@ -129,12 +129,21 @@ export class BackgroundStore {
     return `${image}|${w}x${h}|${image.startsWith("preset:") ? "" : (projectPath ?? "")}`;
   }
 
-  /** 画像の背景。用意できていなければ読み込みを始めて null を返す */
+  /**
+   * 画像の背景。用意できていなければ読み込みを始めて null を返す。
+   * 持つのは最後に求められた大きさの 1 枚だけ(プレビューの大きさが変わるたびに出力大の画像が溜まらないように)
+   */
   get(image: string, w: number, h: number, projectPath: string | null): Img | null {
     const k = this.key(image, w, h, projectPath);
     if (this.cache.has(k)) return this.cache.get(k) ?? null;
+    for (const old of this.cache.keys()) if (old !== k) this.cache.delete(old);
     void this.load(image, w, h, projectPath);
     return null;
+  }
+
+  /** 用意した画像を捨てる(GPU のコンテキストが失われると中身が消えるため) */
+  clear(): void {
+    this.cache.clear();
   }
 
   error(image: string, projectPath: string | null): string | null {

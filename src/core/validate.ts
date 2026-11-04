@@ -1,4 +1,5 @@
 // プロジェクトファイルの検証(AI-04)。形(schema.ts)に加え、id の参照や時刻の重なりを調べる。
+import { speechPieces } from "./defaults";
 import { migrateProject } from "./migrate";
 import { type Project, projectSchema } from "./schema";
 import { baseDuration, stepHolds, videoDuration } from "./timeline";
@@ -101,8 +102,23 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
     if (c && c.end != null && c.end <= (c.start ?? 0)) {
       errors.push({ path: at(".caption.end"), message: "end は start より後にしてください" });
     }
-    if (step.speech?.start !== undefined && step.speech.start > baseDuration(step) + EPS) {
-      errors.push({ path: at(".speech.start"), message: "読み上げの開始がステップの映像より後です" });
+    const pieces = speechPieces(step);
+    pieces.forEach((piece, k) => {
+      const where = Array.isArray(step.speech) ? `.speech[${k}]` : ".speech";
+      if (piece.start !== undefined && piece.start > baseDuration(step) + EPS) {
+        errors.push({ path: at(`${where}.start`), message: "読み上げの開始がステップの映像より後です" });
+      }
+      if (k > 0 && piece.text === undefined) {
+        warnings.push({ path: at(`${where}.text`), message: "2 つ目以降の読み上げは text を書いてください" });
+      }
+    });
+    for (const [k, z] of (step.zooms ?? []).entries()) {
+      if (z.to && !(z.end > z.start)) {
+        errors.push({
+          path: at(`.zooms[${k}].to`),
+          message: "移動するズームは end を start より後にしてください",
+        });
+      }
     }
     if (step.pointers?.length) {
       warnings.push({ path: at(".pointers"), message: "ポインターはこの版では描画しません(M2 で対応)" });

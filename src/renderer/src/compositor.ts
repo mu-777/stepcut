@@ -1,13 +1,13 @@
 // 1 フレームの合成。プレビューと書き出しで同じ処理を使う(OUT-06)。
 import { captionWindow } from "../../core/captions";
 import {
-  AUTO_CAPTION_BOX,
+  captionBoxColor,
   type ResolvedLayout,
   resolveCaptionPlacement,
   resolveCaptionStyle,
   resolveLayout,
 } from "../../core/defaults";
-import { computeLayout, type Rect, viewRectAt } from "../../core/layout";
+import { computeLayout, marginArea, type Rect, videoBoxFor, viewRectAt } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
 import { wrapText } from "../../core/text";
 import { drawSimpleBackground } from "./backgrounds";
@@ -32,6 +32,8 @@ export interface FrameInput {
   ignoreZoom?: boolean;
   /** 画像の背景(出力の大きさで用意したもの)。色・グラデーションの背景なら使わない */
   backgroundImage?: Frame | null;
+  /** テロップの文が空のときに薄く出す文(編集画面のプレビューだけ。書き出しでは渡さない) */
+  captionPlaceholder?: string;
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
@@ -48,7 +50,11 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
   const srcW = f.srcW || 1920;
   const srcH = f.srcH || 1080;
   const geo = computeLayout(f.outW, f.outH, layout, srcW, srcH);
+  // テロップの置き場所はズームによらず、ズームなしの録画の位置で決める
   const v = geo.video;
+  const view = f.step && !f.ignoreZoom ? viewRectAt(f.step, f.local, srcW, srcH, geo.crop) : geo.crop;
+  // 枠どおりに映すズームでは、録画を描く領域の形が変わる
+  const box = view === geo.crop ? v : videoBoxFor(view, marginArea(f.outW, f.outH, layout.margin));
 
   if (layout.shadow) {
     ctx.save();
@@ -56,21 +62,24 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
     ctx.shadowBlur = 30 * scale;
     ctx.shadowOffsetY = 8 * scale;
     ctx.fillStyle = "#000000";
-    ctx.fillRect(v.x, v.y, v.w, v.h);
+    ctx.fillRect(box.x, box.y, box.w, box.h);
     ctx.restore();
+  } else if (!f.frame) {
+    // 録画がない・読み込み中でも、録画を置く場所は黒で示す(影の有無によらない)
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(box.x, box.y, box.w, box.h);
   }
 
   if (f.frame) {
-    const view = f.step && !f.ignoreZoom ? viewRectAt(f.step, f.local, srcW, srcH, geo.crop) : geo.crop;
     // 素材のフレームはデコード時の大きさ(CanvasSink)なので、ソースの座標から換算する
     const kx = f.frame.width / srcW;
     const ky = f.frame.height / srcH;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(f.frame, view.x * kx, view.y * ky, view.w * kx, view.h * ky, v.x, v.y, v.w, v.h);
+    ctx.drawImage(f.frame, view.x * kx, view.y * ky, view.w * kx, view.h * ky, box.x, box.y, box.w, box.h);
   }
 
   if (f.step) {
-    const w = captionWindow(f.step, f.stepDuration);
+    const w = captionWindow(f.step, f.stepDuration, f.captionPlaceholder !== undefined);
     if (w && f.local >= w.start && f.local < w.end) drawCaption(ctx, f, v);
   }
   ctx.restore();
@@ -91,7 +100,7 @@ export interface CaptionBox {
 
 /**
  * テロップの置き場所と折り返し。位置の指定がなければ、録画の下の余白に収まるならその中央、
- * 収まらなければ画面の下寄り(88%)に置く。背景の箱は "auto" なら録画に重なるときだけ付ける。
+ * 収まらなければ画面の下寄り(88%)に置く。背景の箱は色を指定したときだけ付ける。
  */
 export function captionBox(
   ctx: Ctx,
@@ -100,8 +109,11 @@ export function captionBox(
   outW: number,
   outH: number,
   video: Rect,
+  placeholder?: string,
 ): CaptionBox | null {
-  if (!step.caption || step.caption.text.trim() === "") return null;
+  if (!step.caption) return null;
+  const text = step.caption.text.trim() === "" ? placeholder : step.caption.text;
+  if (!text) return null;
   const scale = outH / 1080;
   const style = resolveCaptionStyle(project, step);
   const place = resolveCaptionPlacement(project, step);
@@ -109,7 +121,7 @@ export function captionBox(
   const lineH = size * style.lineHeight;
   ctx.font = `${size}px "${style.font}", "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
   const measure = (s: string) => ctx.measureText(s).width;
-  const lines = wrapText(step.caption.text, place.width * outW, measure);
+  const lines = wrapText(text, place.width * outW, measure);
   const textW = Math.max(...lines.map(measure), 0);
   const boxPad = size * 0.4;
   const boxW = textW + boxPad * 2;
@@ -124,20 +136,16 @@ export function captionBox(
     if (below >= boxH) cy = video.y + video.h + below / 2;
   }
   const box = { x: cx - boxW / 2, y: cy - boxH / 2, w: boxW, h: boxH };
-  const overlaps =
-    box.x < video.x + video.w &&
-    box.x + box.w > video.x &&
-    box.y < video.y + video.h &&
-    box.y + box.h > video.y;
-  const boxColor = style.background === "auto" ? (overlaps ? AUTO_CAPTION_BOX : null) : style.background;
-  return { lines, cx, cy, box, boxColor, textW, lineH };
+  return { lines, cx, cy, box, boxColor: captionBoxColor(style.background), textW, lineH };
 }
 
 function drawCaption(ctx: Ctx, f: FrameInput, video: Rect): void {
   const step = f.step as Step;
-  const c = captionBox(ctx, f.project, step, f.outW, f.outH, video);
+  const c = captionBox(ctx, f.project, step, f.outW, f.outH, video, f.captionPlaceholder);
   if (!c) return;
   const style = resolveCaptionStyle(f.project, step);
+  const isPlaceholder = (step.caption?.text.trim() ?? "") === "";
+  if (isPlaceholder) ctx.globalAlpha = 0.45;
   if (c.boxColor) {
     ctx.fillStyle = c.boxColor;
     ctx.fillRect(c.box.x, c.box.y, c.box.w, c.box.h);

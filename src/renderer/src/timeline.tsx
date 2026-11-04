@@ -6,15 +6,17 @@ import {
   DEFAULT_ZOOM_LENGTH,
   resolveLayout,
   resolveOutput,
+  speechPieces,
   speechText,
   stepSpeed,
+  withSpeechPieces,
   zoomHolds,
   zoomTransition,
 } from "../../core/defaults";
-import { addHold, deleteStep, splitStep, trimStep } from "../../core/edit";
+import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
 import { computeLayout, zoomScale } from "../../core/layout";
 import type { Project, Step, Zoom } from "../../core/schema";
-import { baseDuration, sourceTimeAt, speechStart, stepHolds, type TimelineEntry } from "../../core/timeline";
+import { baseDuration, sourceTimeAt, speechTimes, stepHolds, type TimelineEntry } from "../../core/timeline";
 import { t } from "./i18n";
 import type { SourceMedia } from "./media";
 import { quantize, type ThumbCache } from "./thumbs";
@@ -23,8 +25,8 @@ export type Selection =
   | { kind: "project" }
   /** プレビュー上の録画を選んだ(位置と大きさの編集) */
   | { kind: "video" }
-  | { kind: "step" | "caption" | "speech"; step: number }
-  | { kind: "zoom" | "hold"; step: number; index: number };
+  | { kind: "step" | "caption"; step: number }
+  | { kind: "zoom" | "hold" | "speech"; step: number; index: number };
 
 export const selectedStep = (s: Selection): number | null => ("step" in s ? s.step : null);
 
@@ -111,7 +113,7 @@ export function Timeline(props: {
   media: Map<string, SourceMedia>;
   thumbs: ThumbCache;
   thumbsVersion: number;
-  speechDurations: ReadonlyMap<string, number>;
+  speechDurations: ReadonlyMap<string, readonly number[]>;
   selection: Selection;
   onSelect: (s: Selection) => void;
   onSeek: (t: number) => void;
@@ -122,6 +124,13 @@ export function Timeline(props: {
   onEditZoomRect: (step: number, zoom: number) => void;
   /** 読み上げだけを鳴らす */
   onPreviewSpeech: (step: number) => void;
+  /** ステップ i と次のステップをまとめる */
+  onMergeNext: (step: number) => void;
+  /** ズームのコピーと貼り付け(貼り付けは全体の時刻 at に) */
+  onCopyZoom: (step: number, zoom: number) => void;
+  onPasteZoom: ((at: number) => void) | null;
+  /** 再生位置のステップに、時刻 local でズームを足して範囲の編集を始める */
+  onAddZoomAt: (step: number, local: number) => void;
   /** 拡大率の操作(親のボタンから)。値が変わるたびに適用する */
   zoomCommand: { n: number; kind: "in" | "out" | "fit" };
 }) {
@@ -224,8 +233,12 @@ export function Timeline(props: {
       ts.push(e.start);
       const cw = captionWindow(s, e.duration);
       if (cw) ts.push(e.start + cw.start, e.start + cw.end);
-      const sd = props.speechDurations.get(s.id);
-      if (speechText(s)) ts.push(e.start + speechStart(s), ...(sd ? [e.start + speechStart(s) + sd] : []));
+      const sd = props.speechDurations.get(s.id) ?? [];
+      speechTimes(s, sd).forEach((x, k) => {
+        if (!speechText(s, k)) return;
+        ts.push(e.start + x.start);
+        if (sd[k]) ts.push(e.start + x.end);
+      });
       for (const z of s.zooms ?? []) ts.push(e.start + z.start, e.start + z.end);
       for (const h of stepHolds(s)) ts.push(e.start + h.at, e.start + h.at + h.duration);
       const base = baseDuration(s);
@@ -297,8 +310,64 @@ export function Timeline(props: {
         label: t("addHoldEnd"),
         action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
       },
+      { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => props.onMergeNext(i) },
       { label: t("deleteStep"), shortcut: "Delete", action: () => update((p) => deleteStep(p, i)) },
     ]);
+  };
+
+  /** ラインのダブルクリック: その時刻のステップを返す */
+  const entryAt = (clientX: number) => {
+    const at = xToTime(clientX);
+    const entry = timeline.find((e) => at >= e.start && at < e.start + e.duration) ?? timeline.at(-1);
+    return entry ? { entry, local: r3(Math.max(0, at - entry.start)) } : null;
+  };
+
+  /** テロップのラインをダブルクリック。テロップがなければその時刻から作り、あれば選ぶ */
+  const captionLaneDoubleClick = (e: React.MouseEvent) => {
+    const hit = entryAt(e.clientX);
+    if (!hit) return;
+    const i = hit.entry.index;
+    if (!hit.entry.step.caption) {
+      patchStep(
+        update,
+        i,
+        (s) => ({ ...s, caption: hit.local > 0 ? { text: "", start: hit.local } : { text: "" } }),
+        "caption-add",
+      );
+    }
+    props.onSelect({ kind: "caption", step: i });
+  };
+
+  /** 読み上げのラインをダブルクリック。読み上げの上なら選び、空いているところなら新しく作る */
+  const speechLaneDoubleClick = (e: React.MouseEvent) => {
+    const hit = entryAt(e.clientX);
+    if (!hit) return;
+    const { entry, local } = hit;
+    const i = entry.index;
+    const pieces = speechPieces(entry.step);
+    const times = speechTimes(entry.step, props.speechDurations.get(entry.step.id) ?? []);
+    const on = times.findIndex(
+      (x, k) => local >= x.start && local <= Math.max(x.end, x.start + (speechText(entry.step, k) ? 0 : 1)),
+    );
+    if (on >= 0) {
+      props.onSelect({ kind: "speech", step: i, index: on });
+      return;
+    }
+    const at = Math.min(local, baseDuration(entry.step));
+    // 1 つ目はテロップと同じ文を読む設定で作る。2 つ目からは文を書いてもらう
+    const piece = pieces.length === 0 ? (at > 0 ? { start: at } : {}) : { text: "", start: at };
+    patchStep(update, i, (s) => withSpeechPieces(s, [...speechPieces(s), piece]), "speech-add");
+    props.onSelect({ kind: "speech", step: i, index: pieces.length });
+  };
+
+  /** ズームのラインをダブルクリック。空いているところならズームを作り、範囲の編集を始める */
+  const zoomLaneDoubleClick = (e: React.MouseEvent) => {
+    const hit = entryAt(e.clientX);
+    if (!hit) return;
+    const zooms = hit.entry.step.zooms ?? [];
+    const on = zooms.findIndex((z) => hit.local >= z.start && hit.local <= z.end);
+    if (on >= 0) props.onEditZoomRect(hit.entry.index, on);
+    else props.onAddZoomAt(hit.entry.index, hit.local);
   };
 
   return (
@@ -442,19 +511,19 @@ export function Timeline(props: {
             })}
           </div>
 
-          {/* テロップ */}
-          <div className="tl-lane">
+          {/* テロップ。ダブルクリックで作る・選ぶ */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある */}
+          <div className="tl-lane" onDoubleClick={captionLaneDoubleClick}>
             {timeline.map((entry) => {
               const { step, index: i } = entry;
-              const w = captionWindow(step, entry.duration);
+              // 文が空のテロップも、仮の文を出して編集できるようにする
+              const w = captionWindow(step, entry.duration, true);
               if (!w) {
                 return (
-                  // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある
                   <div
                     key={i}
                     className="tl-empty"
                     style={{ left: entry.start * scale, width: entry.duration * scale }}
-                    onDoubleClick={() => props.onSelect({ kind: "caption", step: i })}
                   />
                 );
               }
@@ -477,7 +546,7 @@ export function Timeline(props: {
                   className={`caption ${isSel("caption", i) ? "selected" : ""}`}
                   left={(entry.start + w.start) * scale}
                   width={(w.end - w.start) * scale}
-                  label={step.caption?.text ?? ""}
+                  label={step.caption?.text.trim() ? step.caption.text : `(${t("captionPlaceholder")})`}
                   onSelect={() => props.onSelect({ kind: "caption", step: i })}
                   onMove={(dx, key) => {
                     const len = w.end - w.start;
@@ -507,61 +576,74 @@ export function Timeline(props: {
             })}
           </div>
 
-          {/* 読み上げ */}
-          <div className="tl-lane">
+          {/* 読み上げ。1 ステップに複数置ける。ダブルクリックで作る・選ぶ */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある */}
+          <div className="tl-lane" onDoubleClick={speechLaneDoubleClick}>
             {timeline.map((entry) => {
               const { step, index: i } = entry;
-              const text = speechText(step);
-              if (!text) {
+              const pieces = speechPieces(step);
+              if (pieces.length === 0) {
                 return (
-                  // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある
                   <div
                     key={i}
                     className="tl-empty"
                     style={{ left: entry.start * scale, width: entry.duration * scale }}
-                    onDoubleClick={() => props.onSelect({ kind: "speech", step: i })}
                   />
                 );
               }
-              const d = props.speechDurations.get(step.id);
-              const st = speechStart(step);
-              return (
-                <Bar
-                  key={i}
-                  className={`speech ${d === undefined ? "pending" : ""} ${isSel("speech", i) ? "selected" : ""}`}
-                  left={(entry.start + st) * scale}
-                  width={(d ?? 1) * scale}
-                  label={text}
-                  onSelect={() => props.onSelect({ kind: "speech", step: i })}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    props.onSelect({ kind: "speech", step: i });
-                    props.openMenu(e.clientX, e.clientY, [
-                      { label: t("previewSpeech"), action: () => props.onPreviewSpeech(i) },
-                    ]);
-                  }}
-                  onMove={(dx, key) => {
-                    const s = r3(
-                      clamp(snap(entry.start + st + dx / scale) - entry.start, 0, baseDuration(step)),
-                    );
-                    patchStep(
-                      update,
-                      i,
-                      (x) => {
-                        const { start: _s, ...rest } = x.speech ?? {};
-                        return { ...x, speech: s > 0 ? { ...rest, start: s } : rest };
-                      },
-                      key,
-                    );
-                  }}
-                />
-              );
+              const durs = props.speechDurations.get(step.id) ?? [];
+              const times = speechTimes(step, durs);
+              return pieces.map((_, k) => {
+                const text = speechText(step, k);
+                const d = durs[k];
+                const st = times[k]?.start ?? 0;
+                const pending = text !== null && !d;
+                return (
+                  <Bar
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 読み上げは id を持たない
+                    key={`${i}-${k}`}
+                    className={`speech ${pending ? "pending" : ""} ${text === null ? "empty" : ""} ${isSel("speech", i, k) ? "selected" : ""}`}
+                    left={(entry.start + st) * scale}
+                    width={(d || 1) * scale}
+                    label={text ?? `(${t("speechPlaceholder")})`}
+                    onSelect={() => props.onSelect({ kind: "speech", step: i, index: k })}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      props.onSelect({ kind: "speech", step: i, index: k });
+                      props.openMenu(e.clientX, e.clientY, [
+                        { label: t("previewSpeech"), action: () => props.onPreviewSpeech(i) },
+                      ]);
+                    }}
+                    onMove={(dx, key) => {
+                      const v = r3(
+                        clamp(snap(entry.start + st + dx / scale) - entry.start, 0, baseDuration(step)),
+                      );
+                      patchStep(
+                        update,
+                        i,
+                        (x) =>
+                          withSpeechPieces(
+                            x,
+                            speechPieces(x).map((p, j) => {
+                              if (j !== k) return p;
+                              const { start: _s, ...rest } = p;
+                              // 最初の読み上げの 0 は既定値なので書かない
+                              return v > 0 || k > 0 ? { ...rest, start: v } : rest;
+                            }),
+                          ),
+                        key,
+                      );
+                    }}
+                  />
+                );
+              });
             })}
           </div>
 
-          {/* ズーム */}
-          <div className="tl-lane">
+          {/* ズーム。ダブルクリックで作る・範囲を編集する */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある */}
+          <div className="tl-lane" onDoubleClick={zoomLaneDoubleClick}>
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const zooms = step.zooms ?? [];
@@ -643,6 +725,11 @@ export function Timeline(props: {
                         ? [
                             { label: t("drawRect"), action: () => props.onEditZoomRect(i, hit) },
                             {
+                              label: t("copyZoom"),
+                              shortcut: "Ctrl+C",
+                              action: () => props.onCopyZoom(i, hit),
+                            },
+                            {
                               label: t("remove"),
                               shortcut: "Delete",
                               action: () =>
@@ -655,6 +742,12 @@ export function Timeline(props: {
                             },
                           ]
                         : [
+                            {
+                              label: t("pasteZoom"),
+                              shortcut: "Ctrl+V",
+                              disabled: !props.onPasteZoom,
+                              action: () => props.onPasteZoom?.(entry.start + t0),
+                            },
                             {
                               label: t("addZoomHere"),
                               shortcut: "Z",
@@ -716,7 +809,6 @@ export function Timeline(props: {
                         width={(z.end - z.start) * scale}
                         label={`${zs.toFixed(1)}×`}
                         onSelect={() => props.onSelect({ kind: "zoom", step: i, index: k })}
-                        onDoubleClick={() => props.onEditZoomRect(i, k)}
                         onMove={(dx, key) => {
                           const { lo, hi } = bounds(k);
                           const len = z.end - z.start;

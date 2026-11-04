@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { captionWindow } from "../../core/captions";
-import { resolveLayout, resolveOutput } from "../../core/defaults";
-import { deleteStep, duplicateStep, moveStep, newProject, splitStep, uniqueStepId } from "../../core/edit";
+import { resolveLayout, resolveOutput, speechPieces, withSpeechPieces } from "../../core/defaults";
+import {
+  canMergeSteps,
+  deleteStep,
+  duplicateStep,
+  mergeSteps,
+  moveStep,
+  newProject,
+  splitStep,
+  uniqueStepId,
+} from "../../core/edit";
 import { computeLayout, marginOf, viewRectAt } from "../../core/layout";
-import type { Project } from "../../core/schema";
+import type { Project, Zoom } from "../../core/schema";
 import { buildTimeline, locate, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
 import type { Voice } from "../../shared/api";
@@ -20,13 +29,16 @@ import { Preview } from "./preview";
 import { SpeechStore } from "./speech";
 import { ThumbCache } from "./thumbs";
 import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
-import { ContextMenu, loadPref, Splitter, savePref } from "./widgets";
+import { ContextMenu, loadChoice, loadPref, Splitter, saveChoice, savePref } from "./widgets";
 
+/** ズームの範囲の編集。end は移動するズームの終了枠を編集中 */
+type DrawingZoom = { step: number; zoom: number; end?: boolean };
+
+/** 文字を入力中か。チェックボックス・スライダー・選択欄は含めない(Ctrl+Z を文字の取り消しに回さないため) */
+const TEXT_INPUTS = new Set(["text", "number", "search", "url", "email", "password", "tel", ""]);
 const isTyping = () => {
   const el = document.activeElement;
-  return (
-    el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement
-  );
+  return (el instanceof HTMLInputElement && TEXT_INPUTS.has(el.type)) || el instanceof HTMLTextAreaElement;
 };
 
 export function App() {
@@ -44,7 +56,17 @@ export function App() {
   const [muted, setMuted] = useState(false);
   useEffect(() => playerRef.current?.setMuted(muted), [muted]);
   const [trimPreview, setTrimPreview] = useState<{ step: number; time: number } | null>(null);
-  const [drawingZoom, setDrawingZoom] = useState<{ step: number; zoom: number } | null>(null);
+  const [drawingZoom, setDrawingZoom] = useState<DrawingZoom | null>(null);
+  /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
+  const [anchor, setAnchor] = useState(() =>
+    loadChoice("boxAnchor", ["center", "corner"] as const, "center"),
+  );
+  useEffect(() => saveChoice("boxAnchor", anchor), [anchor]);
+  /** 読み上げの試聴中のステップ */
+  const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
+  /** コピーしたズーム(アプリ内だけで持つ)。録画の大きさが違うステップへ貼るときに換算する */
+  const zoomClipboard = useRef<{ zoom: Zoom; srcW: number; srcH: number } | null>(null);
+  const [hasZoomClip, setHasZoomClip] = useState(false);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [banner, setBanner] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
@@ -92,6 +114,7 @@ export function App() {
     thumbs,
     backgrounds,
     projectPath: filePath,
+    captionPlaceholder: t("captionPlaceholder"),
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -136,9 +159,9 @@ export function App() {
     return () => clearTimeout(timer);
   }, [project, speech]);
 
-  // 停止中の表示を更新する
+  // 停止中の表示を更新する。画面に出す前に描き直し、編集中の枠と映像を同じフレームで動かす
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
-  useEffect(() => {
+  useLayoutEffect(() => {
     playerRef.current?.renderStill();
   }, [project, timeline, media, trimPreview, drawingZoom, bgVersion]);
 
@@ -203,6 +226,8 @@ export function App() {
                 source: id,
                 in: 0,
                 out: Math.round(m.duration * 1000) / 1000,
+                // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
+                caption: { text: "" },
                 // テロップと同じ文を読む(既定でオン)
                 speech: {},
               },
@@ -294,7 +319,13 @@ export function App() {
     if (s.kind === "zoom") patch((st) => ({ ...st, zooms: st.zooms?.filter((_, i) => i !== s.index) }));
     else if (s.kind === "hold") patch((st) => ({ ...st, holds: st.holds?.filter((_, i) => i !== s.index) }));
     else if (s.kind === "caption") patch((st) => ({ ...st, caption: undefined }));
-    else if (s.kind === "speech") patch((st) => ({ ...st, speech: undefined }));
+    else if (s.kind === "speech")
+      patch((st) =>
+        withSpeechPieces(
+          st,
+          speechPieces(st).filter((_, k) => k !== s.index),
+        ),
+      );
     setSelection({ kind: "step", step: s.step });
   };
 
@@ -312,8 +343,21 @@ export function App() {
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
     let handled = true;
+    // 録画の枠・ズームの枠を編集中は、矢印キーで 1px ずつ動かす(Shift で 10px)
+    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    if (
+      arrow &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      nudgeBox(arrow[0] as number, arrow[1] as number, e.shiftKey)
+    ) {
+      e.preventDefault();
+      return;
+    }
     if (key === "Escape") {
       setDrawingZoom(null);
+      stopSpeech();
       if (selection.kind === "video") setSelection({ kind: "project" });
     } else if (key === " ") {
       if (pl.playing) pl.stop();
@@ -342,6 +386,19 @@ export function App() {
     else handled = false;
     if (handled) e.preventDefault();
   };
+  // タイムライン・プレビューの操作を始めたら入力欄からフォーカスを外す。ドラッグは押下の既定動作を止めるので
+  // フォーカスが入力欄に残り、Ctrl+Z が文字の取り消しに回って編集を戻せなくなるため
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (target?.closest("input, textarea, select, label, button, [contenteditable]")) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && el !== document.body) el.blur();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyRef.current(e);
     window.addEventListener("keydown", onKey);
@@ -354,14 +411,73 @@ export function App() {
   const selMedia = selStep ? media.get(selStep.source) : undefined;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で生成の進み具合を拾う
-  const speechInfo = useMemo(() => {
+  const speechStatus = useMemo(() => {
     if (!selStep) return null;
-    const err = speech.error(project, selStep);
-    if (err) return `⚠ ${err}`;
-    if (speech.isPending(project, selStep)) return t("speechPending");
-    const a = speech.get(project, selStep);
-    return a ? `${a.duration.toFixed(2)} s` : null;
+    return {
+      error: speech.error(project, selStep),
+      pending: speech.isPending(project, selStep),
+      durations: speech.stepDurations(project, selStep),
+    };
   }, [selStep, project, speech, speechVersion]);
+
+  /**
+   * 選んでいる枠を矢印キーで動かす。録画の枠は出力の 1px、ズームの枠は録画の 1px 単位。動かしたら true
+   */
+  const nudgeBox = (dx: number, dy: number, big: boolean): boolean => {
+    const n = big ? 10 : 1;
+    if (drawingZoom) {
+      const st = project.steps[drawingZoom.step];
+      const z = st?.zooms?.[drawingZoom.zoom];
+      const m = st ? media.get(st.source) : undefined;
+      if (!z) return false;
+      const w = m?.width ?? 1920;
+      const h = m?.height ?? 1080;
+      const field = drawingZoom.end && z.to ? "to" : "rect";
+      const r = z[field] ?? z.rect;
+      const moved = {
+        ...r,
+        x: Math.min(Math.max(0, r.x + dx * n), Math.max(0, w - r.w)),
+        y: Math.min(Math.max(0, r.y + dy * n), Math.max(0, h - r.h)),
+      };
+      update(
+        (p) => ({
+          ...p,
+          steps: p.steps.map((s, i) =>
+            i === drawingZoom.step
+              ? {
+                  ...s,
+                  zooms: s.zooms?.map((x, k) => (k === drawingZoom.zoom ? { ...x, [field]: moved } : x)),
+                }
+              : s,
+          ),
+        }),
+        "nudge-zoom",
+      );
+      return true;
+    }
+    if (selection.kind === "video" && !playing) {
+      const src = locMedia ?? [...media.values()][0];
+      const v = computeLayout(
+        out.width,
+        out.height,
+        resolveLayout(project),
+        src?.width ?? 1920,
+        src?.height ?? 1080,
+      ).video;
+      update(
+        (p) => ({
+          ...p,
+          layout: {
+            ...p.layout,
+            margin: marginOf({ ...v, x: v.x + dx * n, y: v.y + dy * n }, out.width, out.height),
+          },
+        }),
+        "nudge-video",
+      );
+      return true;
+    }
+    return false;
+  };
 
   /** ステップ一覧から選ぶ。再生ヘッドがそのステップの外なら先頭へ移す */
   const selectStep = (i: number) => {
@@ -371,11 +487,16 @@ export function App() {
     if (e && !(loc && loc.entry.index === i)) playerRef.current?.seek(e.start);
   };
 
-  /** タイムラインで要素を選ぶ。ズームの範囲の編集は別の要素を選んだら終える */
+  /** タイムラインで要素を選ぶ。ズームを選んだら範囲の編集を始め、別の要素を選んだら終える */
   const select = (s: Selection) => {
     setSelection(s);
-    if (drawingZoom && !(s.kind === "zoom" && s.step === drawingZoom.step && s.index === drawingZoom.zoom))
-      setDrawingZoom(null);
+    if (s.kind === "zoom") {
+      if (!(drawingZoom && s.step === drawingZoom.step && s.index === drawingZoom.zoom)) {
+        playerRef.current?.stop();
+        setDrawingZoom({ step: s.step, zoom: s.index });
+      }
+    } else if (drawingZoom) setDrawingZoom(null);
+    if (speechPlaying !== null && "step" in s && s.step !== speechPlaying) stopSpeech();
   };
 
   const stepMenu = (e: React.MouseEvent, i: number) => {
@@ -402,6 +523,7 @@ export function App() {
           },
         },
         { label: t("duplicate"), action: () => update((p) => duplicateStep(p, i)) },
+        { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => mergeNext(i) },
         {
           label: t("delete"),
           shortcut: "Delete",
@@ -414,22 +536,43 @@ export function App() {
     });
   };
 
-  const editZoomRect = (step: number, zoom: number) => {
+  const editZoomRect = (step: number, zoom: number, end = false) => {
     playerRef.current?.stop();
     setSelection({ kind: "zoom", step, index: zoom });
-    setDrawingZoom({ step, zoom });
+    setDrawingZoom({ step, zoom, end });
   };
 
-  // ズーム範囲の指定を始めたら、ズームの途中に移して範囲を指定する場面を見せる
+  // ズーム範囲の指定を始めたら、範囲を指定する場面を見せる。再生位置がズームの区間の外なら区間の途中へ移す。
+  // 移動するズームは、開始枠なら区間の始め、終了枠なら終わりへ移す
   // (追加した直後のズームはこの時点で project に入っているので、effect で行う)
-  const drawingKey = drawingZoom ? `${drawingZoom.step}:${drawingZoom.zoom}` : null;
+  const drawingKey = drawingZoom
+    ? `${drawingZoom.step}:${drawingZoom.zoom}:${drawingZoom.end ?? false}`
+    : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 指定を始めたときだけ移す
   useEffect(() => {
     if (!drawingZoom) return;
     const e = timeline[drawingZoom.step];
     const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
-    if (e && z) playerRef.current?.seek(e.start + (z.start + z.end) / 2);
+    const pl = playerRef.current;
+    if (!e || !z || !pl) return;
+    if (z.to) {
+      pl.seek(e.start + (drawingZoom.end ? Math.max(z.start, z.end - 0.001) : z.start));
+      return;
+    }
+    const local = pl.time - e.start;
+    if (local < z.start || local > z.end) pl.seek(e.start + (z.start + z.end) / 2);
   }, [drawingKey]);
+
+  /** タイムラインのダブルクリックで、ステップ i の時刻 local にズームを足して範囲の編集を始める */
+  const addZoomAt = (i: number, local: number) => {
+    const e = timeline[i];
+    const st = project.steps[i];
+    if (!e || !st) return;
+    const r = insertZoom(project, i, local, e.duration, media.get(st.source));
+    if (!r) return;
+    update(() => r.project, "zoom-add");
+    editZoomRect(i, r.index);
+  };
 
   const out = resolveOutput(project);
   const locMedia = loc ? media.get(loc.entry.step.source) : [...media.values()][0];
@@ -476,21 +619,121 @@ export function App() {
 
   /** 読み上げだけを鳴らす */
   const speechPlayer = useRef<AudioContext | null>(null);
+  /** 読み上げの試聴を終える(一時停止ではなく終了) */
+  const stopSpeech = () => {
+    speechPlayer.current?.close();
+    speechPlayer.current = null;
+    setSpeechPlaying(null);
+  };
+  /** ステップの読み上げを、それぞれの開始時刻の間隔で鳴らす。鳴らし終えたら試聴を終える */
   const previewSpeech = (i: number) => {
     const step = project.steps[i];
-    const a = step ? speech.get(project, step) : null;
-    if (!a) {
-      setBanner({ kind: "info", text: t("speechPending") });
-      return;
-    }
-    speechPlayer.current?.close();
+    const placed = step ? speech.placed(project, step) : [];
+    if (!step || placed.length === 0 || speech.isPending(project, step)) return;
+    stopSpeech();
+    playerRef.current?.stop();
     const ac = new AudioContext();
     speechPlayer.current = ac;
-    const node = ac.createBufferSource();
-    node.buffer = a.buffer;
-    node.connect(ac.destination);
-    node.start();
+    const t0 = Math.min(...placed.map((x) => x.start));
+    const end = Math.max(...placed.map((x) => x.start + x.buffer.duration)) - t0;
+    for (const x of placed) {
+      const node = ac.createBufferSource();
+      node.buffer = x.buffer;
+      node.connect(ac.destination);
+      node.start(ac.currentTime + x.start - t0);
+    }
+    setSpeechPlaying(i);
+    setTimeout(
+      () => {
+        if (speechPlayer.current === ac) stopSpeech();
+      },
+      end * 1000 + 100,
+    );
   };
+
+  /** ステップ i と次のステップをまとめる。前のステップの自動保持(読み上げが長い分)も保つ */
+  const mergeNext = (i: number) => {
+    if (!canMergeSteps(project, i)) return;
+    update((p) => mergeSteps(p, i, timeline[i]?.duration));
+    setSelection({ kind: "step", step: i });
+  };
+
+  /** ズームをコピーする */
+  const copyZoom = (step: number, zoom: number) => {
+    const st = project.steps[step];
+    const z = st?.zooms?.[zoom];
+    if (!st || !z) return;
+    const m = media.get(st.source);
+    zoomClipboard.current = { zoom: structuredClone(z), srcW: m?.width ?? 1920, srcH: m?.height ?? 1080 };
+    setHasZoomClip(true);
+  };
+
+  /** コピーしたズームを全体の時刻 at に貼る。録画の大きさが違えば枠を換算し、空いている長さに収める */
+  const pasteZoom = (at: number) => {
+    const clip = zoomClipboard.current;
+    const l = locate(timeline, at);
+    if (!clip || !l) return;
+    const { entry, local } = l;
+    const zooms = entry.step.zooms ?? [];
+    if (zooms.some((z) => local >= z.start && local <= z.end)) return;
+    const m = media.get(entry.step.source);
+    const kx = (m?.width ?? 1920) / clip.srcW;
+    const ky = (m?.height ?? 1080) / clip.srcH;
+    const conv = (r: Zoom["rect"]) => ({
+      x: Math.round(r.x * kx),
+      y: Math.round(r.y * ky),
+      w: Math.round(r.w * kx),
+      h: Math.round(r.h * ky),
+    });
+    const hi = Math.min(entry.duration, ...zooms.filter((z) => z.start > local).map((z) => z.start));
+    const end = Math.min(hi, local + (clip.zoom.end - clip.zoom.start));
+    if (end - local < 0.1) return;
+    const r3 = (n: number) => Math.round(n * 1000) / 1000;
+    const z: Zoom = { ...clip.zoom, start: r3(local), end: r3(end), rect: conv(clip.zoom.rect) };
+    if (clip.zoom.to) z.to = conv(clip.zoom.to);
+    update(
+      (p) => ({
+        ...p,
+        steps: p.steps.map((s, j) => (j === entry.index ? { ...s, zooms: [...zooms, z] } : s)),
+      }),
+      "zoom-paste",
+    );
+    setSelection({ kind: "zoom", step: entry.index, index: zooms.length });
+  };
+
+  // Ctrl+C / Ctrl+V(メニューのコピー・貼り付け)。文字の入力中はそのまま、ズームを選んでいればズームのコピー・貼り付け
+  const clipRef = useRef<{ copy: (e: ClipboardEvent) => void; paste: (e: ClipboardEvent) => void }>({
+    copy: () => {},
+    paste: () => {},
+  });
+  clipRef.current = {
+    copy: (e) => {
+      if (isTyping() || selection.kind !== "zoom") return;
+      e.preventDefault();
+      copyZoom(selection.step, selection.index);
+    },
+    paste: (e) => {
+      if (isTyping() || !zoomClipboard.current) return;
+      e.preventDefault();
+      pasteZoom(playerRef.current?.time ?? time);
+    },
+  };
+  useEffect(() => {
+    const copy = (e: ClipboardEvent) => clipRef.current.copy(e);
+    const paste = (e: ClipboardEvent) => clipRef.current.paste(e);
+    document.addEventListener("copy", copy);
+    document.addEventListener("paste", paste);
+    return () => {
+      document.removeEventListener("copy", copy);
+      document.removeEventListener("paste", paste);
+    };
+  }, []);
+
+  // 再生を始めたら読み上げの試聴を終える
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 再生の開始だけを見る
+  useEffect(() => {
+    if (playing) stopSpeech();
+  }, [playing]);
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -501,7 +744,7 @@ export function App() {
   const captionStep =
     loc && !playing
       ? (() => {
-          const w = captionWindow(loc.entry.step, loc.entry.duration);
+          const w = captionWindow(loc.entry.step, loc.entry.duration, true);
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
@@ -631,31 +874,40 @@ export function App() {
             }}
             drawing={
               drawingZoom && selMedia
-                ? {
-                    srcW: selMedia.width,
-                    srcH: selMedia.height,
-                    rect: project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.rect ?? null,
-                    onRect: (rect, key) => {
-                      update(
-                        (p) => ({
-                          ...p,
-                          steps: p.steps.map((s, i) =>
-                            i === drawingZoom.step
-                              ? {
-                                  ...s,
-                                  zooms: s.zooms?.map((z, k) =>
-                                    k === drawingZoom.zoom ? { ...z, rect } : z,
-                                  ),
-                                }
-                              : s,
-                          ),
-                        }),
-                        key,
-                      );
-                    },
-                  }
+                ? (() => {
+                    const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
+                    const field = drawingZoom.end && z?.to ? "to" : "rect";
+                    return {
+                      srcW: selMedia.width,
+                      srcH: selMedia.height,
+                      rect: z ? (z[field] ?? z.rect) : null,
+                      // 移動するズームは、もう一方の枠を点線で出す
+                      ghost: z?.to ? (field === "to" ? z.rect : z.to) : null,
+                      exact: z?.exact ?? false,
+                      onRect: (rect, key) => {
+                        update(
+                          (p) => ({
+                            ...p,
+                            steps: p.steps.map((s, i) =>
+                              i === drawingZoom.step
+                                ? {
+                                    ...s,
+                                    zooms: s.zooms?.map((x, k) =>
+                                      k === drawingZoom.zoom ? { ...x, [field]: rect } : x,
+                                    ),
+                                  }
+                                : s,
+                            ),
+                          }),
+                          key,
+                        );
+                      },
+                      onCommit: () => setDrawingZoom(null),
+                    };
+                  })()
                 : null
             }
+            anchor={anchor}
             srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
             videoEdit={
               selection.kind === "video" && !drawingZoom && !playing
@@ -685,18 +937,52 @@ export function App() {
             hint={drawingZoom ? t("drawingRect") : null}
             captionStep={captionStep}
             onCaptionMove={moveCaption}
+            onCaptionClick={() => {
+              if (loc) setSelection({ kind: "caption", step: loc.entry.index });
+            }}
+            onEmptyDoubleClick={() => {
+              if (project.steps.length === 0 && window.confirm(t("addRecordingConfirm")))
+                void actions.current.addSource?.();
+            }}
+            onContextLost={() => {
+              thumbs.clear();
+              backgrounds.clear();
+              playerRef.current?.dropCache();
+              setBgVersion((v) => v + 1);
+            }}
           />
           <div className="transport">
             <div className="transport-left">
               <span className="time">
                 {fmtTime(time)} / {fmtTime(total)}
               </span>
-              {drawingZoom && (
-                <>
-                  <button type="button" className="small" onClick={() => setDrawingZoom(null)}>
-                    {t("done")} (Esc)
-                  </button>
-                </>
+              {(drawingZoom || selection.kind === "video") && (
+                <div className="seg">
+                  {(["center", "corner"] as const).map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      className={`small ${anchor === a ? "on" : ""}`}
+                      onClick={() => setAnchor(a)}
+                    >
+                      {t(a === "center" ? "anchorCenter" : "anchorCorner")}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {drawingZoom && project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.to && (
+                <div className="seg">
+                  {([false, true] as const).map((end) => (
+                    <button
+                      key={String(end)}
+                      type="button"
+                      className={`small ${(drawingZoom.end ?? false) === end ? "on" : ""}`}
+                      onClick={() => editZoomRect(drawingZoom.step, drawingZoom.zoom, end)}
+                    >
+                      {t(end ? "editEndRect" : "editStartRect")}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             <div className="transport-center">
@@ -838,6 +1124,10 @@ export function App() {
             openMenu={(x, y, items) => setMenu({ x, y, items })}
             onEditZoomRect={editZoomRect}
             onPreviewSpeech={previewSpeech}
+            onMergeNext={mergeNext}
+            onCopyZoom={copyZoom}
+            onPasteZoom={hasZoomClip ? pasteZoom : null}
+            onAddZoomAt={addZoomAt}
             zoomCommand={zoomCommand}
           />
         </section>
@@ -855,11 +1145,13 @@ export function App() {
               update={update}
               voices={voices}
               playheadLocal={playheadLocal}
-              speechInfo={speechInfo}
+              speechStatus={speechStatus}
+              speechPlaying={speechPlaying === selected}
               focus={selection}
-              onDrawZoom={(zoom) => editZoomRect(selected, zoom)}
+              drawing={drawingZoom && drawingZoom.step === selected ? drawingZoom : null}
+              onDrawZoom={(zoom, end) => editZoomRect(selected, zoom, end)}
               onAddZoom={() => addZoomAtPlayhead()}
-              onPreviewSpeech={() => previewSpeech(selected)}
+              onPreviewSpeech={() => (speechPlaying === selected ? stopSpeech() : previewSpeech(selected))}
               srcSize={selMedia ? { w: selMedia.width, h: selMedia.height } : null}
             />
           ) : (

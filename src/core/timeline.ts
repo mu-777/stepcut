@@ -1,5 +1,5 @@
 // ステップ内の出力時刻とソース時刻の対応(docs/project-format.md 4 章)。
-import { stepSpeed, zoomHolds } from "./defaults";
+import { speechPieces, stepSpeed, zoomHolds } from "./defaults";
 import type { Hold, Step } from "./schema";
 
 // ソースの out ちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
@@ -24,14 +24,28 @@ export function baseDuration(step: Step): number {
   return videoDuration(step) + stepHolds(step).reduce((sum, h) => sum + h.duration, 0);
 }
 
-/** 読み上げを始めるステップ内の出力時刻 */
-export function speechStart(step: Step): number {
-  return step.speech?.start ?? 0;
+/**
+ * 各読み上げを鳴らすステップ内の出力時刻。durations は読み上げの長さ(未生成は 0)。
+ * start を書いていなければ、最初は 0、2 つ目からは前の読み上げの直後
+ */
+export function speechTimes(step: Step, durations: readonly number[] = []): { start: number; end: number }[] {
+  const times: { start: number; end: number }[] = [];
+  let prevEnd = 0;
+  speechPieces(step).forEach((p, k) => {
+    const start = p.start ?? (k === 0 ? 0 : prevEnd);
+    const end = start + (durations[k] ?? 0);
+    times.push({ start, end });
+    prevEnd = end;
+  });
+  return times;
 }
 
 /** ステップの出力上の長さ。読み上げの終わりが映像より後なら最終フレームを保持して合わせる(TIM-03) */
-export function stepDuration(step: Step, speechDuration = 0): number {
-  const speechEnd = speechDuration > 0 ? speechStart(step) + speechDuration : 0;
+export function stepDuration(step: Step, speechDurations: readonly number[] = []): number {
+  const speechEnd = Math.max(
+    0,
+    ...speechTimes(step, speechDurations).map((x, k) => ((speechDurations[k] ?? 0) > 0 ? x.end : 0)),
+  );
   return Math.max(baseDuration(step), speechEnd);
 }
 
@@ -96,11 +110,14 @@ export interface TimelineEntry {
   duration: number;
 }
 
-/** プロジェクト全体の並び。speechDurations はステップ id → 読み上げの長さ(秒) */
-export function buildTimeline(steps: Step[], speechDurations: ReadonlyMap<string, number>): TimelineEntry[] {
+/** プロジェクト全体の並び。speechDurations はステップ id → 読み上げごとの長さ(秒) */
+export function buildTimeline(
+  steps: Step[],
+  speechDurations: ReadonlyMap<string, readonly number[]>,
+): TimelineEntry[] {
   let start = 0;
   return steps.map((step, index) => {
-    const duration = stepDuration(step, speechDurations.get(step.id) ?? 0);
+    const duration = stepDuration(step, speechDurations.get(step.id) ?? []);
     const entry = { index, step, start, duration };
     start += duration;
     return entry;

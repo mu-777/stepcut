@@ -4,7 +4,8 @@ import { CanvasSink } from "mediabunny";
 import type { SourceMedia } from "./media";
 
 export const THUMB_WIDTH = 160;
-const MAX_ENTRIES = 3000;
+/** 持つ枚数の上限(1 枚 約 60KB)。超えたら古いものから捨てる */
+const MAX_ENTRIES = 1500;
 
 type Thumb = CanvasImageSource & { width: number; height: number };
 
@@ -50,7 +51,12 @@ export class ThumbCache {
   get(m: SourceMedia, t: number): Thumb | null {
     const e = this.entry(m);
     const f = e.frames.get(t);
-    if (f) return f;
+    if (f) {
+      // 使ったものを新しい側へ移す(古いものから捨てるため)
+      e.frames.delete(t);
+      e.frames.set(t, f);
+      return f;
+    }
     e.wanted.add(t);
     if (!e.running) void this.run(e);
     return null;
@@ -81,6 +87,29 @@ export class ThumbCache {
     return best === null ? null : (e.frames.get(best) ?? null);
   }
 
+  /** いちばん古いサムネイルを 1 枚捨てる */
+  private evictOldest(): void {
+    for (const e of this.sources.values()) {
+      const first = e.frames.keys().next();
+      if (!first.done) {
+        e.frames.delete(first.value);
+        e.sorted = null;
+        this.count--;
+        return;
+      }
+    }
+  }
+
+  /** すべて捨てる(GPU のコンテキストが失われると中身が消えるため)。必要な分は描くときに作り直す */
+  clear(): void {
+    for (const e of this.sources.values()) {
+      e.frames.clear();
+      e.sorted = null;
+    }
+    this.count = 0;
+    this.onUpdate();
+  }
+
   private async run(e: PerSource): Promise<void> {
     e.running = true;
     try {
@@ -91,7 +120,8 @@ export class ThumbCache {
         let i = 0;
         for await (const wc of sink.canvasesAtTimestamps(times)) {
           const t = times[i++] as number;
-          if (wc && this.count < MAX_ENTRIES) {
+          if (wc) {
+            if (this.count >= MAX_ENTRIES) this.evictOldest();
             e.frames.set(t, wc.canvas as Thumb);
             e.sorted = null;
             this.count++;
