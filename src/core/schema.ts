@@ -78,14 +78,19 @@ const rectSchema = z.strictObject({
   h: z.number().positive(),
 });
 
+/** ズームの枠(キーフレーム)。t はステップ内の出力時刻 */
+export const zoomKeySchema = z.strictObject({ t: time, rect: rectSchema });
+
 export const zoomSchema = z.strictObject({
   start: time,
   end: time,
-  rect: rectSchema,
-  /** 拡大を保つ区間(start〜end)の間に、rect からこの範囲へ一定の速さで移る */
-  to: rectSchema.optional(),
-  /** true なら枠どおりの範囲だけを映す(録画の表示の縦横比が枠に合わせて変わる) */
-  exact: z.boolean().optional(),
+  /**
+   * 枠を時刻の順に並べたもの。1 つなら動かない。2 つ以上なら、枠と枠の間を一定の速さで移る
+   * (最初の枠より前は最初の枠、最後の枠より後は最後の枠)
+   */
+  keys: z.array(zoomKeySchema).min(1),
+  /** true なら録画の縦横比を保つ(枠を広げて表示する)。既定は枠どおりの範囲だけを映す */
+  keepAspect: z.boolean().optional(),
   hold: z.boolean().optional(),
   transition: time.optional(),
 });
@@ -179,6 +184,7 @@ export const projectSchema = z.strictObject({
 export type Project = z.infer<typeof projectSchema>;
 export type Step = z.infer<typeof stepSchema>;
 export type Zoom = z.infer<typeof zoomSchema>;
+export type ZoomKey = z.infer<typeof zoomKeySchema>;
 export type Hold = z.infer<typeof holdSchema>;
 export type SpeechPiece = z.infer<typeof speechPieceSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;

@@ -14,10 +14,14 @@ export interface DrawingZoom {
   srcH: number;
   /** 編集中の枠(ソースのピクセル) */
   rect: Rect | null;
-  /** もう一方の枠(移動するズーム)。点線で示す */
-  ghost: Rect | null;
-  /** 枠どおりに映すズーム。見える範囲を広げて示さない */
-  exact: boolean;
+  /** すべての枠(時刻の順)。編集中でない枠は点線で示し、中心どうしを線でつなぐ */
+  ghosts: Rect[];
+  /** 編集中の枠の番号 */
+  current: number;
+  /** 点線の枠をクリックした(その枠の編集に切り替える) */
+  onPick: (i: number) => void;
+  /** 録画の縦横比を保つズーム。実際に見える範囲(広げた範囲)も示す */
+  keepAspect: boolean;
   /** 範囲(ソースのピクセル)。key は 1 回のドラッグで同じ */
   onRect: (rect: Rect, key: string) => void;
   /** 枠の外をクリックして確定した */
@@ -227,8 +231,12 @@ export function Preview(props: {
       <BoxEditor
         box={d.rect ? toScreen(d.rect) : null}
         // 実際に見える範囲(表示の縦横比に合わせて広げた範囲)を薄く示す。枠どおりに映すズームでは枠と同じ
-        visible={d.rect && !d.exact ? toScreen(zoomViewRect(d.rect, crop.w / crop.h, d.srcW, d.srcH)) : null}
-        ghost={d.ghost ? toScreen(d.ghost) : null}
+        visible={
+          d.rect && d.keepAspect ? toScreen(zoomViewRect(d.rect, crop.w / crop.h, d.srcW, d.srcH)) : null
+        }
+        ghosts={d.ghosts.length > 1 ? d.ghosts.map(toScreen) : []}
+        current={d.current}
+        onPick={d.onPick}
         allowDraw
         bounds={videoBox}
         anchor={props.anchor}
@@ -463,8 +471,10 @@ function BoxEditor(props: {
   box: Box | null;
   /** 実際に見える範囲(ズーム)。薄い線で示す */
   visible?: Box | null;
-  /** もう一方の枠(移動するズームの開始枠・終了枠)。点線で示す */
-  ghost?: Box | null;
+  /** すべての枠(移動するズーム)。current 以外を点線で示し、中心どうしを線でつなぐ */
+  ghosts?: Box[];
+  current?: number;
+  onPick?: (i: number) => void;
   allowDraw?: boolean;
   /** 新しく描くときに収める範囲 */
   bounds?: Box;
@@ -618,13 +628,43 @@ function BoxEditor(props: {
 
   const b = preview ?? props.box;
   const v = preview ? null : props.visible;
-  const g = props.ghost;
+  const ghosts = props.ghosts ?? [];
   return (
     <div
       className={`box-layer ${props.allowDraw ? "draw-layer" : ""}`}
       onPointerDown={props.allowDraw ? (e) => begin(e, "draw") : undefined}
     >
-      {g && <div className="box-ghost" style={{ left: g.x, top: g.y, width: g.w, height: g.h }} />}
+      {ghosts.length > 1 && (
+        <svg className="box-path" aria-hidden="true">
+          <polyline
+            points={ghosts
+              .map((g, i) => {
+                const c = i === props.current && b ? b : g;
+                return `${c.x + c.w / 2},${c.y + c.h / 2}`;
+              })
+              .join(" ")}
+          />
+        </svg>
+      )}
+      {ghosts.map((g, i) =>
+        i === props.current ? null : (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: 枠は時刻の順の番号で区別する
+            key={i}
+            className="box-ghost"
+            style={{ left: g.x, top: g.y, width: g.w, height: g.h }}
+            title={`${i + 1}`}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              e.preventDefault();
+              props.onPick?.(i);
+            }}
+          >
+            <span>{i + 1}</span>
+          </div>
+        ),
+      )}
       {v && <div className="box-visible" style={{ left: v.x, top: v.y, width: v.w, height: v.h }} />}
       {b && (
         <div

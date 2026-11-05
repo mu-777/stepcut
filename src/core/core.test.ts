@@ -14,7 +14,10 @@ import { addHold, canMergeSteps, duplicateStep, mergeSteps, splitStep, trimStep,
 import {
   computeLayout,
   marginOf,
-  resetZoomAspect,
+  rectScale,
+  resetRectAspect,
+  retimeZoom,
+  setZoomKeyRect,
   videoBoxFor,
   viewRectAt,
   zoomProgress,
@@ -69,7 +72,9 @@ describe("timeline", () => {
   });
 
   it("hold: true のズームは保持と同じ", () => {
-    const s = step({ zooms: [{ start: 2, end: 5, rect: { x: 0, y: 0, w: 10, h: 10 }, hold: true }] });
+    const s = step({
+      zooms: [{ start: 2, end: 5, keys: [{ t: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }], hold: true }],
+    });
     expect(baseDuration(s)).toBe(13);
     expect(sourceTimeAt(s, 4)).toBe(12);
   });
@@ -163,7 +168,7 @@ describe("layout", () => {
   });
 
   it("帯の区間は拡大したまま。拡大は start の手前、縮小は end の後ろで動く", () => {
-    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    const z = { start: 1, end: 3, keys: [{ t: 1, rect: { x: 0, y: 0, w: 960, h: 540 } }] };
     expect(zoomProgress(z, 0.4, 0.5)).toBe(0);
     expect(zoomProgress(z, 0.75, 0.5)).toBeCloseTo(0.5);
     expect(zoomProgress(z, 1, 0.5)).toBe(1);
@@ -172,22 +177,22 @@ describe("layout", () => {
   });
 
   it("動きの秒数は倍率から決まる。transition: 0 なら瞬時", () => {
-    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    const z = { start: 1, end: 3, keys: [{ t: 1, rect: { x: 0, y: 0, w: 960, h: 540 } }] };
     expect(zoomTransition(z, 2)).toBeCloseTo(0.6 + 0.55 * Math.log(2));
     const v = viewRectAt(step({ zooms: [{ ...z, transition: 0 }] }), 0.99, 1920, 1080);
     expect(v.w).toBe(1920);
   });
 
   it("間が 1.5 秒未満のズームは戻らずに次の範囲へ移る", () => {
-    const a = { start: 0, end: 1, rect: { x: 0, y: 0, w: 960, h: 540 } };
-    const b = { start: 2, end: 3, rect: { x: 960, y: 540, w: 960, h: 540 } };
+    const a = { start: 0, end: 1, keys: [{ t: 0, rect: { x: 0, y: 0, w: 960, h: 540 } }] };
+    const b = { start: 2, end: 3, keys: [{ t: 2, rect: { x: 960, y: 540, w: 960, h: 540 } }] };
     const mid = viewRectAt(step({ zooms: [a, b] }), 1.5, 1920, 1080);
     expect(mid.w).toBe(960);
     expect(mid.x).toBeCloseTo(480);
   });
 
   it("ズーム中は既定で映像を止める", () => {
-    const z = { start: 1, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 } };
+    const z = { start: 1, end: 3, keys: [{ t: 1, rect: { x: 0, y: 0, w: 960, h: 540 } }] };
     expect(baseDuration(step({ zooms: [z] }))).toBe(12);
     expect(baseDuration(step({ zooms: [{ ...z, hold: false }] }))).toBe(10);
   });
@@ -346,7 +351,7 @@ describe("trim", () => {
   it("In を前へ広げると、要素の時刻を同じ分だけ後ろへずらす", () => {
     const s = step({
       caption: { text: "c", start: 1, end: 3 },
-      zooms: [{ start: 2, end: 4, rect: { x: 0, y: 0, w: 10, h: 10 } }],
+      zooms: [{ start: 2, end: 4, keys: [{ t: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }] }],
       holds: [{ at: 5, duration: 1 }],
       speech: { text: "s", start: 1 },
     });
@@ -359,7 +364,10 @@ describe("trim", () => {
   });
 
   it("In を後ろへ詰めると、要素は前へずれ、はみ出した分は切り詰める", () => {
-    const s = step({ speed: 2, zooms: [{ start: 0.5, end: 3, rect: { x: 0, y: 0, w: 10, h: 10 } }] });
+    const s = step({
+      speed: 2,
+      zooms: [{ start: 0.5, end: 3, keys: [{ t: 0.5, rect: { x: 0, y: 0, w: 10, h: 10 } }] }],
+    });
     const out = trimStep(p(s), 0, "in", 12, 30).steps[0] as Step;
     // ソースで 2 秒 = 出力で 1 秒(speed 2)
     expect(out.zooms?.[0]).toMatchObject({ start: 0, end: 2 });
@@ -427,7 +435,7 @@ describe("ステップをまとめる", () => {
     out: 10,
     caption: { text: "同じ" },
     speech: {},
-    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }],
+    zooms: [{ start: 1, end: 2, keys: [{ t: 1, rect: { x: 0, y: 0, w: 10, h: 10 } }] }],
   });
 
   it("同じ録画の続いた区間だけまとめられる", () => {
@@ -456,37 +464,74 @@ describe("ステップをまとめる", () => {
   });
 });
 
-describe("ズームの移動と枠どおりの表示", () => {
+describe("ズームの枠(キーフレーム)と表示", () => {
+  const r0 = { x: 0, y: 0, w: 960, h: 540 };
+  const r1 = { x: 960, y: 0, w: 960, h: 540 };
+  const r2 = { x: 960, y: 540, w: 960, h: 540 };
   const z = {
     start: 2,
-    end: 4,
-    rect: { x: 0, y: 0, w: 960, h: 540 },
-    to: { x: 960, y: 540, w: 960, h: 540 },
+    end: 6,
+    keys: [
+      { t: 2, rect: r0 },
+      { t: 3, rect: r1 },
+      { t: 6, rect: r2 },
+    ],
   };
 
-  it("拡大を保つ区間で一定の速さで移る", () => {
-    expect(zoomRectAt(z, 2)).toEqual(z.rect);
-    expect(zoomRectAt(z, 3)).toEqual({ x: 480, y: 270, w: 960, h: 540 });
-    expect(zoomRectAt(z, 5)).toEqual(z.to);
+  it("枠と枠の間を一定の速さで移り、最初の枠より前・最後の枠より後は止まる", () => {
+    expect(zoomRectAt(z, 1)).toEqual(r0);
+    expect(zoomRectAt(z, 2.5)).toEqual({ x: 480, y: 0, w: 960, h: 540 });
+    expect(zoomRectAt(z, 4.5)).toEqual({ x: 960, y: 270, w: 960, h: 540 });
+    expect(zoomRectAt(z, 7)).toEqual(r2);
     const s = step({ zooms: [{ ...z, transition: 0 }] });
-    expect(viewRectAt(s, 3, 1920, 1080)).toEqual({ x: 480, y: 270, w: 960, h: 540 });
+    expect(viewRectAt(s, 2.5, 1920, 1080)).toEqual({ x: 480, y: 0, w: 960, h: 540 });
   });
 
-  it("exact は枠どおりの範囲を映し、描く領域を枠の縦横比で余白の内側に収める", () => {
-    const e = { start: 0, end: 1, rect: { x: 100, y: 100, w: 400, h: 400 }, exact: true, transition: 0 };
+  it("区間を動かすと枠の時刻もずれ、長さを変えると端の枠は端へ、間の枠は区間に収める", () => {
+    expect(retimeZoom(z, 3, 7).keys.map((k) => k.t)).toEqual([3, 4, 7]);
+    expect(retimeZoom(z, 2, 8).keys.map((k) => k.t)).toEqual([2, 3, 8]);
+    expect(retimeZoom(z, 4, 6).keys.map((k) => k.t)).toEqual([4, 4, 6]);
+  });
+
+  it("サイズをそろえると、ほかの枠も同じ大きさになり中心は保つ", () => {
+    const big = { x: 0, y: 0, w: 1200, h: 600 };
+    const out = setZoomKeyRect(z, 0, big, true, 1920, 1080);
+    // 中心(1440)を保つと右へはみ出すので、録画の範囲に収める
+    expect(out.keys[1]?.rect).toEqual({ x: 720, y: 0, w: 1200, h: 600 });
+    expect(setZoomKeyRect(z, 0, big, false, 1920, 1080).keys[1]?.rect).toEqual(r1);
+  });
+
+  it("既定は枠どおりの範囲を映し、描く領域を枠の縦横比で余白の内側に収める", () => {
+    const e = { start: 0, end: 1, keys: [{ t: 0, rect: { x: 100, y: 100, w: 400, h: 400 } }], transition: 0 };
     const view = viewRectAt(step({ zooms: [e] }), 0.5, 1920, 1080);
-    expect(view).toEqual(e.rect);
+    expect(view).toEqual({ x: 100, y: 100, w: 400, h: 400 });
     expect(videoBoxFor(view, { x: 0, y: 0, w: 1920, h: 1080 })).toEqual({ x: 420, y: 0, w: 1080, h: 1080 });
     expect(zoomScale(e, { x: 0, y: 0, w: 1920, h: 1080 }, 1920, 1080)).toBeCloseTo(2.7);
+    // keepAspect なら録画の縦横比に広げる
+    const k = viewRectAt(step({ zooms: [{ ...e, keepAspect: true }] }), 0.5, 1920, 1080);
+    expect(k.w / k.h).toBeCloseTo(16 / 9);
   });
 
   it("縦横比を戻すと倍率と中心を保つ", () => {
     const base = { x: 0, y: 0, w: 1920, h: 1080 };
-    const w = { start: 0, end: 1, rect: { x: 760, y: 340, w: 400, h: 400 } };
-    const r = resetZoomAspect(w, base, 1920, 1080);
+    const sq = { x: 760, y: 340, w: 400, h: 400 };
+    const r = resetRectAspect(sq, false, base, 1920, 1080);
     expect(r.w / r.h).toBeCloseTo(16 / 9, 2);
     expect(Math.abs(r.x + r.w / 2 - 960)).toBeLessThanOrEqual(1);
-    expect(zoomScale({ ...w, rect: r }, base, 1920, 1080)).toBeCloseTo(zoomScale(w, base, 1920, 1080), 2);
+    expect(rectScale(r, false, base, 1920, 1080)).toBeCloseTo(rectScale(sq, false, base, 1920, 1080), 2);
+  });
+
+  it("枠の時刻は区間の中で、早い順に並べる", () => {
+    expect(parseProject(proj([step({ zooms: [z] })])).ok).toBe(true);
+    const bad = {
+      ...z,
+      keys: [
+        { t: 3, rect: r1 },
+        { t: 2, rect: r0 },
+      ],
+    };
+    expect(parseProject(proj([step({ zooms: [bad] })])).ok).toBe(false);
+    expect(parseProject(proj([step({ zooms: [{ ...z, keys: [{ t: 9, rect: r0 }] }] })])).ok).toBe(false);
   });
 });
 

@@ -14,8 +14,8 @@ import {
   zoomTransition,
 } from "../../core/defaults";
 import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
-import { computeLayout, zoomScale } from "../../core/layout";
-import type { Project, Step, Zoom } from "../../core/schema";
+import { computeLayout, retimeZoom, sortedKeys, zoomScale } from "../../core/layout";
+import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
 import { baseDuration, sourceTimeAt, speechTimes, stepHolds, type TimelineEntry } from "../../core/timeline";
 import { t } from "./i18n";
 import type { SourceMedia } from "./media";
@@ -121,9 +121,12 @@ export function Timeline(props: {
   /** クリップ端のドラッグ中に、新しい In/Out のフレームを表示する(null で解除) */
   onTrimPreview: (v: { step: number; time: number } | null) => void;
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
-  onEditZoomRect: (step: number, zoom: number) => void;
+  /** ズームの枠 key(時刻の順の番号。省略すると最初の枠)の編集を始める */
+  onEditZoomRect: (step: number, zoom: number, key?: number) => void;
   /** 読み上げだけを鳴らす */
   onPreviewSpeech: (step: number) => void;
+  /** プレビューで編集中のズームの枠 */
+  editingKey: { step: number; zoom: number; key: number } | null;
   /** ステップ i と次のステップをまとめる */
   onMergeNext: (step: number) => void;
   /** ズームのコピーと貼り付け(貼り付けは全体の時刻 at に) */
@@ -676,7 +679,8 @@ export function Timeline(props: {
                   i,
                   (s) => ({
                     ...s,
-                    zooms: s.zooms?.map((z, j) => (j === k ? { ...z, start: r3(start), end: r3(end) } : z)),
+                    // ドラッグを始めたときのズームから区間を変える(枠の時刻も合わせて動かす)
+                    zooms: s.zooms?.map((z, j) => (j === k ? retimeZoom(zooms[k] ?? z, start, end) : z)),
                   }),
                   key,
                 );
@@ -851,6 +855,70 @@ export function Timeline(props: {
                           );
                         }}
                       />,
+                      // 枠(キーフレーム)の印。クリックでその枠を編集、ドラッグで時刻を変える、右クリックで削除
+                      ...(z.keys.length > 1
+                        ? sortedKeys(z).map((key, ki, keys) => (
+                            // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。数値は右カラムで入力できる
+                            <div
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 枠は時刻の順の番号で区別する
+                              key={`k${z.start}-${ki}`}
+                              className={`tl-key ${props.editingKey?.step === i && props.editingKey.zoom === k && props.editingKey.key === ki ? "current" : ""}`}
+                              style={{ left: key.t * scale }}
+                              title={`${t("zoomKey")} ${ki + 1}`}
+                              onPointerDown={(e) => {
+                                if (e.button !== 0) return;
+                                props.onEditZoomRect(i, k, ki);
+                                const lo = ki === 0 ? z.start : (keys[ki - 1] as ZoomKey).t + 0.01;
+                                const hi =
+                                  ki === keys.length - 1 ? z.end : (keys[ki + 1] as ZoomKey).t - 0.01;
+                                startDrag(e, (dx, dragKey) => {
+                                  const tt = r3(clamp(key.t + dx / scale, lo, hi));
+                                  patchStep(
+                                    update,
+                                    i,
+                                    (s) => ({
+                                      ...s,
+                                      zooms: s.zooms?.map((x, j) =>
+                                        j === k
+                                          ? {
+                                              ...x,
+                                              keys: sortedKeys(x).map((y, n) =>
+                                                n === ki ? { ...y, t: tt } : y,
+                                              ),
+                                            }
+                                          : x,
+                                      ),
+                                    }),
+                                    dragKey,
+                                  );
+                                });
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                props.openMenu(e.clientX, e.clientY, [
+                                  {
+                                    label: t("removeZoomKey"),
+                                    action: () =>
+                                      patchStep(
+                                        update,
+                                        i,
+                                        (s) => ({
+                                          ...s,
+                                          zooms: s.zooms?.map((x, j) =>
+                                            j === k
+                                              ? { ...x, keys: sortedKeys(x).filter((_, n) => n !== ki) }
+                                              : x,
+                                          ),
+                                        }),
+                                        "zoom-key-remove",
+                                      ),
+                                  },
+                                ]);
+                              }}
+                            />
+                          ))
+                        : []),
                     ];
                   })}
                 </div>
@@ -894,8 +962,9 @@ export function insertZoom(
   if (center) {
     const w = m?.width ?? 1920;
     const h = m?.height ?? 1080;
-    z.rect.x = Math.round(Math.min(Math.max(0, center.x - z.rect.w / 2), w - z.rect.w));
-    z.rect.y = Math.round(Math.min(Math.max(0, center.y - z.rect.h / 2), h - z.rect.h));
+    const r = (z.keys[0] as ZoomKey).rect;
+    r.x = Math.round(Math.min(Math.max(0, center.x - r.w / 2), w - r.w));
+    r.y = Math.round(Math.min(Math.max(0, center.y - r.h / 2), h - r.h));
   }
   return {
     project: {
@@ -913,7 +982,12 @@ function defaultZoom(start: number, end: number, m: SourceMedia | undefined): Zo
   return {
     start: r3(start),
     end: r3(end),
-    rect: { x: Math.round(w / 4), y: Math.round(h / 4), w: Math.round(w / 2), h: Math.round(h / 2) },
+    keys: [
+      {
+        t: r3(start),
+        rect: { x: Math.round(w / 4), y: Math.round(h / 4), w: Math.round(w / 2), h: Math.round(h / 2) },
+      },
+    ],
   };
 }
 

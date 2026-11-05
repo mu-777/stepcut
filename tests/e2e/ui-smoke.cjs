@@ -304,6 +304,44 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   check((await page.locator(".draw-layer").count()) === 0, "枠の外のクリックでズーム範囲の編集を終える");
 
+  // ズームの枠(キーフレーム): 帯のクリックで編集を始め、再生位置に枠を足す
+  const zb = await page.locator(".tl-bar.zoom").first().boundingBox();
+  await page.mouse.click(zb.x + zb.width / 2, zb.y + zb.height / 2);
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator(".draw-layer").count()) === 1,
+    "タイムラインのズームのクリックで枠の編集を始める",
+  );
+  const rulerBox = await page.locator(".tl-ruler").boundingBox();
+  await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
+  await page.waitForTimeout(300);
+  check((await page.locator(".tl-key").count()) === 2, "再生位置に枠を足すとタイムラインに ◆ が 2 つ出る");
+  check((await page.locator(".box-ghost").count()) === 1, "ほかの枠は点線で出る");
+  check((await page.locator(".seg-label").textContent()).includes("2/2"), "足した枠の編集に移る");
+  // 枠の大きさを変えると、サイズをそろえる設定(既定オン)でもう一方の枠も同じ大きさになる
+  const kb = await page.locator(".box-outline").boundingBox();
+  await drag(
+    page,
+    { x: kb.x + kb.width, y: kb.y + kb.height },
+    { x: kb.x + kb.width - 30, y: kb.y + kb.height - 17 },
+  );
+  const gb = await page.locator(".box-ghost").boundingBox();
+  const kb2 = await page.locator(".box-outline").boundingBox();
+  check(
+    Math.abs(gb.width - kb2.width) <= 2,
+    `サイズをそろえる設定でほかの枠も同じ大きさ (${Math.round(gb.width)} / ${Math.round(kb2.width)})`,
+  );
+  // 枠が重なっていても、点線の枠の番号から選べる
+  await page.locator(".box-ghost span").click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator(".seg-label").textContent()).includes("1/2"),
+    "点線の枠のクリックでその枠の編集に切り替える",
+  );
+  await page.keyboard.press("Escape");
+
   // Z キーで再生位置にズームを足す
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowLeft");

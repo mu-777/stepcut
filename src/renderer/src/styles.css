@@ -285,7 +285,49 @@ h4 {
 .box-ghost {
   position: absolute;
   border: 2px dashed #ffb44d;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* 枠の番号。枠の左上の外に出し、ほかの枠と重なっていても押せるようにする */
+.box-ghost span {
+  position: absolute;
+  top: -18px;
+  left: -2px;
+  z-index: 3;
+  padding: 0 5px;
+  background: #ffb44d;
+  color: #000;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: 3px 3px 3px 0;
+}
+
+/* 編集中の枠は点線の枠より上(番号だけはさらに上) */
+.box-outline {
+  z-index: 2;
+}
+
+/* 枠の中心どうしをつなぐ線(移動の道筋) */
+.box-path {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+  overflow: visible;
+}
+
+.box-path polyline {
+  fill: none;
+  stroke: #ffb44d;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.seg-label {
+  padding: 0 6px;
+  align-self: center;
 }
 
 .seg {
@@ -976,4 +1018,26 @@ button.icon.play {
 
 .link-button:hover {
   color: var(--text);
+}
+
+/* ズームの枠(キーフレーム)の印 */
+.tl-key {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: #ffb44d;
+  border: 1px solid #000;
+  transform: rotate(45deg);
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.tl-key.current {
+  background: #fff;
+}
+
+.zoom-key.current {
+  outline: 1px solid #ffb44d;
 }
