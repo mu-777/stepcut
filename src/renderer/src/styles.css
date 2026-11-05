@@ -278,11 +278,8 @@ h4 {
   background: #000;
 }
 
-.preview-zoom {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 3;
+.zoom-pct {
+  min-width: 52px;
 }
 
 .box-ghost {
@@ -432,6 +429,12 @@ button.icon.play {
 
 .transport .rate {
   width: auto;
+  min-width: 58px;
+}
+
+/* 右側の部品は縮めない(再生速度の表示が欠けるため) */
+.transport-right > * {
+  flex-shrink: 0;
 }
 
 .transport .sep {
@@ -519,7 +522,7 @@ button.icon.play {
 }
 
 .tl-labels {
-  flex: 0 0 64px;
+  flex: 0 0 72px;
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
@@ -536,6 +539,21 @@ button.icon.play {
 
 .tl-label.ruler-label {
   height: 22px;
+}
+
+/* タイムラインの拡大縮小(左上の角) */
+.tl-zoom {
+  padding: 0 2px;
+  gap: 2px;
+}
+
+.tl-zoom-btn {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .tl-scroll {
@@ -857,6 +875,45 @@ button.icon.play {
   border-color: rgb(255 255 255 / 0.8);
 }
 
+/* テロップの幅の枠。テロップを選んでいるとき・枠や取っ手に触れているときに出す */
+.caption-width {
+  position: absolute;
+  pointer-events: none;
+  border: 1px dashed transparent;
+}
+
+.caption-width.shown,
+.caption-handle:hover + .caption-width,
+.caption-width:has(.caption-edge:hover) {
+  border-color: rgb(255 180 77 / 0.9);
+}
+
+.caption-edge {
+  position: absolute;
+  top: calc(50% - 8px);
+  width: 8px;
+  height: 16px;
+  background: #ffb44d;
+  border-radius: 2px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  opacity: 0;
+}
+
+.caption-edge.l {
+  left: -5px;
+}
+
+.caption-edge.r {
+  right: -5px;
+}
+
+.caption-width.shown .caption-edge,
+.caption-handle:hover + .caption-width .caption-edge,
+.caption-edge:hover {
+  opacity: 1;
+}
+
 .badge {
   margin-left: 6px;
   padding: 0 6px;
@@ -892,4 +949,31 @@ button.icon.play {
   background: rgb(0 0 0 / 0.7);
   font-size: 12px;
   pointer-events: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+/* 編集中だけ出す切り替え(中心固定/隅固定、開始枠/終了枠)は押せるようにする */
+.preview-hint .seg {
+  pointer-events: auto;
+  margin-left: 0;
+}
+
+/* 文字のリンクのように見せるボタン(録画の追加の案内など) */
+.link-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
 }

@@ -90,7 +90,7 @@
 
 | キー | 内容 |
 |---|---|
-| `caption` | `font`(既定 `"Yu Gothic UI"`)、`size`(48)、`color`(`"#FFFFFF"`)、`lineHeight`(1.4)、`align`(`"center"` / `"left"`)、`background`(文字の背景の箱の色。既定 `"#00000000"` = 箱なし。箱を付けるときは `"#000000AA"` など。旧い書き方の `"auto"` は箱なしとして扱う)。プロジェクト共通の `styles.caption` には、テロップの置き方の既定 `position`(中心、画面側座標)と `width`(折り返し幅、出力の幅に対する割合。既定 0.8)も書ける |
+| `caption` | `font`(既定 `"Yu Gothic UI"`)、`size`(48)、`color`(`"#FFFFFF"`)、`lineHeight`(1.4)、`align`(`"center"` / `"left"`)、`background`(文字の背景の箱の色。既定 `"#00000000"` = 箱なし。箱を付けるときは `"#000000AA"` など。旧い書き方の `"auto"` は箱なしとして扱う)。プロジェクト共通の `styles.caption` には、テロップの置き方の既定 `position`(中心、画面側座標)と `width`(テロップの幅。出力の幅に対する割合で、文はこの幅で折り返す。既定 0.8)も書ける |
 | `pointer` | `preset`(既定 `"arrow"`)、`size`(48) |
 | `highlighter` | `color`(`"#FFEB3B"`)、`width`(ソースのピクセル。24)、`opacity`(0.4) |
 
@@ -151,7 +151,7 @@
 | `source` | ○ | `sources` の `id` |
 | `in` / `out` | ○ | ソースの区間(ソースの時刻) |
 | `speed` | | `1` なら通常ステップ、`1` より大きいと早送りステップ(STP-07)。既定 1 |
-| `caption` | | テロップ。`text`(改行は `\n`)、`start`(既定 0)、`end`(既定 `null` = ステップの終わりまで)、`position`(中心の位置。画面側座標。`styles.caption.position` を上書きする)、`width`(折り返し幅。出力の幅に対する割合。`styles.caption.width` を上書きする)、`style` |
+| `caption` | | テロップ。`text`(改行は `\n`)、`start`(既定 0)、`end`(既定 `null` = ステップの終わりまで)、`position`(中心の位置。画面側座標。`styles.caption.position` を上書きする)、`width`(テロップの幅。出力の幅に対する割合。`styles.caption.width` を上書きする)、`style` |
 | `speech` | | 読み上げ。書かなければ読まない。1 つならオブジェクト、複数なら配列(STP-08)。各項目は `text`(読む文。最初の 1 つだけ、省略するとテロップの文を読む)、`start`(読み始めるステップ内の出力時刻。省略すると最初は 0、2 つ目からは前の読み上げの直後。保持を除いた映像の長さを超えられない)、`voice`、`params`(2 つ目からは省略すると最初の読み上げに合わせる) |
 | `audio` | | 音量の上書き。形は 3.4 と同じ |
 | `holds` | | 保持(TIM-02)。`at` の出力時刻で映像を止め、`duration` 秒保持する |

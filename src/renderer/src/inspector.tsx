@@ -257,6 +257,7 @@ export function StepInspector(props: {
             onChange={(v) => setCaption("width", { width: v })}
           />
         </div>
+        <p className="hint">{t("captionWidthHint")}</p>
         {overridden && (
           <button
             type="button"
@@ -871,7 +872,7 @@ export function ProjectInspector(props: {
           }
         />
         <NumField
-          label={t("captionWidth")}
+          label={t("captionWidthProject")}
           value={capStyle.width}
           step={0.05}
           min={0.1}
@@ -882,6 +883,7 @@ export function ProjectInspector(props: {
           }
         />
       </div>
+      <p className="hint">{t("captionWidthHint")}</p>
       {overrides > 0 && (
         <button
           type="button"

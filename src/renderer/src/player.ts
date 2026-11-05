@@ -5,7 +5,7 @@
 
 import { resolveLayout } from "../../core/defaults";
 import type { Project } from "../../core/schema";
-import { locate, sourceTimeAt, type TimelineEntry, totalDuration } from "../../core/timeline";
+import { continuousRuns, locate, sourceTimeAt, type TimelineEntry, totalDuration } from "../../core/timeline";
 import { renderStepAudio } from "./audio";
 import type { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
@@ -35,6 +35,36 @@ export interface PlayerState {
 type Img = CanvasImageSource & { width: number; height: number };
 
 const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
+
+/** 本当に切った箇所の、何秒前から次の区間のデコードを始めるか */
+const PREROLL = 2;
+
+/** 1 本のデコードで読み続ける、続いたステップの並び(from〜to 番目)。start / end は全体の時刻 */
+interface PlaybackRun {
+  from: number;
+  to: number;
+  start: number;
+  end: number;
+  media: SourceMedia | null;
+  latest: Img | null;
+  decoding: Promise<void> | null;
+  done: boolean;
+}
+
+/** from 番目のステップから後ろの、1 本のデコードで読み続ける区間 */
+function playbackRuns(
+  timeline: TimelineEntry[],
+  from: number,
+  media: Map<string, SourceMedia>,
+): PlaybackRun[] {
+  return continuousRuns(timeline, from).map((r) => ({
+    ...r,
+    media: media.get((timeline[r.from] as TimelineEntry).step.source) ?? null,
+    latest: null,
+    decoding: null,
+    done: false,
+  }));
+}
 
 /** プレビューの再生速度。書き出しには影響しない */
 export const PLAYBACK_RATES = [0.5, 1, 1.5, 2, 3] as const;
@@ -290,50 +320,72 @@ export class Player {
     })();
 
     // デコードと描画を分ける。保持中は同じフレームが続くのでデコーダーは何も返さないが、
-    // 描画は毎フレーム行い、時刻とズームの動きを進める
-    for (let i = first.entry.index; i < st.timeline.length && alive(); i++) {
-      const entry = st.timeline[i] as TimelineEntry;
-      const m = st.media.get(entry.step.source) ?? null;
-      let latest: Img | null = null;
-      let entryDone = false;
-      const decoding = (async () => {
-        if (!m) return;
+    // 描画は毎フレーム行い、時刻とズームの動きを進める。
+    // デコードは「続いた区間」ごとに 1 本で読み続ける(同じ録画で前のステップの Out = 次の In なら切れ目をまたぐ)。
+    // 区間ごとに作り直すと、次の区間の手前のキーフレームからデコードし直しになり、切れ目で映像が止まって飛ぶ。
+    // 本当に切った箇所(録画が違う・区間が続いていない)は、切れ目の PREROLL 秒前から次の区間のデコードを始めておく
+    const runs = playbackRuns(st.timeline, first.entry.index, st.media);
+    const startRun = (k: number) => {
+      const found = runs[k];
+      if (!found || found.decoding) return;
+      const run: PlaybackRun = found;
+      const prev = runs[k - 2];
+      run.decoding = (async () => {
+        // 同じデコーダーを使う 2 つ前の区間が読み終えてから始める(キャンバスを取り合わないため)
+        await prev?.decoding;
+        const m = run.media;
+        if (!m || !alive()) return;
+        const sink = k % 2 === 0 ? m.video : m.prefetch;
+        // 区間の始まりより前(先読み中)は始まりの時刻を 1 回だけ求め、その後は時計に合わせて進める
         async function* times() {
           let last = Number.NaN;
-          while (alive() && !entryDone) {
+          while (alive() && !run.done) {
+            const now = clock();
+            if (now >= run.end) return;
+            const l = locate(st.timeline, Math.min(Math.max(now, run.start), run.end - 1e-6));
+            if (l) {
+              const src = sourceTimeAt(l.entry.step, l.local);
+              if (src !== last) {
+                last = src;
+                yield src;
+              }
+            }
             await nextFrame();
-            const local = clock() - entry.start;
-            if (local >= entry.duration) return;
-            const src = sourceTimeAt(entry.step, Math.max(0, local));
-            if (src === last) continue;
-            last = src;
-            yield src;
           }
         }
         try {
-          for await (const wc of m.video.canvasesAtTimestamps(times())) {
+          for await (const wc of sink.canvasesAtTimestamps(times())) {
             if (!alive()) break;
-            if (wc) latest = wc.canvas as Img;
+            if (wc) run.latest = wc.canvas as Img;
           }
         } catch {
           // 描画は続ける
         }
       })();
-      while (alive()) {
-        await nextFrame();
-        // 待っている間に止められたら何もしない(止めた後に「再生中」と知らせないため)
-        if (!alive()) break;
-        const local = clock() - entry.start;
-        if (local >= entry.duration) break;
-        const l = Math.max(0, local);
-        this.time = entry.start + l;
-        // 最初のフレームがデコードされるまでは前の表示を残す
-        if (latest || !m) this.paint(st, entry, l, latest, m);
-        this.onTime(this.time, true);
+    };
+    startRun(0);
+    let ri = 0;
+    while (alive()) {
+      await nextFrame();
+      // 待っている間に止められたら何もしない(止めた後に「再生中」と知らせないため)
+      if (!alive()) break;
+      const now = Math.max(startT, clock());
+      if (now >= total) break;
+      const l = locate(st.timeline, now);
+      if (!l) break;
+      while (ri < runs.length - 1 && l.entry.index > (runs[ri] as PlaybackRun).to) {
+        (runs[ri] as PlaybackRun).done = true;
+        ri++;
       }
-      entryDone = true;
-      await decoding;
+      const run = runs[ri] as PlaybackRun;
+      startRun(ri);
+      if (now >= run.end - PREROLL) startRun(ri + 1);
+      this.time = now;
+      // 区間の最初のフレームがデコードされるまでは前の表示を残す
+      if (run.latest || !run.media) this.paint(st, l.entry, l.local, run.latest, run.media);
+      this.onTime(this.time, true);
     }
+    for (const r of runs) r.done = true;
     if (alive()) {
       this.time = total;
       this.stop();

@@ -131,8 +131,6 @@ export function Timeline(props: {
   onPasteZoom: ((at: number) => void) | null;
   /** 再生位置のステップに、時刻 local でズームを足して範囲の編集を始める */
   onAddZoomAt: (step: number, local: number) => void;
-  /** 拡大率の操作(親のボタンから)。値が変わるたびに適用する */
-  zoomCommand: { n: number; kind: "in" | "out" | "fit" };
 }) {
   const { project, timeline, total, time, update, selection } = props;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -181,18 +179,14 @@ export function Timeline(props: {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // 親のボタンからの拡大・縮小・全体表示
-  const lastCmd = useRef(props.zoomCommand.n);
-  useEffect(() => {
-    if (props.zoomCommand.n === lastCmd.current) return;
-    lastCmd.current = props.zoomCommand.n;
+  /** 左上の角のボタンからの拡大・縮小・全体表示。拡大縮小は再生ヘッドの位置を中央に保つ */
+  const zoomBy = (kind: "in" | "out" | "fit") => {
     const el = scrollRef.current;
-    if (props.zoomCommand.kind === "fit") {
+    if (kind === "fit") {
       setFit(true);
       return;
     }
-    const cur = scaleRef.current;
-    const next = clamp(cur * (props.zoomCommand.kind === "in" ? 1.5 : 1 / 1.5), 0.5, 2000);
+    const next = clamp(scale * (kind === "in" ? 1.5 : 1 / 1.5), 0.5, 2000);
     setFit(false);
     setPps(next);
     if (el) {
@@ -201,7 +195,7 @@ export function Timeline(props: {
         el.scrollLeft = tAt * next - el.clientWidth / 2;
       });
     }
-  }, [props.zoomCommand, time]);
+  };
 
   // 再生中は再生ヘッドを画面内に保つ
   useEffect(() => {
@@ -373,7 +367,26 @@ export function Timeline(props: {
   return (
     <div className="timeline">
       <div className="tl-labels">
-        <div className="tl-label ruler-label" />
+        <div className="tl-label ruler-label tl-zoom">
+          {(
+            [
+              ["out", "zoomOut", "−"],
+              ["in", "zoomIn", "+"],
+              ["fit", "timelineFit", "↔"],
+            ] as const
+          ).map(([kind, label, text]) => (
+            <button
+              key={kind}
+              type="button"
+              className="tl-zoom-btn"
+              title={kind === "fit" ? t(label) : `${t(label)} (Ctrl+Wheel)`}
+              aria-label={t(label)}
+              onClick={() => zoomBy(kind)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
         <div className="tl-label" style={{ height: VIDEO_H }}>
           {t("trackVideo")}
         </div>

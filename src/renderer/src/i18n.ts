@@ -126,7 +126,10 @@ const en = {
   unmute: "Unmute",
   fullscreen: "Full screen preview",
   speechSyncCaption: "Read the caption text",
-  captionWidth: "Wrap width (0–1)",
+  captionWidth: "Width (0–1)",
+  captionWidthProject: "Caption width (0–1)",
+  captionWidthHint:
+    "Width is a fraction of the screen width. Longer text wraps at this width. Drag the caption's left or right edge on the preview to change it.",
   captionPlacement: "Caption position (center, 0–1)",
   overridden: "Set for this step",
   resetToProject: "Use project setting",
@@ -171,6 +174,11 @@ const en = {
   pasteZoom: "Paste zoom here",
   addRecordingConfirm: "Add a recording?",
   previewFit: "Fit",
+  previewZoomIn: "Zoom in preview",
+  previewZoomOut: "Zoom out preview",
+  timelineFit: "Fit timeline",
+  editingVideoBox:
+    "Drag to move, corners resize, edge handles crop. Arrow keys move 1px (Shift: 10px). Click outside or press Esc to finish.",
   previewZoomHint: "Ctrl+wheel: zoom preview / middle drag: pan",
   total: "Total",
 };
@@ -302,7 +310,10 @@ const ja: typeof en = {
   unmute: "消音を解除",
   fullscreen: "プレビューを全画面表示",
   speechSyncCaption: "テロップと同じ文を読む",
-  captionWidth: "折り返し幅(0〜1)",
+  captionWidth: "幅(0〜1)",
+  captionWidthProject: "テロップの幅(0〜1)",
+  captionWidthHint:
+    "幅は画面の幅に対する割合。この幅を超えると折り返します。プレビューでテロップの左右の端をドラッグしても変えられます。",
   captionPlacement: "テロップの位置(中心、0〜1)",
   overridden: "このステップで個別に設定中",
   resetToProject: "プロジェクト設定に戻す",
@@ -347,6 +358,11 @@ const ja: typeof en = {
   pasteZoom: "ここにズームを貼り付け",
   addRecordingConfirm: "録画を追加しますか？",
   previewFit: "全体表示",
+  previewZoomIn: "プレビューを拡大",
+  previewZoomOut: "プレビューを縮小",
+  timelineFit: "タイムラインの全体表示",
+  editingVideoBox:
+    "ドラッグで移動、角で拡大縮小、辺で縦横比を変更(切り取り)。矢印キーで 1px(Shift で 10px)移動。枠の外のクリックか Esc で終了。",
   previewZoomHint: "Ctrl+ホイールで拡大縮小、中ボタンのドラッグで移動",
   total: "合計",
 };

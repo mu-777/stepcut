@@ -8,6 +8,8 @@ export interface SourceMedia {
   height: number;
   duration: number;
   video: CanvasSink;
+  /** 再生中の先読み用(切った箇所の次の区間を、前の区間と並行してデコードする) */
+  prefetch: CanvasSink;
   audio: AudioBufferSink | null;
   input: Input;
 }
@@ -37,6 +39,7 @@ async function load(absPath: string): Promise<SourceMedia> {
     height: videoTrack.displayHeight,
     duration: await input.computeDuration(),
     video: new CanvasSink(videoTrack, { poolSize: 4 }),
+    prefetch: new CanvasSink(videoTrack, { poolSize: 4 }),
     audio: audioTrack && canAudio ? new AudioBufferSink(audioTrack) : null,
     input,
   };

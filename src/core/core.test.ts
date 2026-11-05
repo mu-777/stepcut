@@ -28,6 +28,7 @@ import { applyDictionary, toSrt, wrapText } from "./text";
 import {
   baseDuration,
   buildTimeline,
+  continuousRuns,
   locate,
   sourceSegments,
   sourceTimeAt,
@@ -494,5 +495,25 @@ describe("テロップの背景", () => {
     expect(captionBoxColor("auto")).toBeNull();
     expect(captionBoxColor("#00000000")).toBeNull();
     expect(captionBoxColor("#000000AA")).toBe("#000000AA");
+  });
+});
+
+describe("再生で読み続ける区間", () => {
+  it("同じ録画で Out = In なら 1 つにまとめ、飛んだ箇所や別の録画で分ける", () => {
+    const tl = buildTimeline(
+      [
+        step({ id: "a", in: 0, out: 4 }),
+        step({ id: "b", in: 4, out: 6 }),
+        step({ id: "c", in: 7, out: 8 }),
+        step({ id: "d", source: "rec2", in: 8, out: 9 }),
+      ],
+      new Map(),
+    );
+    expect(continuousRuns(tl)).toEqual([
+      { from: 0, to: 1, start: 0, end: 6 },
+      { from: 2, to: 2, start: 6, end: 7 },
+      { from: 3, to: 3, start: 7, end: 8 },
+    ]);
+    expect(continuousRuns(tl, 1)[0]).toEqual({ from: 1, to: 1, start: 4, end: 6 });
   });
 });

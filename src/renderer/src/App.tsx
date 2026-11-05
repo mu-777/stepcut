@@ -74,10 +74,8 @@ export function App() {
   const [leftW, setLeftW] = useState(() => loadPref("leftWidth", 220));
   const [rightW, setRightW] = useState(() => loadPref("rightWidth", 320));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
-  const [zoomCommand, setZoomCommand] = useState<{ n: number; kind: "in" | "out" | "fit" }>({
-    n: 0,
-    kind: "fit",
-  });
+  /** プレビューの表示倍率(1 = 全体表示)。書き出しには影響しない */
+  const [viewZoom, setViewZoom] = useState(1);
   useEffect(() => savePref("leftWidth", leftW), [leftW]);
   useEffect(() => savePref("rightWidth", rightW), [rightW]);
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
@@ -735,6 +733,11 @@ export function App() {
     if (playing) stopSpeech();
   }, [playing]);
 
+  /** 録画がないときの追加(プレビューのダブルクリック・ステップ一覧の案内)。確認してから追加する */
+  const confirmAddRecording = () => {
+    if (window.confirm(t("addRecordingConfirm"))) void actions.current.addSource?.();
+  };
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.querySelector(".center .preview")?.requestFullscreen();
@@ -748,21 +751,24 @@ export function App() {
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
-  const moveCaption = (pos: { x: number; y: number }, key: string) => {
+  /**
+   * プレビューでのテロップの置き方の変更(位置・幅)。プロジェクトの設定を開いているときはプロジェクトの値、
+   * それ以外はそのステップの個別設定
+   */
+  const patchCaptionPlacement = (
+    patch: { position?: { x: number; y: number }; width?: number },
+    key: string,
+  ) => {
     if (!loc) return;
-    // プロジェクトの設定を開いているときはプロジェクトの値、それ以外はそのステップの個別設定
     if (selection.kind === "project")
-      update(
-        (p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, position: pos } } }),
-        key,
-      );
+      update((p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, ...patch } } }), key);
     else {
       const i = loc.entry.index;
       update(
         (p) => ({
           ...p,
           steps: p.steps.map((s, j) =>
-            j === i && s.caption ? { ...s, caption: { ...s.caption, position: pos } } : s,
+            j === i && s.caption ? { ...s, caption: { ...s.caption, ...patch } } : s,
           ),
         }),
         key,
@@ -770,6 +776,8 @@ export function App() {
       if (selection.kind !== "step" || selection.step !== i) setSelection({ kind: "caption", step: i });
     }
   };
+  const moveCaption = (pos: { x: number; y: number }, key: string) =>
+    patchCaptionPlacement({ position: pos }, key);
 
   const clampW = (v: number) => Math.min(Math.max(v, 160), 640);
 
@@ -835,7 +843,11 @@ export function App() {
             {t("project")}
           </button>
           <h3>{t("stepList")}</h3>
-          {project.sources.length === 0 && <p className="hint">{t("noSources")}</p>}
+          {project.sources.length === 0 && (
+            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
+              {t("noSources")}
+            </button>
+          )}
           <ol className="step-list">
             {timeline.map((e) => (
               <li key={`${e.index}-${e.step.id}`} className={e.index === selected ? "selected" : ""}>
@@ -934,15 +946,52 @@ export function App() {
               else if (selection.kind === "video") setSelection({ kind: "project" });
             }}
             onContextMenu={previewMenu}
-            hint={drawingZoom ? t("drawingRect") : null}
+            hint={
+              drawingZoom || (selection.kind === "video" && !playing) ? (
+                <>
+                  <span>{t(drawingZoom ? "drawingRect" : "editingVideoBox")}</span>
+                  {(drawingZoom || selection.kind === "video") && (
+                    <div className="seg">
+                      {(["center", "corner"] as const).map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          className={`small ${anchor === a ? "on" : ""}`}
+                          onClick={() => setAnchor(a)}
+                        >
+                          {t(a === "center" ? "anchorCenter" : "anchorCorner")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {drawingZoom && project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.to && (
+                    <div className="seg">
+                      {([false, true] as const).map((end) => (
+                        <button
+                          key={String(end)}
+                          type="button"
+                          className={`small ${(drawingZoom.end ?? false) === end ? "on" : ""}`}
+                          onClick={() => editZoomRect(drawingZoom.step, drawingZoom.zoom, end)}
+                        >
+                          {t(end ? "editEndRect" : "editStartRect")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : null
+            }
+            viewZoom={viewZoom}
+            onViewZoom={setViewZoom}
             captionStep={captionStep}
             onCaptionMove={moveCaption}
+            onCaptionWidth={(width, key) => patchCaptionPlacement({ width }, key)}
+            captionSelected={selection.kind === "caption" && loc?.entry.index === selection.step}
             onCaptionClick={() => {
               if (loc) setSelection({ kind: "caption", step: loc.entry.index });
             }}
             onEmptyDoubleClick={() => {
-              if (project.steps.length === 0 && window.confirm(t("addRecordingConfirm")))
-                void actions.current.addSource?.();
+              if (project.steps.length === 0) confirmAddRecording();
             }}
             onContextLost={() => {
               thumbs.clear();
@@ -956,34 +1005,6 @@ export function App() {
               <span className="time">
                 {fmtTime(time)} / {fmtTime(total)}
               </span>
-              {(drawingZoom || selection.kind === "video") && (
-                <div className="seg">
-                  {(["center", "corner"] as const).map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      className={`small ${anchor === a ? "on" : ""}`}
-                      onClick={() => setAnchor(a)}
-                    >
-                      {t(a === "center" ? "anchorCenter" : "anchorCorner")}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {drawingZoom && project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.to && (
-                <div className="seg">
-                  {([false, true] as const).map((end) => (
-                    <button
-                      key={String(end)}
-                      type="button"
-                      className={`small ${(drawingZoom.end ?? false) === end ? "on" : ""}`}
-                      onClick={() => editZoomRect(drawingZoom.step, drawingZoom.zoom, end)}
-                    >
-                      {t(end ? "editEndRect" : "editStartRect")}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="transport-center">
               {(
@@ -1070,6 +1091,36 @@ export function App() {
               >
                 <Icon name={muted ? "muted" : "volume"} />
               </button>
+              <span className="sep" />
+              {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
+              <button
+                type="button"
+                className="small"
+                title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
+                aria-label={t("previewZoomOut")}
+                disabled={viewZoom <= 1}
+                onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="small zoom-pct"
+                title={t("previewFit")}
+                onClick={() => setViewZoom(1)}
+              >
+                {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+              </button>
+              <button
+                type="button"
+                className="small"
+                title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
+                aria-label={t("previewZoomIn")}
+                disabled={viewZoom >= 8}
+                onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
+              >
+                +
+              </button>
               <button
                 type="button"
                 className="icon"
@@ -1078,30 +1129,6 @@ export function App() {
                 onClick={toggleFullscreen}
               >
                 <Icon name="fullscreen" />
-              </button>
-              <span className="sep" />
-              <button
-                type="button"
-                className="small"
-                title={`${t("zoomOut")} (Ctrl+Wheel)`}
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "out" }))}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="small"
-                title={`${t("zoomIn")} (Ctrl+Wheel)`}
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "in" }))}
-              >
-                +
-              </button>
-              <button
-                type="button"
-                className="small"
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "fit" }))}
-              >
-                {t("zoomFit")}
               </button>
             </div>
           </div>
@@ -1128,7 +1155,6 @@ export function App() {
             onCopyZoom={copyZoom}
             onPasteZoom={hasZoomClip ? pasteZoom : null}
             onAddZoomAt={addZoomAt}
-            zoomCommand={zoomCommand}
           />
         </section>
         <Splitter dir="col" onDrag={(d) => setRightW((w) => clampW(w - d))} />

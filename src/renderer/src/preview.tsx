@@ -2,7 +2,7 @@
 // 枠の編集(ズーム範囲、録画の位置と大きさ)は共通の操作: 枠の中のドラッグで移動、四隅で縦横比を保った拡大縮小、四辺の中央で縦横比の変更。
 // Ctrl+ホイールでプレビューだけを拡大縮小できる(細かい調整用。書き出しには影響しない)。
 import { type MutableRefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { resolveLayout } from "../../core/defaults";
+import { resolveCaptionPlacement, resolveLayout } from "../../core/defaults";
 import { computeLayout, type Rect, zoomViewRect } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
 import { captionBox, outputToSource, sourceToOutput } from "./compositor";
@@ -50,14 +50,21 @@ export function Preview(props: {
   onVideoClick: (inside: boolean) => void;
   /** 右クリック。点は出力のピクセル */
   onContextMenu: (clientX: number, clientY: number, out: { x: number; y: number }) => void;
-  /** プレビューの上に重ねて出す操作の説明 */
-  hint: string | null;
+  /** プレビューの上に重ねて出す操作の説明と、編集中だけの切り替え */
+  hint: React.ReactNode;
+  /** プレビューの表示倍率(1 = 全体表示) */
+  viewZoom: number;
+  onViewZoom: (z: number) => void;
   /** いまテロップが出ているステップ。テロップをドラッグで動かせる */
   captionStep: Step | null;
   /** テロップの中心(画面側座標) */
   onCaptionMove: (pos: { x: number; y: number }, key: string) => void;
   /** テロップをクリックした(ドラッグなし) */
   onCaptionClick: () => void;
+  /** テロップの幅(出力の幅に対する割合)。key は 1 回のドラッグで同じ */
+  onCaptionWidth: (width: number, key: string) => void;
+  /** テロップを選んでいる(幅の取っ手を出す) */
+  captionSelected: boolean;
   /** 録画を置く場所をダブルクリックした */
   onEmptyDoubleClick: () => void;
   /** 描画の GPU コンテキストが失われた(用意した画像を作り直す) */
@@ -66,12 +73,13 @@ export function Preview(props: {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fitSize, setFitSize] = useState({ w: 640, h: 360 });
-  const [viewZoom, setViewZoom] = useState(1);
   const onTimeRef = useRef(props.onTime);
   onTimeRef.current = props.onTime;
   const onLostRef = useRef(props.onContextLost);
   onLostRef.current = props.onContextLost;
-  const { stateRef, playerRef, outW, outH } = props;
+  const { stateRef, playerRef, outW, outH, viewZoom } = props;
+  const onViewZoomRef = useRef(props.onViewZoom);
+  onViewZoomRef.current = props.onViewZoom;
   const size = { w: Math.round(fitSize.w * viewZoom), h: Math.round(fitSize.h * viewZoom) };
 
   useEffect(() => {
@@ -135,7 +143,7 @@ export function Preview(props: {
             cy: e.clientY,
           };
         const next = Math.min(VIEW_ZOOM_MAX, Math.max(1, viewZoomRef.current * Math.exp(-e.deltaY * 0.002)));
-        setViewZoom(Math.abs(next - 1) < 0.02 ? 1 : next);
+        onViewZoomRef.current(Math.abs(next - 1) < 0.02 ? 1 : next);
       } else if (viewZoomRef.current > 1) {
         e.preventDefault();
         if (e.shiftKey) el.scrollLeft += e.deltaY;
@@ -266,62 +274,114 @@ export function Preview(props: {
       ? captionBox(ctx, props.project, cs, size.w, size.h, videoBox, t("captionPlaceholder"))
       : null;
     if (c) {
-      captionHandle = (
+      // 幅(折り返す幅)の枠と、左右の取っ手。中心を固定して左右対称に変える
+      const wrapW = resolveCaptionPlacement(props.project, cs).width * size.w;
+      const widthFrame = (
         <div
-          className="caption-handle"
-          style={{ left: c.box.x, top: c.box.y, width: c.box.w, height: c.box.h }}
-          onPointerDown={(e) => {
-            if (e.button !== 0) return;
-            e.stopPropagation();
-            e.preventDefault();
-            const x0 = e.clientX;
-            const y0 = e.clientY;
-            const key = `drag-caption-${Date.now()}`;
-            const halfH = c.box.h / 2;
-            const below = videoBox.y + videoBox.h;
-            let moved = false;
-            const move = (ev: PointerEvent) => {
-              if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < CLICK_PX) return;
-              moved = true;
-              let cx = c.cx + ev.clientX - x0;
-              let cy = c.cy + ev.clientY - y0;
-              let gx: number | null = null;
-              let gy: number | null = null;
-              if (!ev.altKey) {
-                // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)に吸着する
-                if (Math.abs(cx - size.w / 2) <= SNAP) {
-                  cx = size.w / 2;
-                  gx = cx;
+          className={`caption-width ${props.captionSelected ? "shown" : ""}`}
+          style={{ left: c.cx - wrapW / 2, top: c.box.y, width: wrapW, height: c.box.h }}
+        >
+          {(["l", "r"] as const).map((side) => (
+            <div
+              key={side}
+              className={`caption-edge ${side}`}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                e.preventDefault();
+                const origin = (
+                  e.currentTarget.closest(".preview-stage") as HTMLElement
+                ).getBoundingClientRect();
+                const key = `drag-caption-width-${Date.now()}`;
+                const move = (ev: PointerEvent) => {
+                  let half = Math.abs(ev.clientX - origin.left - c.cx);
+                  let gx: number | null = null;
+                  if (!ev.altKey) {
+                    // 録画の左右の辺と、画面の左右の辺に吸着する
+                    for (const x of [videoBox.x, videoBox.x + videoBox.w, 0, size.w]) {
+                      const h = Math.abs(x - c.cx);
+                      if (Math.abs(h - half) <= SNAP) {
+                        half = h;
+                        gx = c.cx + (ev.clientX - origin.left < c.cx ? -h : h);
+                        break;
+                      }
+                    }
+                  }
+                  setCaptionGuides({ x: gx, y: null });
+                  const w = Math.min(1, Math.max(0.1, (half * 2) / size.w));
+                  props.onCaptionWidth(Math.round(w * 10000) / 10000, key);
+                };
+                const up = () => {
+                  window.removeEventListener("pointermove", move);
+                  window.removeEventListener("pointerup", up);
+                  setCaptionGuides({ x: null, y: null });
+                };
+                window.addEventListener("pointermove", move);
+                window.addEventListener("pointerup", up);
+              }}
+            />
+          ))}
+        </div>
+      );
+      captionHandle = (
+        <>
+          <div
+            className="caption-handle"
+            style={{ left: c.box.x, top: c.box.y, width: c.box.w, height: c.box.h }}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              e.preventDefault();
+              const x0 = e.clientX;
+              const y0 = e.clientY;
+              const key = `drag-caption-${Date.now()}`;
+              const halfH = c.box.h / 2;
+              const below = videoBox.y + videoBox.h;
+              let moved = false;
+              const move = (ev: PointerEvent) => {
+                if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < CLICK_PX) return;
+                moved = true;
+                let cx = c.cx + ev.clientX - x0;
+                let cy = c.cy + ev.clientY - y0;
+                let gx: number | null = null;
+                let gy: number | null = null;
+                if (!ev.altKey) {
+                  // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)に吸着する
+                  if (Math.abs(cx - size.w / 2) <= SNAP) {
+                    cx = size.w / 2;
+                    gx = cx;
+                  }
+                  const cands = [
+                    { center: (below + size.h) / 2, line: (below + size.h) / 2 },
+                    { center: below + halfH, line: below },
+                    { center: size.h - halfH, line: size.h - 1 },
+                  ]
+                    .filter((x) => below < size.h || x.line !== (below + size.h) / 2)
+                    .map((x) => ({ ...x, d: Math.abs(x.center - cy) }))
+                    .filter((x) => x.d <= SNAP)
+                    .sort((a, b) => a.d - b.d);
+                  const best = cands[0];
+                  if (best) {
+                    cy = best.center;
+                    gy = best.line;
+                  }
                 }
-                const cands = [
-                  { center: (below + size.h) / 2, line: (below + size.h) / 2 },
-                  { center: below + halfH, line: below },
-                  { center: size.h - halfH, line: size.h - 1 },
-                ]
-                  .filter((x) => below < size.h || x.line !== (below + size.h) / 2)
-                  .map((x) => ({ ...x, d: Math.abs(x.center - cy) }))
-                  .filter((x) => x.d <= SNAP)
-                  .sort((a, b) => a.d - b.d);
-                const best = cands[0];
-                if (best) {
-                  cy = best.center;
-                  gy = best.line;
-                }
-              }
-              setCaptionGuides({ x: gx, y: gy });
-              const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
-              props.onCaptionMove({ x: r4(cx / size.w), y: r4(cy / size.h) }, key);
-            };
-            const up = () => {
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-              setCaptionGuides({ x: null, y: null });
-              if (!moved) props.onCaptionClick();
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
-          }}
-        />
+                setCaptionGuides({ x: gx, y: gy });
+                const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
+                props.onCaptionMove({ x: r4(cx / size.w), y: r4(cy / size.h) }, key);
+              };
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+                setCaptionGuides({ x: null, y: null });
+                if (!moved) props.onCaptionClick();
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+            }}
+          />
+          {widthFrame}
+        </>
       );
     }
   }
@@ -329,16 +389,6 @@ export function Preview(props: {
   return (
     <div className="preview">
       {props.hint && <div className="preview-hint">{props.hint}</div>}
-      {viewZoom > 1 && (
-        <button
-          type="button"
-          className="small preview-zoom"
-          title={t("previewZoomHint")}
-          onClick={() => setViewZoom(1)}
-        >
-          {Math.round(viewZoom * 100)}% · {t("previewFit")}
-        </button>
-      )}
       <div className="preview-scroll" ref={wrapRef} onPointerDown={panFrom}>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用 */}
         <div

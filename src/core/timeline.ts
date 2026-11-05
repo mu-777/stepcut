@@ -138,3 +138,24 @@ export function locate(timeline: TimelineEntry[], t: number): { entry: TimelineE
   const last = timeline[timeline.length - 1] as TimelineEntry;
   return { entry: last, local: last.duration };
 }
+
+/**
+ * from 番目のステップから後ろを「続いた区間」にまとめる(再生で 1 本のデコードで読み続ける単位)。
+ * 同じ録画で、前のステップの Out と次のステップの In が同じなら続いているとみなす。start / end は全体の時刻
+ */
+export function continuousRuns(
+  timeline: TimelineEntry[],
+  from = 0,
+): { from: number; to: number; start: number; end: number }[] {
+  const runs: { from: number; to: number; start: number; end: number }[] = [];
+  for (let i = from; i < timeline.length; i++) {
+    const e = timeline[i] as TimelineEntry;
+    const last = runs[runs.length - 1];
+    const prev = timeline[i - 1];
+    if (last && prev && prev.step.source === e.step.source && Math.abs(prev.step.out - e.step.in) < 1e-3) {
+      last.to = i;
+      last.end = e.start + e.duration;
+    } else runs.push({ from: i, to: i, start: e.start, end: e.start + e.duration });
+  }
+  return runs;
+}
