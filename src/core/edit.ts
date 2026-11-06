@@ -70,7 +70,12 @@ export function shiftStepElements(step: Step, dt: number): Step {
   }
   if (step.zooms) {
     next.zooms = step.zooms
-      .map((z) => ({ ...z, start: r3(Math.max(0, z.start + dt)), end: r3(z.end + dt) }))
+      .map((z) => ({
+        ...z,
+        start: r3(Math.max(0, z.start + dt)),
+        end: r3(z.end + dt),
+        keys: z.keys.map((k) => ({ ...k, t: r3(Math.max(0, k.t + dt)) })),
+      }))
       .filter((z) => z.end > z.start);
     if (!next.zooms.length) delete next.zooms;
   }

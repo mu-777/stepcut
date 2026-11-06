@@ -113,12 +113,21 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
       }
     });
     for (const [k, z] of (step.zooms ?? []).entries()) {
-      if (z.to && !(z.end > z.start)) {
-        errors.push({
-          path: at(`.zooms[${k}].to`),
-          message: "移動するズームは end を start より後にしてください",
-        });
-      }
+      z.keys.forEach((key, j) => {
+        const prev = z.keys[j - 1];
+        if (key.t < z.start - EPS || key.t > z.end + EPS) {
+          errors.push({
+            path: at(`.zooms[${k}].keys[${j}].t`),
+            message: `枠の時刻 ${key.t} 秒がズームの区間(${z.start}〜${z.end} 秒)の外です`,
+          });
+        }
+        if (prev && key.t <= prev.t) {
+          errors.push({
+            path: at(`.zooms[${k}].keys[${j}].t`),
+            message: "枠は時刻の早い順に、同じ時刻を重ねずに並べてください",
+          });
+        }
+      });
     }
     if (step.pointers?.length) {
       warnings.push({ path: at(".pointers"), message: "ポインターはこの版では描画しません(M2 で対応)" });

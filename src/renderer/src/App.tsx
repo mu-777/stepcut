@@ -11,8 +11,16 @@ import {
   splitStep,
   uniqueStepId,
 } from "../../core/edit";
-import { computeLayout, marginOf, viewRectAt } from "../../core/layout";
-import type { Project, Zoom } from "../../core/schema";
+import {
+  computeLayout,
+  marginOf,
+  retimeZoom,
+  setZoomKeyRect,
+  sortedKeys,
+  viewRectAt,
+  zoomRectAt,
+} from "../../core/layout";
+import type { Project, Zoom, ZoomKey } from "../../core/schema";
 import { buildTimeline, locate, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
 import type { Voice } from "../../shared/api";
@@ -31,8 +39,8 @@ import { ThumbCache } from "./thumbs";
 import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
 import { ContextMenu, loadChoice, loadPref, Splitter, saveChoice, savePref } from "./widgets";
 
-/** ズームの範囲の編集。end は移動するズームの終了枠を編集中 */
-type DrawingZoom = { step: number; zoom: number; end?: boolean };
+/** ズームの範囲の編集。key は編集中の枠(時刻の順の番号) */
+type DrawingZoom = { step: number; zoom: number; key: number };
 
 /** 文字を入力中か。チェックボックス・スライダー・選択欄は含めない(Ctrl+Z を文字の取り消しに回さないため) */
 const TEXT_INPUTS = new Set(["text", "number", "search", "url", "email", "password", "tel", ""]);
@@ -62,6 +70,11 @@ export function App() {
     loadChoice("boxAnchor", ["center", "corner"] as const, "center"),
   );
   useEffect(() => saveChoice("boxAnchor", anchor), [anchor]);
+  /** ズームの枠の大きさを全部の枠でそろえる(編集の設定。ファイルには保存しない) */
+  const [syncSize, setSyncSize] = useState(
+    () => loadChoice("zoomSyncSize", ["on", "off"] as const, "on") === "on",
+  );
+  useEffect(() => saveChoice("zoomSyncSize", syncSize ? "on" : "off"), [syncSize]);
   /** 読み上げの試聴中のステップ */
   const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
   /** コピーしたズーム(アプリ内だけで持つ)。録画の大きさが違うステップへ貼るときに換算する */
@@ -74,10 +87,8 @@ export function App() {
   const [leftW, setLeftW] = useState(() => loadPref("leftWidth", 220));
   const [rightW, setRightW] = useState(() => loadPref("rightWidth", 320));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
-  const [zoomCommand, setZoomCommand] = useState<{ n: number; kind: "in" | "out" | "fit" }>({
-    n: 0,
-    kind: "fit",
-  });
+  /** プレビューの表示倍率(1 = 全体表示)。書き出しには影響しない */
+  const [viewZoom, setViewZoom] = useState(1);
   useEffect(() => savePref("leftWidth", leftW), [leftW]);
   useEffect(() => savePref("rightWidth", rightW), [rightW]);
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
@@ -432,8 +443,8 @@ export function App() {
       if (!z) return false;
       const w = m?.width ?? 1920;
       const h = m?.height ?? 1080;
-      const field = drawingZoom.end && z.to ? "to" : "rect";
-      const r = z[field] ?? z.rect;
+      const r = sortedKeys(z)[drawingZoom.key]?.rect;
+      if (!r) return false;
       const moved = {
         ...r,
         x: Math.min(Math.max(0, r.x + dx * n), Math.max(0, w - r.w)),
@@ -446,7 +457,9 @@ export function App() {
             i === drawingZoom.step
               ? {
                   ...s,
-                  zooms: s.zooms?.map((x, k) => (k === drawingZoom.zoom ? { ...x, [field]: moved } : x)),
+                  zooms: s.zooms?.map((x, k) =>
+                    k === drawingZoom.zoom ? setZoomKeyRect(x, drawingZoom.key, moved, false, w, h) : x,
+                  ),
                 }
               : s,
           ),
@@ -493,7 +506,15 @@ export function App() {
     if (s.kind === "zoom") {
       if (!(drawingZoom && s.step === drawingZoom.step && s.index === drawingZoom.zoom)) {
         playerRef.current?.stop();
-        setDrawingZoom({ step: s.step, zoom: s.index });
+        // 再生位置にいちばん近い枠を編集する
+        const z = project.steps[s.step]?.zooms?.[s.index];
+        const local = (playerRef.current?.time ?? time) - (timeline[s.step]?.start ?? 0);
+        const keys = z ? sortedKeys(z) : [];
+        let key = 0;
+        keys.forEach((k, i) => {
+          if (Math.abs(k.t - local) < Math.abs((keys[key]?.t ?? 0) - local)) key = i;
+        });
+        setDrawingZoom({ step: s.step, zoom: s.index, key });
       }
     } else if (drawingZoom) setDrawingZoom(null);
     if (speechPlaying !== null && "step" in s && s.step !== speechPlaying) stopSpeech();
@@ -536,18 +557,16 @@ export function App() {
     });
   };
 
-  const editZoomRect = (step: number, zoom: number, end = false) => {
+  const editZoomRect = (step: number, zoom: number, key = 0) => {
     playerRef.current?.stop();
     setSelection({ kind: "zoom", step, index: zoom });
-    setDrawingZoom({ step, zoom, end });
+    setDrawingZoom({ step, zoom, key });
   };
 
-  // ズーム範囲の指定を始めたら、範囲を指定する場面を見せる。再生位置がズームの区間の外なら区間の途中へ移す。
-  // 移動するズームは、開始枠なら区間の始め、終了枠なら終わりへ移す
+  // ズーム範囲の指定を始めたら、範囲を指定する場面を見せる。枠が 1 つなら、再生位置がズームの区間の外のときだけ
+  // 区間の途中へ移す。枠が複数なら、編集する枠の時刻へ移す
   // (追加した直後のズームはこの時点で project に入っているので、effect で行う)
-  const drawingKey = drawingZoom
-    ? `${drawingZoom.step}:${drawingZoom.zoom}:${drawingZoom.end ?? false}`
-    : null;
+  const drawingKey = drawingZoom ? `${drawingZoom.step}:${drawingZoom.zoom}:${drawingZoom.key}` : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 指定を始めたときだけ移す
   useEffect(() => {
     if (!drawingZoom) return;
@@ -555,13 +574,53 @@ export function App() {
     const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
     const pl = playerRef.current;
     if (!e || !z || !pl) return;
-    if (z.to) {
-      pl.seek(e.start + (drawingZoom.end ? Math.max(z.start, z.end - 0.001) : z.start));
+    const keys = sortedKeys(z);
+    const k = keys[drawingZoom.key];
+    if (keys.length > 1 && k) {
+      pl.seek(e.start + Math.min(k.t, e.duration - 0.001));
       return;
     }
     const local = pl.time - e.start;
     if (local < z.start || local > z.end) pl.seek(e.start + (z.start + z.end) / 2);
   }, [drawingKey]);
+
+  /** ズーム step / zoom を書き換える */
+  const updateZoom = (step: number, zoom: number, fn: (z: Zoom) => Zoom, key: string) =>
+    update(
+      (p) => ({
+        ...p,
+        steps: p.steps.map((s, i) =>
+          i === step ? { ...s, zooms: s.zooms?.map((x, k) => (k === zoom ? fn(x) : x)) } : s,
+        ),
+      }),
+      key,
+    );
+
+  /** 編集中のズームの、再生位置に枠を足す(その時刻に見えている範囲で作る)。同じ時刻に枠があればそれを選ぶ */
+  const addZoomKeyAtPlayhead = () => {
+    if (!drawingZoom) return;
+    const e = timeline[drawingZoom.step];
+    const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
+    if (!e || !z) return;
+    const r3 = (n: number) => Math.round(n * 1000) / 1000;
+    const t = r3(Math.min(Math.max((playerRef.current?.time ?? time) - e.start, z.start), z.end));
+    const keys = sortedKeys(z);
+    const same = keys.findIndex((k) => Math.abs(k.t - t) < 1 / resolveOutput(project).fps);
+    if (same >= 0) {
+      setDrawingZoom({ ...drawingZoom, key: same });
+      return;
+    }
+    const rect = zoomRectAt(z, t);
+    const next = [
+      ...keys,
+      {
+        t,
+        rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) },
+      },
+    ].sort((a, b) => a.t - b.t);
+    updateZoom(drawingZoom.step, drawingZoom.zoom, (x) => ({ ...x, keys: next }), "zoom-key-add");
+    setDrawingZoom({ ...drawingZoom, key: next.findIndex((k) => k.t === t) });
+  };
 
   /** タイムラインのダブルクリックで、ステップ i の時刻 local にズームを足して範囲の編集を始める */
   const addZoomAt = (i: number, local: number) => {
@@ -679,7 +738,7 @@ export function App() {
     const m = media.get(entry.step.source);
     const kx = (m?.width ?? 1920) / clip.srcW;
     const ky = (m?.height ?? 1080) / clip.srcH;
-    const conv = (r: Zoom["rect"]) => ({
+    const conv = (r: ZoomKey["rect"]) => ({
       x: Math.round(r.x * kx),
       y: Math.round(r.y * ky),
       w: Math.round(r.w * kx),
@@ -689,8 +748,9 @@ export function App() {
     const end = Math.min(hi, local + (clip.zoom.end - clip.zoom.start));
     if (end - local < 0.1) return;
     const r3 = (n: number) => Math.round(n * 1000) / 1000;
-    const z: Zoom = { ...clip.zoom, start: r3(local), end: r3(end), rect: conv(clip.zoom.rect) };
-    if (clip.zoom.to) z.to = conv(clip.zoom.to);
+    const moved = retimeZoom(clip.zoom, local, local + (clip.zoom.end - clip.zoom.start));
+    const fitted = retimeZoom(moved, r3(local), r3(end));
+    const z: Zoom = { ...fitted, keys: fitted.keys.map((k) => ({ ...k, rect: conv(k.rect) })) };
     update(
       (p) => ({
         ...p,
@@ -735,6 +795,11 @@ export function App() {
     if (playing) stopSpeech();
   }, [playing]);
 
+  /** 録画がないときの追加(プレビューのダブルクリック・ステップ一覧の案内)。確認してから追加する */
+  const confirmAddRecording = () => {
+    if (window.confirm(t("addRecordingConfirm"))) void actions.current.addSource?.();
+  };
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.querySelector(".center .preview")?.requestFullscreen();
@@ -748,21 +813,24 @@ export function App() {
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
-  const moveCaption = (pos: { x: number; y: number }, key: string) => {
+  /**
+   * プレビューでのテロップの置き方の変更(位置・幅)。プロジェクトの設定を開いているときはプロジェクトの値、
+   * それ以外はそのステップの個別設定
+   */
+  const patchCaptionPlacement = (
+    patch: { position?: { x: number; y: number }; width?: number },
+    key: string,
+  ) => {
     if (!loc) return;
-    // プロジェクトの設定を開いているときはプロジェクトの値、それ以外はそのステップの個別設定
     if (selection.kind === "project")
-      update(
-        (p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, position: pos } } }),
-        key,
-      );
+      update((p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, ...patch } } }), key);
     else {
       const i = loc.entry.index;
       update(
         (p) => ({
           ...p,
           steps: p.steps.map((s, j) =>
-            j === i && s.caption ? { ...s, caption: { ...s.caption, position: pos } } : s,
+            j === i && s.caption ? { ...s, caption: { ...s.caption, ...patch } } : s,
           ),
         }),
         key,
@@ -770,6 +838,8 @@ export function App() {
       if (selection.kind !== "step" || selection.step !== i) setSelection({ kind: "caption", step: i });
     }
   };
+  const moveCaption = (pos: { x: number; y: number }, key: string) =>
+    patchCaptionPlacement({ position: pos }, key);
 
   const clampW = (v: number) => Math.min(Math.max(v, 160), 640);
 
@@ -835,7 +905,11 @@ export function App() {
             {t("project")}
           </button>
           <h3>{t("stepList")}</h3>
-          {project.sources.length === 0 && <p className="hint">{t("noSources")}</p>}
+          {project.sources.length === 0 && (
+            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
+              {t("noSources")}
+            </button>
+          )}
           <ol className="step-list">
             {timeline.map((e) => (
               <li key={`${e.index}-${e.step.id}`} className={e.index === selected ? "selected" : ""}>
@@ -876,32 +950,31 @@ export function App() {
               drawingZoom && selMedia
                 ? (() => {
                     const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
-                    const field = drawingZoom.end && z?.to ? "to" : "rect";
+                    const keys = z ? sortedKeys(z) : [];
                     return {
                       srcW: selMedia.width,
                       srcH: selMedia.height,
-                      rect: z ? (z[field] ?? z.rect) : null,
-                      // 移動するズームは、もう一方の枠を点線で出す
-                      ghost: z?.to ? (field === "to" ? z.rect : z.to) : null,
-                      exact: z?.exact ?? false,
-                      onRect: (rect, key) => {
-                        update(
-                          (p) => ({
-                            ...p,
-                            steps: p.steps.map((s, i) =>
-                              i === drawingZoom.step
-                                ? {
-                                    ...s,
-                                    zooms: s.zooms?.map((x, k) =>
-                                      k === drawingZoom.zoom ? { ...x, [field]: rect } : x,
-                                    ),
-                                  }
-                                : s,
+                      rect: keys[drawingZoom.key]?.rect ?? null,
+                      // ほかの枠は点線で出し、クリックでその枠の編集に切り替える
+                      ghosts: keys.map((k) => k.rect),
+                      current: drawingZoom.key,
+                      keepAspect: z?.keepAspect ?? false,
+                      onPick: (i) => editZoomRect(drawingZoom.step, drawingZoom.zoom, i),
+                      onRect: (rect, key) =>
+                        updateZoom(
+                          drawingZoom.step,
+                          drawingZoom.zoom,
+                          (x) =>
+                            setZoomKeyRect(
+                              x,
+                              drawingZoom.key,
+                              rect,
+                              syncSize,
+                              selMedia.width,
+                              selMedia.height,
                             ),
-                          }),
                           key,
-                        );
-                      },
+                        ),
                       onCommit: () => setDrawingZoom(null),
                     };
                   })()
@@ -934,15 +1007,93 @@ export function App() {
               else if (selection.kind === "video") setSelection({ kind: "project" });
             }}
             onContextMenu={previewMenu}
-            hint={drawingZoom ? t("drawingRect") : null}
+            hint={
+              drawingZoom || (selection.kind === "video" && !playing) ? (
+                <>
+                  <span>{t(drawingZoom ? "drawingRect" : "editingVideoBox")}</span>
+                  {(drawingZoom || selection.kind === "video") && (
+                    <div className="seg">
+                      {(["center", "corner"] as const).map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          className={`small ${anchor === a ? "on" : ""}`}
+                          onClick={() => setAnchor(a)}
+                        >
+                          {t(a === "center" ? "anchorCenter" : "anchorCorner")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {drawingZoom &&
+                    (() => {
+                      const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
+                      const n = z?.keys.length ?? 0;
+                      const go = (i: number) => editZoomRect(drawingZoom.step, drawingZoom.zoom, i);
+                      return (
+                        <>
+                          {n > 1 && (
+                            <div className="seg">
+                              <button
+                                type="button"
+                                className="small"
+                                title={t("prevKey")}
+                                aria-label={t("prevKey")}
+                                disabled={drawingZoom.key <= 0}
+                                onClick={() => go(drawingZoom.key - 1)}
+                              >
+                                ◀
+                              </button>
+                              <span className="seg-label">
+                                {t("zoomKey")} {drawingZoom.key + 1}/{n}
+                              </span>
+                              <button
+                                type="button"
+                                className="small"
+                                title={t("nextKey")}
+                                aria-label={t("nextKey")}
+                                disabled={drawingZoom.key >= n - 1}
+                                onClick={() => go(drawingZoom.key + 1)}
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          )}
+                          <div className="seg">
+                            <button type="button" className="small" onClick={addZoomKeyAtPlayhead}>
+                              ＋ {t("addZoomKey")}
+                            </button>
+                          </div>
+                          {n > 1 && (
+                            <div className="seg">
+                              <button
+                                type="button"
+                                className={`small ${syncSize ? "on" : ""}`}
+                                aria-pressed={syncSize}
+                                title={t("syncSizeHint")}
+                                onClick={() => setSyncSize((v) => !v)}
+                              >
+                                {t("syncSize")}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                </>
+              ) : null
+            }
+            viewZoom={viewZoom}
+            onViewZoom={setViewZoom}
             captionStep={captionStep}
             onCaptionMove={moveCaption}
+            onCaptionWidth={(width, key) => patchCaptionPlacement({ width }, key)}
+            captionSelected={selection.kind === "caption" && loc?.entry.index === selection.step}
             onCaptionClick={() => {
               if (loc) setSelection({ kind: "caption", step: loc.entry.index });
             }}
             onEmptyDoubleClick={() => {
-              if (project.steps.length === 0 && window.confirm(t("addRecordingConfirm")))
-                void actions.current.addSource?.();
+              if (project.steps.length === 0) confirmAddRecording();
             }}
             onContextLost={() => {
               thumbs.clear();
@@ -956,34 +1107,6 @@ export function App() {
               <span className="time">
                 {fmtTime(time)} / {fmtTime(total)}
               </span>
-              {(drawingZoom || selection.kind === "video") && (
-                <div className="seg">
-                  {(["center", "corner"] as const).map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      className={`small ${anchor === a ? "on" : ""}`}
-                      onClick={() => setAnchor(a)}
-                    >
-                      {t(a === "center" ? "anchorCenter" : "anchorCorner")}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {drawingZoom && project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom]?.to && (
-                <div className="seg">
-                  {([false, true] as const).map((end) => (
-                    <button
-                      key={String(end)}
-                      type="button"
-                      className={`small ${(drawingZoom.end ?? false) === end ? "on" : ""}`}
-                      onClick={() => editZoomRect(drawingZoom.step, drawingZoom.zoom, end)}
-                    >
-                      {t(end ? "editEndRect" : "editStartRect")}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="transport-center">
               {(
@@ -1070,6 +1193,36 @@ export function App() {
               >
                 <Icon name={muted ? "muted" : "volume"} />
               </button>
+              <span className="sep" />
+              {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
+              <button
+                type="button"
+                className="small"
+                title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
+                aria-label={t("previewZoomOut")}
+                disabled={viewZoom <= 1}
+                onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="small zoom-pct"
+                title={t("previewFit")}
+                onClick={() => setViewZoom(1)}
+              >
+                {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+              </button>
+              <button
+                type="button"
+                className="small"
+                title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
+                aria-label={t("previewZoomIn")}
+                disabled={viewZoom >= 8}
+                onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
+              >
+                +
+              </button>
               <button
                 type="button"
                 className="icon"
@@ -1078,30 +1231,6 @@ export function App() {
                 onClick={toggleFullscreen}
               >
                 <Icon name="fullscreen" />
-              </button>
-              <span className="sep" />
-              <button
-                type="button"
-                className="small"
-                title={`${t("zoomOut")} (Ctrl+Wheel)`}
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "out" }))}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="small"
-                title={`${t("zoomIn")} (Ctrl+Wheel)`}
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "in" }))}
-              >
-                +
-              </button>
-              <button
-                type="button"
-                className="small"
-                onClick={() => setZoomCommand((c) => ({ n: c.n + 1, kind: "fit" }))}
-              >
-                {t("zoomFit")}
               </button>
             </div>
           </div>
@@ -1123,12 +1252,12 @@ export function App() {
             onTrimPreview={setTrimPreview}
             openMenu={(x, y, items) => setMenu({ x, y, items })}
             onEditZoomRect={editZoomRect}
+            editingKey={drawingZoom}
             onPreviewSpeech={previewSpeech}
             onMergeNext={mergeNext}
             onCopyZoom={copyZoom}
             onPasteZoom={hasZoomClip ? pasteZoom : null}
             onAddZoomAt={addZoomAt}
-            zoomCommand={zoomCommand}
           />
         </section>
         <Splitter dir="col" onDrag={(d) => setRightW((w) => clampW(w - d))} />
@@ -1149,7 +1278,8 @@ export function App() {
               speechPlaying={speechPlaying === selected}
               focus={selection}
               drawing={drawingZoom && drawingZoom.step === selected ? drawingZoom : null}
-              onDrawZoom={(zoom, end) => editZoomRect(selected, zoom, end)}
+              onDrawZoom={(zoom, key) => editZoomRect(selected, zoom, key)}
+              syncSize={syncSize}
               onAddZoom={() => addZoomAtPlayhead()}
               onPreviewSpeech={() => (speechPlaying === selected ? stopSpeech() : previewSpeech(selected))}
               srcSize={selMedia ? { w: selMedia.width, h: selMedia.height } : null}

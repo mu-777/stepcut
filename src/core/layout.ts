@@ -1,7 +1,7 @@
 // 出力画面上の配置(LAY)とズームの表示範囲(ZM)。座標はピクセル。
 import type { ResolvedLayout } from "./defaults";
 import { zoomTransition } from "./defaults";
-import type { Margin, Step, Zoom } from "./schema";
+import type { Margin, Step, Zoom, ZoomKey } from "./schema";
 
 export interface Rect {
   x: number;
@@ -96,37 +96,97 @@ export function clampRect(r: Rect, srcW: number, srcH: number): Rect {
   return { x: Math.min(Math.max(0, r.x), srcW - w), y: Math.min(Math.max(0, r.y), srcH - h), w, h };
 }
 
-/** ズームの枠(ソースのピクセル)。移動ありなら、拡大を保つ区間の間に rect から to へ一定の速さで移る */
+/** ズームの枠を時刻の順に並べたもの */
+export function sortedKeys(z: Zoom): ZoomKey[] {
+  return [...z.keys].sort((a, b) => a.t - b.t);
+}
+
+/**
+ * ズームの枠(ソースのピクセル)。枠と枠の間は一定の速さで移る。
+ * 最初の枠より前は最初の枠、最後の枠より後は最後の枠
+ */
 export function zoomRectAt(z: Zoom, t: number): Rect {
-  if (!z.to) return z.rect;
-  const len = z.end - z.start;
-  const p = len > 0 ? Math.min(1, Math.max(0, (t - z.start) / len)) : 1;
-  return lerpRect(z.rect, z.to, p);
-}
-
-/** ズームで映す範囲。exact なら枠そのもの、そうでなければ表示の縦横比に合わせて広げた範囲 */
-function zoomView(z: Zoom, r: Rect, aspect: number, srcW: number, srcH: number): Rect {
-  return z.exact ? clampRect(r, srcW, srcH) : zoomViewRect(r, aspect, srcW, srcH);
-}
-
-/** ズームの倍率(ズームしていないときの見える範囲に対して) */
-export function zoomScale(z: Zoom, base: Rect, srcW: number, srcH: number): number {
-  if (z.exact) {
-    const r = clampRect(z.rect, srcW, srcH);
-    return Math.max(1, Math.min(base.w / r.w, base.h / r.h));
+  const keys = sortedKeys(z);
+  const first = keys[0] as ZoomKey;
+  if (t <= first.t || keys.length === 1) return first.rect;
+  for (let i = 1; i < keys.length; i++) {
+    const a = keys[i - 1] as ZoomKey;
+    const b = keys[i] as ZoomKey;
+    if (t <= b.t) return lerpRect(a.rect, b.rect, b.t > a.t ? (t - a.t) / (b.t - a.t) : 1);
   }
-  return base.w / zoomViewRect(z.rect, base.w / base.h, srcW, srcH).w;
+  return (keys[keys.length - 1] as ZoomKey).rect;
+}
+
+/** ズームで映す範囲。既定は枠そのもの、keepAspect なら表示の縦横比に合わせて広げた範囲 */
+function zoomView(z: Zoom, r: Rect, aspect: number, srcW: number, srcH: number): Rect {
+  return z.keepAspect ? zoomViewRect(r, aspect, srcW, srcH) : clampRect(r, srcW, srcH);
+}
+
+/** 枠 r で映したときの倍率(ズームしていないときの見える範囲に対して) */
+export function rectScale(r: Rect, keepAspect: boolean, base: Rect, srcW: number, srcH: number): number {
+  if (keepAspect) return base.w / zoomViewRect(r, base.w / base.h, srcW, srcH).w;
+  const c = clampRect(r, srcW, srcH);
+  return Math.max(1, Math.min(base.w / c.w, base.h / c.h));
+}
+
+/** ズームの倍率。最初の枠で決める(動きの時間の計算とタイムラインの表示に使う) */
+export function zoomScale(z: Zoom, base: Rect, srcW: number, srcH: number): number {
+  return rectScale(sortedKeys(z)[0]?.rect ?? base, z.keepAspect ?? false, base, srcW, srcH);
 }
 
 /** 倍率と中心を保ったまま、枠を表示の縦横比(base)に戻す */
-export function resetZoomAspect(z: Zoom, base: Rect, srcW: number, srcH: number): Rect {
-  const s = zoomScale(z, base, srcW, srcH);
+export function resetRectAspect(r: Rect, keepAspect: boolean, base: Rect, srcW: number, srcH: number): Rect {
+  const s = rectScale(r, keepAspect, base, srcW, srcH);
   const w = base.w / s;
   const h = base.h / s;
-  const cx = z.rect.x + z.rect.w / 2;
-  const cy = z.rect.y + z.rect.h / 2;
-  const r = clampRect({ x: cx - w / 2, y: cy - h / 2, w, h }, srcW, srcH);
-  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) };
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const c = clampRect({ x: cx - w / 2, y: cy - h / 2, w, h }, srcW, srcH);
+  return { x: Math.round(c.x), y: Math.round(c.y), w: Math.round(c.w), h: Math.round(c.h) };
+}
+
+/** 枠 r の大きさを w × h にする(中心は保ち、ソースの範囲に収める) */
+export function resizeRect(r: Rect, w: number, h: number, srcW: number, srcH: number): Rect {
+  const c = clampRect({ x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h }, srcW, srcH);
+  return { x: Math.round(c.x), y: Math.round(c.y), w: Math.round(c.w), h: Math.round(c.h) };
+}
+
+/**
+ * i 番目(時刻の順)の枠を rect にする。syncSize なら、ほかの枠も同じ大きさにする(それぞれの中心は保つ)
+ */
+export function setZoomKeyRect(
+  z: Zoom,
+  i: number,
+  rect: Rect,
+  syncSize: boolean,
+  srcW: number,
+  srcH: number,
+): Zoom {
+  const keys = sortedKeys(z).map((k, j) => {
+    if (j === i) return { ...k, rect };
+    if (!syncSize || (k.rect.w === rect.w && k.rect.h === rect.h)) return k;
+    return { ...k, rect: resizeRect(k.rect, rect.w, rect.h, srcW, srcH) };
+  });
+  return { ...z, keys };
+}
+
+/**
+ * ズームの区間を start〜end に変える。区間ごと動かしたときは枠の時刻も同じだけずらす。
+ * 長さを変えたときは、元の始まり・終わりにあった枠を新しい始まり・終わりへ移し、間の枠は区間の中に収める
+ */
+export function retimeZoom(z: Zoom, start: number, end: number): Zoom {
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const moved = Math.abs(end - start - (z.end - z.start)) < 1e-6;
+  const d = start - z.start;
+  const keys = sortedKeys(z).map((k) => {
+    let t: number;
+    if (moved) t = k.t + d;
+    else if (k.t <= z.start + 1e-6) t = start;
+    else if (k.t >= z.end - 1e-6) t = end;
+    else t = Math.min(Math.max(k.t, start), end);
+    return { ...k, t: r3(t) };
+  });
+  return { ...z, start: r3(start), end: r3(end), keys };
 }
 
 /**
@@ -179,7 +239,7 @@ export function viewRectAt(step: Step, t: number, srcW: number, srcH: number, ba
       const p = easeInOut((t - z.end) / (next.start - z.end));
       return lerpRect(
         zoomView(z, zoomRectAt(z, z.end), aspect, srcW, srcH),
-        zoomView(next, next.rect, aspect, srcW, srcH),
+        zoomView(next, zoomRectAt(next, next.start), aspect, srcW, srcH),
         p,
       );
     }

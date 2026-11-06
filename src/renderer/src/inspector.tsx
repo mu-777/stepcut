@@ -17,8 +17,17 @@ import {
   zoomHolds,
   zoomTransition,
 } from "../../core/defaults";
-import { computeLayout, type Rect, resetZoomAspect, zoomScale } from "../../core/layout";
-import type { Background, Margin, Project, SpeechPiece, Step, Zoom } from "../../core/schema";
+import {
+  computeLayout,
+  type Rect,
+  rectScale,
+  resetRectAspect,
+  retimeZoom,
+  setZoomKeyRect,
+  sortedKeys,
+  zoomScale,
+} from "../../core/layout";
+import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
 import { speechTimes } from "../../core/timeline";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
@@ -67,10 +76,12 @@ export function StepInspector(props: {
   speechPlaying: boolean;
   /** タイムラインで選んだ要素。その欄を強調して見える位置へ動かす */
   focus: Selection;
-  /** プレビューで範囲を編集中のズーム */
-  drawing: { zoom: number; end?: boolean } | null;
-  /** プレビューでズームの範囲の編集を始める。end は移動するズームの終了枠 */
-  onDrawZoom: (zoomIndex: number, end?: boolean) => void;
+  /** プレビューで範囲を編集中のズームと枠 */
+  drawing: { zoom: number; key: number } | null;
+  /** プレビューでズームの枠 key(時刻の順の番号)の編集を始める */
+  onDrawZoom: (zoomIndex: number, key?: number) => void;
+  /** 枠の大きさを全部の枠でそろえる(編集の設定) */
+  syncSize: boolean;
   /** 再生位置にズームを足す */
   onAddZoom: () => void;
   onPreviewSpeech: () => void;
@@ -107,6 +118,8 @@ export function StepInspector(props: {
         ),
       ),
     );
+  const setZoomFn = (k: number, key: string, fn: (z: Zoom) => Zoom) =>
+    set(`zoom${k}.${key}`)((s) => ({ ...s, zooms: (s.zooms ?? []).map((z, i) => (i === k ? fn(z) : z)) }));
   const setZoom = (k: number, key: string, patch: Partial<Zoom>) =>
     set(`zoom${k}.${key}`)((s) => ({
       ...s,
@@ -257,6 +270,7 @@ export function StepInspector(props: {
             onChange={(v) => setCaption("width", { width: v })}
           />
         </div>
+        <p className="hint">{t("captionWidthHint")}</p>
         {overridden && (
           <button
             type="button"
@@ -472,106 +486,137 @@ export function StepInspector(props: {
       </button>
 
       <h4>{t("zooms")}</h4>
-      {(step.zooms ?? []).map((z, k) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: ズームは id を持たない
-        <Section key={k} className="zoom" focused={focus.kind === "zoom" && focus.index === k}>
-          <div className="row">
-            <NumField
-              label={t("start")}
-              value={z.start}
-              min={0}
-              onChange={(v) => setZoom(k, "start", { start: v ?? 0 })}
+      {(step.zooms ?? []).map((z, k) => {
+        const keys = sortedKeys(z);
+        // 編集中の枠(プレビューで編集していなければ最初の枠)
+        const ki = props.drawing?.zoom === k ? Math.min(props.drawing.key, keys.length - 1) : 0;
+        const cur = keys[ki] ?? (keys[0] as ZoomKey);
+        const keep = z.keepAspect ?? false;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: ズームは id を持たない
+          <Section key={k} className="zoom" focused={focus.kind === "zoom" && focus.index === k}>
+            <div className="row">
+              <NumField
+                label={t("start")}
+                value={z.start}
+                min={0}
+                onChange={(v) =>
+                  v !== undefined && v < z.end && setZoomFn(k, "start", (x) => retimeZoom(x, v, x.end))
+                }
+              />
+              <NumField
+                label={t("end")}
+                value={z.end}
+                min={0}
+                onChange={(v) =>
+                  v !== undefined && v > z.start && setZoomFn(k, "end", (x) => retimeZoom(x, x.start, v))
+                }
+              />
+            </div>
+            <p className="hint">{t("zoomHeldHint")}</p>
+            <p className="field-label">
+              {t("zoomKeys")}
+              {keys.length > 1 && ` — ${t("zoomKey")} ${ki + 1}/${keys.length}`}
+            </p>
+            {keys.length > 1 &&
+              keys.map((key, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 枠は時刻の順の番号で区別する
+                <div key={i} className={`row zoom-key ${i === ki ? "current" : ""}`}>
+                  <NumField
+                    label={`${t("zoomKey")} ${i + 1} (${t("at")})`}
+                    value={key.t}
+                    min={z.start}
+                    max={z.end}
+                    step={0.1}
+                    onChange={(v) =>
+                      v !== undefined &&
+                      setZoomFn(k, `key${i}.t`, (x) => ({
+                        ...x,
+                        keys: sortedKeys(x)
+                          .map((y, j) => (j === i ? { ...y, t: Math.min(Math.max(v, x.start), x.end) } : y))
+                          .sort((p, q) => p.t - q.t),
+                      }))
+                    }
+                  />
+                  <button type="button" className="small" onClick={() => props.onDrawZoom(k, i)}>
+                    {t("editKey")}
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() =>
+                      setZoomFn(k, `key${i}.remove`, (x) => ({
+                        ...x,
+                        keys: sortedKeys(x).filter((_, j) => j !== i),
+                      }))
+                    }
+                  >
+                    {t("remove")}
+                  </button>
+                </div>
+              ))}
+            <p className="hint">{t("zoomKeysHint")}</p>
+            <ZoomRectFields
+              rect={cur.rect}
+              scale={rectScale(cur.rect, keep, crop, src.w, src.h)}
+              onChange={(rect, key) =>
+                setZoomFn(k, `key${ki}.${key}`, (x) =>
+                  setZoomKeyRect(x, ki, rect, props.syncSize, src.w, src.h),
+                )
+              }
             />
-            <NumField
-              label={t("end")}
-              value={z.end}
-              min={0}
-              onChange={(v) => setZoom(k, "end", { end: v ?? 0 })}
-            />
-          </div>
-          <p className="hint">{t("zoomHeldHint")}</p>
-          <ZoomRectFields
-            rect={z.rect}
-            scale={zoomScale(z, crop, src.w, src.h)}
-            onChange={(rect, key) => setZoom(k, key, { rect })}
-          />
-          <button
-            type="button"
-            className="small"
-            onClick={() =>
-              setZoom(k, "aspect", {
-                rect: resetZoomAspect(z, crop, src.w, src.h),
-                to: z.to && resetZoomAspect({ ...z, rect: z.to }, crop, src.w, src.h),
-              })
-            }
-          >
-            {t("zoomResetAspect")}
-          </button>
-          <NumField
-            label={t("zoomTime")}
-            value={z.transition}
-            min={0}
-            step={0.1}
-            placeholder={zoomTransition(
-              { ...z, transition: undefined },
-              zoomScale(z, crop, src.w, src.h),
-            ).toFixed(2)}
-            onChange={(v) => setZoom(k, "transition", { transition: v })}
-          />
-          <p className="hint">{t("zoomTimeHint")}</p>
-          <CheckField
-            label={t("hold")}
-            value={zoomHolds(z)}
-            onChange={(v) => setZoom(k, "hold", { hold: v ? undefined : false })}
-          />
-          <CheckField
-            label={t("zoomExact")}
-            value={z.exact ?? false}
-            onChange={(v) => setZoom(k, "exact", { exact: v ? true : undefined })}
-          />
-          <CheckField
-            label={t("zoomMove")}
-            value={z.to !== undefined}
-            onChange={(v) => {
-              // 終了枠は開始枠と同じところから始め、すぐ動かせるように終了枠の編集を始める
-              setZoom(k, "to", { to: v ? { ...z.rect } : undefined });
-              if (v) props.onDrawZoom(k, true);
-            }}
-          />
-          {z.to && <p className="hint">{t("zoomMoveHint")}</p>}
-          <div className="row">
-            {z.to ? (
-              <>
-                <button
-                  type="button"
-                  className={props.drawing?.zoom === k && !props.drawing.end ? "on" : ""}
-                  onClick={() => props.onDrawZoom(k, false)}
-                >
-                  {t("editStartRect")}
-                </button>
-                <button
-                  type="button"
-                  className={props.drawing?.zoom === k && props.drawing.end ? "on" : ""}
-                  onClick={() => props.onDrawZoom(k, true)}
-                >
-                  {t("editEndRect")}
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => props.onDrawZoom(k)}>
-                {t("drawRect")}
-              </button>
-            )}
             <button
               type="button"
               className="small"
-              onClick={() => set("zooms")((s) => ({ ...s, zooms: s.zooms?.filter((_, i) => i !== k) }))}
+              onClick={() =>
+                setZoomFn(k, "aspect", (x) => ({
+                  ...x,
+                  keys: sortedKeys(x).map((y) => ({
+                    ...y,
+                    rect: resetRectAspect(y.rect, keep, crop, src.w, src.h),
+                  })),
+                }))
+              }
             >
-              {t("remove")}
+              {t("zoomResetAspect")}
             </button>
-          </div>
-        </Section>
-      ))}
+            <NumField
+              label={t("zoomTime")}
+              value={z.transition}
+              min={0}
+              step={0.1}
+              placeholder={zoomTransition(
+                { ...z, transition: undefined },
+                zoomScale(z, crop, src.w, src.h),
+              ).toFixed(2)}
+              onChange={(v) => setZoom(k, "transition", { transition: v })}
+            />
+            <p className="hint">{t("zoomTimeHint")}</p>
+            <CheckField
+              label={t("hold")}
+              value={zoomHolds(z)}
+              onChange={(v) => setZoom(k, "hold", { hold: v ? undefined : false })}
+            />
+            <CheckField
+              label={t("zoomKeepAspect")}
+              value={keep}
+              onChange={(v) => setZoom(k, "keepAspect", { keepAspect: v ? true : undefined })}
+            />
+            <div className="row">
+              <button type="button" onClick={() => props.onDrawZoom(k, ki)}>
+                {t("drawRect")}
+              </button>
+              <button
+                type="button"
+                className="small"
+                onClick={() => set("zooms")((s) => ({ ...s, zooms: s.zooms?.filter((_, i) => i !== k) }))}
+              >
+                {t("remove")}
+              </button>
+            </div>
+          </Section>
+        );
+      })}
       <button type="button" onClick={props.onAddZoom}>
         {t("addZoom")} (Z)
       </button>
@@ -871,7 +916,7 @@ export function ProjectInspector(props: {
           }
         />
         <NumField
-          label={t("captionWidth")}
+          label={t("captionWidthProject")}
           value={capStyle.width}
           step={0.05}
           min={0.1}
@@ -882,6 +927,7 @@ export function ProjectInspector(props: {
           }
         />
       </div>
+      <p className="hint">{t("captionWidthHint")}</p>
       {overrides > 0 && (
         <button
           type="button"

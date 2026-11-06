@@ -611,59 +611,51 @@
                   "type": "number",
                   "minimum": 0
                 },
-                "rect": {
-                  "type": "object",
-                  "properties": {
-                    "x": {
-                      "type": "number"
+                "keys": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "t": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "rect": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "w": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "h": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y",
+                          "w",
+                          "h"
+                        ],
+                        "additionalProperties": false
+                      }
                     },
-                    "y": {
-                      "type": "number"
-                    },
-                    "w": {
-                      "type": "number",
-                      "exclusiveMinimum": 0
-                    },
-                    "h": {
-                      "type": "number",
-                      "exclusiveMinimum": 0
-                    }
-                  },
-                  "required": [
-                    "x",
-                    "y",
-                    "w",
-                    "h"
-                  ],
-                  "additionalProperties": false
+                    "required": [
+                      "t",
+                      "rect"
+                    ],
+                    "additionalProperties": false
+                  }
                 },
-                "to": {
-                  "type": "object",
-                  "properties": {
-                    "x": {
-                      "type": "number"
-                    },
-                    "y": {
-                      "type": "number"
-                    },
-                    "w": {
-                      "type": "number",
-                      "exclusiveMinimum": 0
-                    },
-                    "h": {
-                      "type": "number",
-                      "exclusiveMinimum": 0
-                    }
-                  },
-                  "required": [
-                    "x",
-                    "y",
-                    "w",
-                    "h"
-                  ],
-                  "additionalProperties": false
-                },
-                "exact": {
+                "keepAspect": {
                   "type": "boolean"
                 },
                 "hold": {
@@ -677,7 +669,7 @@
               "required": [
                 "start",
                 "end",
-                "rect"
+                "keys"
               ],
               "additionalProperties": false
             }

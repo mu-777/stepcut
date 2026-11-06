@@ -304,6 +304,44 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   check((await page.locator(".draw-layer").count()) === 0, "枠の外のクリックでズーム範囲の編集を終える");
 
+  // ズームの枠(キーフレーム): 帯のクリックで編集を始め、再生位置に枠を足す
+  const zb = await page.locator(".tl-bar.zoom").first().boundingBox();
+  await page.mouse.click(zb.x + zb.width / 2, zb.y + zb.height / 2);
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator(".draw-layer").count()) === 1,
+    "タイムラインのズームのクリックで枠の編集を始める",
+  );
+  const rulerBox = await page.locator(".tl-ruler").boundingBox();
+  await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
+  await page.waitForTimeout(300);
+  check((await page.locator(".tl-key").count()) === 2, "再生位置に枠を足すとタイムラインに ◆ が 2 つ出る");
+  check((await page.locator(".box-ghost").count()) === 1, "ほかの枠は点線で出る");
+  check((await page.locator(".seg-label").textContent()).includes("2/2"), "足した枠の編集に移る");
+  // 枠の大きさを変えると、サイズをそろえる設定(既定オン)でもう一方の枠も同じ大きさになる
+  const kb = await page.locator(".box-outline").boundingBox();
+  await drag(
+    page,
+    { x: kb.x + kb.width, y: kb.y + kb.height },
+    { x: kb.x + kb.width - 30, y: kb.y + kb.height - 17 },
+  );
+  const gb = await page.locator(".box-ghost").boundingBox();
+  const kb2 = await page.locator(".box-outline").boundingBox();
+  check(
+    Math.abs(gb.width - kb2.width) <= 2,
+    `サイズをそろえる設定でほかの枠も同じ大きさ (${Math.round(gb.width)} / ${Math.round(kb2.width)})`,
+  );
+  // 枠が重なっていても、点線の枠の番号から選べる
+  await page.locator(".box-ghost span").click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator(".seg-label").textContent()).includes("1/2"),
+    "点線の枠のクリックでその枠の編集に切り替える",
+  );
+  await page.keyboard.press("Escape");
+
   // Z キーで再生位置にズームを足す
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowLeft");
@@ -320,6 +358,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   const vb = await page.locator(".box-outline").boundingBox();
   check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
+  check(
+    (await page.locator(".preview-hint .seg").count()) === 1,
+    "枠の編集中はプレビュー上部に中心固定/隅固定の切り替えが出る",
+  );
   await drag(page, center(vb), { x: center(vb).x + 4, y: center(vb).y + 30 });
   const marginOf = async () =>
     Promise.all([/^(Left|左)$/, /^(Right|右)$/].map((re) => page.getByLabel(re).inputValue().then(Number)));
@@ -425,6 +467,36 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.getByRole("button", { name: /^(Play|再生)$/ }).count()) === 1,
     "停止すると再生ボタンが ▶ に戻る",
   );
+
+  // タイムラインの拡大縮小は左上の角、プレビューの表示倍率はプレビュー下のバー
+  const innerW = async () => (await page.locator(".tl-inner").boundingBox()).width;
+  const tlW0 = await innerW();
+  await page.locator(".tl-zoom-btn").nth(1).click();
+  await page.waitForTimeout(200);
+  check((await innerW()) > tlW0, "タイムラインの左上の + で拡大する");
+  await page.locator(".tl-zoom-btn").nth(2).click();
+  await page.getByRole("button", { name: /^(Zoom in preview|プレビューを拡大)$/ }).click();
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".zoom-pct").textContent()).includes("%"),
+    "プレビュー下の + でプレビューを拡大する",
+  );
+  await page.locator(".zoom-pct").click();
+  check(!(await page.locator(".zoom-pct").textContent()).includes("%"), "% を押すと全体表示に戻る");
+
+  // テロップを選ぶと左右の端に取っ手が出て、ドラッグで幅を変えられる
+  await page.locator(".step-item").first().click();
+  await page.waitForTimeout(300);
+  const ch3 = await page.locator(".caption-handle").boundingBox();
+  await page.mouse.click(center(ch3).x, center(ch3).y);
+  await page.waitForTimeout(200);
+  const edge = await page.locator(".caption-edge.r").boundingBox();
+  await drag(page, center(edge), { x: center(edge).x - 80, y: center(edge).y });
+  const wv = await page
+    .getByLabel(/^(Width \(0–1\)|幅\(0〜1\))$/)
+    .first()
+    .inputValue();
+  check(wv !== "" && Number(wv) < 0.8, `テロップの右端のドラッグで幅を変える (${wv})`);
   check(
     (await page.getByLabel(/Read the caption text|テロップと同じ文を読む/).count()) === 1,
     "読み上げに「テロップと同じ文を読む」がある",
