@@ -1,4 +1,4 @@
-// 再生操作のアイコン(一般的な動画プレイヤーの形)。色は文字色に合わせる。
+// 再生操作(一般的な動画プレイヤーの形)と、左のアイコン列のアイコン。色は文字色に合わせる。
 const paths: Record<string, string> = {
   play: "M8 5v14l11-7z",
   pause: "M6 5h4v14H6zM14 5h4v14h-4z",
@@ -11,18 +11,31 @@ const paths: Record<string, string> = {
   volume: "M4 9v6h4l5 4V5L8 9zM16 8a5 5 0 0 1 0 8M18.5 5.5a8.5 8.5 0 0 1 0 13",
   muted: "M4 9v6h4l5 4V5L8 9zM16 9l5 6M21 9l-5 6",
   fullscreen: "M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z",
+  // 全体: 画面の中に録画の枠
+  panelProject: "M3 5h18v14H3zM7 8.5h10v7H7z",
+  // ステップ: フィルムのコマ
+  panelStep: "M3 5h18v14H3zM9 5v14M15 5v14",
+  // 文: 文字と吹き出し
+  panelText: "M4 5h16v11H11l-4 4v-4H4zM8 9h8M8 12.5h5",
+  // ズーム: 虫めがね
+  panelZoom: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM15.5 15.5L20.5 20.5M7.5 10.5h6M10.5 7.5v6",
 };
 
+/** 線も描くアイコン。OUTLINE は線だけ(塗らない) */
+const STROKED = new Set(["volume", "muted", "panelProject", "panelStep", "panelText", "panelZoom"]);
+const OUTLINE = new Set(["panelProject", "panelStep", "panelText", "panelZoom"]);
+
 export function Icon(props: { name: keyof typeof paths }) {
-  const stroke = props.name === "volume" || props.name === "muted";
+  const stroke = STROKED.has(props.name);
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <path
         d={paths[props.name]}
-        fill={stroke ? "currentColor" : "currentColor"}
+        fill={OUTLINE.has(props.name) ? "none" : "currentColor"}
         stroke={stroke ? "currentColor" : "none"}
         strokeWidth={stroke ? 1.6 : 0}
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

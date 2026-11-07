@@ -96,6 +96,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check((await page.locator(".tl-clip").count()) === 2, "タイムラインにクリップが 2 つ");
   check((await page.locator(".tl-tile canvas").count()) > 0, "クリップにサムネイルが並ぶ");
   const timeText = () => page.locator(".transport .time").textContent();
+  // 左のアイコン列でパネルを切り替える(0 全体 / 1 ステップ / 2 文 / 3 ズーム)
+  const rail = async (i) => {
+    await page.locator(".rail-item").nth(i).click();
+    await page.waitForTimeout(100);
+  };
+  const panelTitle = () => page.locator(".panel-title").textContent();
 
   // 再生して時刻が進む
   await page.locator(".transport button.play").click();
@@ -115,9 +121,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // ステップ 1 を選んでズームを追加し、プレビュー上で範囲を指定する
   await page.locator(".step-item").first().click();
+  check((await panelTitle()).includes("first"), "ステップ一覧で選ぶとパネルはそのステップの設定");
+  await rail(3);
   check(
-    (await page.locator(".side-title").textContent()).includes("first"),
-    "右カラムに選んだステップの設定",
+    (await page.locator(".rail-item.on").count()) === 1 &&
+      (await page.locator(".panel textarea").count()) === 0,
+    "アイコンでズームのパネルに切り替わる(テロップなどほかの要素は出ない)",
   );
   await page.getByRole("button", { name: /Add zoom|ズームを追加/ }).click();
   const box = await page.locator(".draw-layer").boundingBox();
@@ -151,6 +160,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Control+k");
   await page.waitForTimeout(200);
+  await rail(1);
   check((await page.locator(".step-item").count()) === 3, "Ctrl+K で分割してステップが 3 つになる");
   check(
     (await page.locator(".tl-bar.caption").count()) === 3,
@@ -179,8 +189,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const cap = await page.locator(".tl-bar.caption").first().boundingBox();
   await drag(page, { x: cap.x + 3, y: center(cap).y }, { x: cap.x + 3 + pxPerSec, y: center(cap).y });
   check(
-    (await page.locator(".side-title").textContent()).includes("first"),
-    "テロップを選ぶと右カラムはそのステップ",
+    (await panelTitle()).includes("first") &&
+      (await page.locator(".rail-item.on").textContent()).match(/Text|文/),
+    "テロップを選ぶとパネルはそのステップの文",
   );
 
   // ステップ 2 のズームのレーンをドラッグしてズームを作る
@@ -208,6 +219,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   saved.steps[1].caption.text = "外部で変更したテロップ";
   fs.writeFileSync(projectPath, `${JSON.stringify(saved, null, 2)}\n`);
   await page.waitForTimeout(2000);
+  await rail(1);
   const captions = await page.locator(".step-caption").allTextContents();
   check(captions.includes("外部で変更したテロップ"), "外部変更を検知して再読み込みする");
   await shot(page, "03-external");
@@ -235,12 +247,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(ids[0].includes("second"), `右クリックメニューで下へ移動 (${ids.join(", ")})`);
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
 
-  // 左カラムの幅をドラッグで変える
-  const left0 = (await page.locator("aside.left-pane").boundingBox()).width;
+  // 設定パネルの幅をドラッグで変える
+  const left0 = (await page.locator("aside.panel").boundingBox()).width;
   const sp = await page.locator(".splitter.col").first().boundingBox();
   await drag(page, center(sp), { x: center(sp).x + 80, y: center(sp).y });
-  const left1 = (await page.locator("aside.left-pane").boundingBox()).width;
-  check(left1 - left0 > 60, `左カラムの幅を変えられる (${left0} → ${left1})`);
+  const left1 = (await page.locator("aside.panel").boundingBox()).width;
+  check(left1 - left0 > 60, `設定パネルの幅を変えられる (${left0} → ${left1})`);
 
   // プレビューの右クリックでズームを作り、枠を動かす(UI-05)
   await page.locator(".step-item").nth(1).click();
@@ -253,6 +265,11 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(
     (await page.locator(".tl-bar.zoom").count()) === zoomsBefore + 1,
     "プレビューの右クリックでズームを作る",
+  );
+  check(
+    (await page.locator(".rail-item.on").textContent()).match(/Zoom|ズーム/) &&
+      (await page.locator(".panel textarea").count()) === 0,
+    "ズームを作るとパネルはそのズームだけ",
   );
   const centerX = () =>
     page
@@ -357,8 +374,8 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".seg-label").textContent()).includes("1/2"),
     "点線の枠のクリックでその枠の編集に切り替える",
   );
-  // プレビューの外(ステップ一覧の余白)のクリックでも編集を終える
-  await page.mouse.click(5, 600);
+  // プレビューの外(ツールバーの余白)のクリックでも編集を終える
+  await page.locator(".toolbar .title").click();
   await page.waitForTimeout(200);
   check((await page.locator(".draw-layer").count()) === 0, "プレビューの外のクリックで枠の編集を終える");
   // 再生を始めても編集を終える
@@ -386,6 +403,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   const vb = await page.locator(".box-outline").boundingBox();
   check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
+  check(
+    (await page.locator(".rail-item.on").textContent()).match(/Project|全体/),
+    "録画の枠を選ぶとパネルは全体(全ステップに効く)",
+  );
   check(
     (await page.locator(".preview-tools .seg").count()) === 1,
     "枠の編集中はプレビューの下の帯に中心固定/隅固定の切り替えが出る",
@@ -448,7 +469,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await shot(page, "07-mint");
 
   // 余白なし: オンで余白 0、オフで元に戻す
-  await page.locator(".nav-item").click();
+  await rail(0);
   const noMargin = page.getByLabel(/No margins|余白なし/);
   const before = await marginOf();
   await noMargin.check();
@@ -466,8 +487,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     `余白なしを外すと元の余白に戻る (${before} → ${after})`,
   );
 
-  // テロップをプレビュー上でドラッグする(ステップの個別設定になる)
+  // テロップをプレビュー上でドラッグする(どのパネルを開いていても、そのステップの個別の値になる)
+  await rail(1);
   await page.locator(".step-item").first().click();
+  await rail(0);
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
@@ -476,11 +499,29 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(ch !== null, "テロップの上にドラッグ用の枠が出る");
   await drag(page, center(ch), { x: center(ch).x, y: center(ch).y - 200 });
   await page.waitForTimeout(300);
-  check((await page.locator(".badge").count()) === 1, "テロップを動かすとステップの個別設定になる");
-  await page.getByRole("button", { name: /Use project setting|プロジェクト設定に戻す/ }).click();
-  check((await page.locator(".badge").count()) === 0, "プロジェクト設定に戻せる");
+  const badge = () => page.locator(".badge").first().textContent();
+  check(
+    /Set for this step|個別/.test(await badge()),
+    "全体のパネルを開いていても、テロップを動かすとステップの個別設定になる",
+  );
+  await page.getByRole("button", { name: /Use shared position|共通の位置に戻す/ }).click();
+  check(/Shared|共通/.test(await badge()), "共通の位置に戻せる");
+  // 動かした位置を全ステップ共通にする
+  const ch1 = await page.locator(".caption-text").boundingBox();
+  await drag(page, center(ch1), { x: center(ch1).x, y: center(ch1).y - 150 });
+  await page.waitForTimeout(300);
+  const movedY = (await page.locator(".caption-text").boundingBox()).y;
+  await page.getByRole("button", { name: /Use for all steps|この位置を共通にする/ }).click();
+  await page.waitForTimeout(300);
+  check(
+    /Shared|共通/.test(await badge()) &&
+      Math.abs((await page.locator(".caption-text").boundingBox()).y - movedY) < 2,
+    "動かした位置を共通にできる(テロップはその位置のまま)",
+  );
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   // テロップの文字のクリックでテロップの設定へ移り、その場で入力できる(PowerPoint と同じ)
-  await page.locator(".nav-item").click();
+  await rail(0);
   await page.waitForTimeout(200);
   const ch2 = await page.locator(".caption-text").boundingBox();
   await page.mouse.click(center(ch2).x, center(ch2).y);
@@ -494,7 +535,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   check(
     (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップです",
-    "プレビュー上の入力が右の欄のテロップにも入る",
+    "プレビュー上の入力が文のパネルのテロップにも入る",
   );
   await shot(page, "08-caption-input");
   await page.keyboard.press("Escape");
@@ -524,8 +565,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   );
 
   // 読み上げを追加すると読み上げが 2 つになる
+  await rail(1);
   await page.locator(".step-item").first().click();
-  await page.getByRole("button", { name: /^(Add speech|読み上げを追加)$/ }).click();
+  await rail(2);
+  await page.getByRole("button", { name: /(Add speech|読み上げを追加)$/ }).click();
   await page.waitForTimeout(200);
   check((await page.locator(".tl-bar.speech").count()) >= 2, "読み上げを 1 ステップに 2 つ置ける");
 
@@ -556,6 +599,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(!(await page.locator(".zoom-pct").textContent()).includes("%"), "% を押すと全体表示に戻る");
 
   // テロップを選ぶと左右の端に取っ手が出て、ドラッグで幅を変えられる
+  await rail(1);
   await page.locator(".step-item").first().click();
   await page.waitForTimeout(300);
   // 枠(文字の外側の縁)のクリックで枠を選ぶ
@@ -574,12 +618,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "読み上げに「テロップと同じ文を読む」がある",
   );
 
-  // プロジェクトの設定
-  await page.locator(".nav-item").click();
+  // 全体の設定
+  await rail(0);
   await page.waitForTimeout(300);
   check(
-    (await page.locator(".side-title").textContent()).includes(await page.locator(".nav-item").textContent()),
-    "プロジェクトを選ぶと右カラムはプロジェクトの設定",
+    /Project|全体/.test(await panelTitle()) && (await page.getByLabel(/No margins|余白なし/).count()) === 1,
+    "全体のアイコンで出力・レイアウトの設定",
   );
   await shot(page, "04-project");
 

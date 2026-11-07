@@ -30,7 +30,7 @@ import { exportProject } from "./exporter";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
 import { Icon } from "./icons";
-import { ProjectInspector, StepInspector } from "./inspector";
+import { type PanelKind, ProjectPanel, panelOf, StepPanel, TextPanel, ZoomPanel } from "./inspector";
 import { openMedia, type SourceMedia } from "./media";
 import { PLAYBACK_RATES, type Player, type PlayerState } from "./player";
 import { Preview } from "./preview";
@@ -95,13 +95,13 @@ export function App() {
   const [banner, setBanner] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
-  const [leftW, setLeftW] = useState(() => loadPref("leftWidth", 220));
-  const [rightW, setRightW] = useState(() => loadPref("rightWidth", 320));
+  /** 左のアイコン列で選んでいるパネル */
+  const [panel, setPanel] = useState<PanelKind>("step");
+  const [panelW, setPanelW] = useState(() => loadPref("panelWidth", 320));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
   /** プレビューの表示倍率(1 = 全体表示)。書き出しには影響しない */
   const [viewZoom, setViewZoom] = useState(1);
-  useEffect(() => savePref("leftWidth", leftW), [leftW]);
-  useEffect(() => savePref("rightWidth", rightW), [rightW]);
+  useEffect(() => savePref("panelWidth", panelW), [panelW]);
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
   const [thumbsVersion, setThumbsVersion] = useState(0);
   const thumbs = useMemo(() => new ThumbCache(() => setThumbsVersion((v) => v + 1)), []);
@@ -120,6 +120,11 @@ export function App() {
     return [...(r.ok ? [] : r.errors), ...r.warnings];
   }, [project]);
   const selected = selectedStep(selection);
+  // 要素を選んだら、それを直すパネルに切り替える
+  useEffect(() => {
+    const k = panelOf(selection);
+    if (k) setPanel(k);
+  }, [selection]);
 
   const update = useCallback((fn: (p: Project) => Project, key?: string) => {
     setHist((h) => commit(h, fn(h.present), key ?? null));
@@ -425,7 +430,7 @@ export function App() {
 
   // 枠の編集(ズーム・録画)は、プレビューの外のクリックでも終える。プレビュー上のクリックは BoxEditor・Preview が扱う。
   // タイムライン・再生操作のクリックと再生の開始でも終える(タイムラインのズームのクリックはその後で編集を始め直す)。
-  // 数値で直せるよう設定の欄と操作の帯では終えない
+  // 数値で直せるよう設定のパネルと操作の帯では終えない
   const endBoxEditRef = useRef(() => {});
   endBoxEditRef.current = () => {
     if (drawingZoom) setDrawingZoom(null);
@@ -435,7 +440,7 @@ export function App() {
     if (playing) endBoxEditRef.current();
   }, [playing]);
   useEffect(() => {
-    const keep = ".preview-stage, .preview-tools, .side, .context-menu, .dialog-backdrop";
+    const keep = ".preview-stage, .preview-tools, .panel, .rail, .context-menu, .dialog-backdrop";
     const onDown = (e: PointerEvent) => {
       const target = e.target as Element | null;
       if (e.button !== 0 || !target || target.closest(keep)) return;
@@ -453,18 +458,21 @@ export function App() {
 
   const loc = locate(timeline, time);
   const selStep = selected !== null ? project.steps[selected] : undefined;
-  const playheadLocal = loc && selected === loc.entry.index ? loc.local : 0;
   const selMedia = selStep ? media.get(selStep.source) : undefined;
+  // パネルで直すステップ。選んだ要素のステップ、なければ再生位置のステップ
+  const target = selected ?? loc?.entry.index ?? null;
+  const tgtStep = target !== null ? project.steps[target] : undefined;
+  const playheadLocal = loc && target === loc.entry.index ? loc.local : 0;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で生成の進み具合を拾う
   const speechStatus = useMemo(() => {
-    if (!selStep) return null;
+    if (!tgtStep) return null;
     return {
-      error: speech.error(project, selStep),
-      pending: speech.isPending(project, selStep),
-      durations: speech.stepDurations(project, selStep),
+      error: speech.error(project, tgtStep),
+      pending: speech.isPending(project, tgtStep),
+      durations: speech.stepDurations(project, tgtStep),
     };
-  }, [selStep, project, speech, speechVersion]);
+  }, [tgtStep, project, speech, speechVersion]);
 
   /**
    * 選んでいる枠を矢印キーで動かす。録画の枠は出力の、ズームの枠は録画のピクセル単位。fine なら 1px、それ以外は 10px。
@@ -855,29 +863,25 @@ export function App() {
     if (captionEdit !== null && !captionEditing) setCaptionEdit(null);
   }, [captionEdit, captionEditing]);
   /**
-   * プレビューでのテロップの置き方の変更(位置・幅)。プロジェクトの設定を開いているときはプロジェクトの値、
-   * それ以外はそのステップの個別設定
+   * プレビューでのテロップの置き方の変更(位置・幅)。常にそのステップの個別の値にする。
+   * 全ステップ共通にするのは、文のパネルの「この位置を共通にする」か共通の欄の数値
    */
   const patchCaptionPlacement = (
     patch: { position?: { x: number; y: number }; width?: number },
     key: string,
   ) => {
     if (!loc) return;
-    if (selection.kind === "project")
-      update((p) => ({ ...p, styles: { ...p.styles, caption: { ...p.styles?.caption, ...patch } } }), key);
-    else {
-      const i = loc.entry.index;
-      update(
-        (p) => ({
-          ...p,
-          steps: p.steps.map((s, j) =>
-            j === i && s.caption ? { ...s, caption: { ...s.caption, ...patch } } : s,
-          ),
-        }),
-        key,
-      );
-      if (selection.kind !== "step" || selection.step !== i) setSelection({ kind: "caption", step: i });
-    }
+    const i = loc.entry.index;
+    update(
+      (p) => ({
+        ...p,
+        steps: p.steps.map((s, j) =>
+          j === i && s.caption ? { ...s, caption: { ...s.caption, ...patch } } : s,
+        ),
+      }),
+      key,
+    );
+    if (selection.kind !== "caption" || selection.step !== i) setSelection({ kind: "caption", step: i });
   };
   const moveCaption = (pos: { x: number; y: number }, key: string) =>
     patchCaptionPlacement({ position: pos }, key);
@@ -936,45 +940,135 @@ export function App() {
         </div>
       )}
 
-      <main className="main" style={{ gridTemplateColumns: `${leftW}px 5px minmax(0, 1fr) 5px ${rightW}px` }}>
-        <aside className="left-pane">
-          <button
-            type="button"
-            className={`nav-item ${selection.kind === "project" || selection.kind === "video" ? "selected" : ""}`}
-            onClick={() => select({ kind: "project" })}
-          >
-            {t("project")}
-          </button>
-          <h3>{t("stepList")}</h3>
-          {project.steps.length === 0 && (
-            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
-              {t("noSources")}
+      <main className="main" style={{ gridTemplateColumns: `auto ${panelW}px 5px minmax(0, 1fr)` }}>
+        <nav className="rail" aria-label={t("panels")}>
+          {(
+            [
+              ["project", "panelProject", "panelProject"],
+              ["step", "panelStep", "panelStep"],
+              ["text", "panelText", "panelText"],
+              ["zoom", "panelZoom", "panelZoom"],
+            ] as const
+          ).map(([k, label, icon]) => (
+            <button
+              key={k}
+              type="button"
+              className={`rail-item ${panel === k ? "on" : ""}`}
+              aria-pressed={panel === k}
+              title={t(`${label}Tip`)}
+              onClick={() => setPanel(k)}
+            >
+              <Icon name={icon} />
+              <span>{t(label)}</span>
             </button>
+          ))}
+        </nav>
+        <aside className="panel">
+          <h3 className="panel-title">
+            {panel === "project"
+              ? t("panelProjectTitle")
+              : panel === "zoom"
+                ? t("panelZoom")
+                : `${t(panel === "step" ? "panelStep" : "panelText")}${
+                    target !== null && tgtStep ? ` — ${target + 1}. ${tgtStep.id}` : ""
+                  }`}
+          </h3>
+          {panel === "project" && (
+            <ProjectPanel
+              project={project}
+              update={update}
+              focusVideo={selection.kind === "video"}
+              backgroundError={(() => {
+                const bg = resolveLayout(project).background;
+                return typeof bg !== "string" && "image" in bg ? backgrounds.error(bg.image, filePath) : null;
+              })()}
+            />
           )}
-          <ol className="step-list">
-            {timeline.map((e) => (
-              <li key={`${e.index}-${e.step.id}`} className={e.index === selected ? "selected" : ""}>
-                <button
-                  type="button"
-                  className="step-item"
-                  onClick={() => selectStep(e.index)}
-                  onContextMenu={(ev) => stepMenu(ev, e.index)}
-                >
-                  <span className="step-id">
-                    {e.index + 1}. {e.step.id}
-                    {(e.step.speed ?? 1) > 1 ? ` ×${e.step.speed}` : ""}
-                  </span>
-                  <span className="step-dur">{e.duration.toFixed(1)}s</span>
-                  <span className="step-caption">{e.step.caption?.text || "—"}</span>
+          {panel === "step" && (
+            <>
+              {/* ステップの一覧(テロップの文で全体の流れを読む)。並べ替えなどは右クリック */}
+              {project.steps.length === 0 && (
+                <button type="button" className="link-button hint" onClick={confirmAddRecording}>
+                  {t("noSources")}
                 </button>
-              </li>
-            ))}
-          </ol>
-          <p className="hint">
-            {t("total")}: {fmtTime(total)}
-          </p>
+              )}
+              <ol className="step-list">
+                {timeline.map((e) => (
+                  <li key={`${e.index}-${e.step.id}`} className={e.index === target ? "selected" : ""}>
+                    <button
+                      type="button"
+                      className="step-item"
+                      onClick={() => selectStep(e.index)}
+                      onContextMenu={(ev) => stepMenu(ev, e.index)}
+                    >
+                      <span className="step-id">
+                        {e.index + 1}. {e.step.id}
+                        {(e.step.speed ?? 1) > 1 ? ` ×${e.step.speed}` : ""}
+                      </span>
+                      <span className="step-dur">{e.duration.toFixed(1)}s</span>
+                      <span className="step-caption">{e.step.caption?.text || "—"}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              {project.steps.length > 0 && (
+                <p className="hint">
+                  {t("total")}: {fmtTime(total)}
+                </p>
+              )}
+              {target !== null && (
+                <StepPanel
+                  project={project}
+                  index={target}
+                  update={update}
+                  focus={selection}
+                  playheadLocal={playheadLocal}
+                />
+              )}
+            </>
+          )}
+          {panel === "text" && (
+            <TextPanel
+              project={project}
+              index={target}
+              update={update}
+              voices={voices}
+              focus={selection}
+              speechStatus={speechStatus}
+              speechPlaying={target !== null && speechPlaying === target}
+              onPreviewSpeech={() => {
+                if (target === null) return;
+                if (speechPlaying === target) stopSpeech();
+                else previewSpeech(target);
+              }}
+            />
+          )}
+          {panel === "zoom" && (
+            <ZoomPanel
+              project={project}
+              update={update}
+              focus={selection}
+              stepStarts={timeline.map((e) => e.start)}
+              drawing={drawingZoom}
+              onDrawZoom={editZoomRect}
+              syncSize={syncSize}
+              onAddZoom={() => addZoomAtPlayhead()}
+              onSelectZoom={(step, zoom) => {
+                const e = timeline[step];
+                const z = project.steps[step]?.zooms?.[zoom];
+                // ズームの区間の外にいれば、区間の始まりへ移ってから選ぶ(再生位置にいちばん近い枠を編集する)
+                if (e && z && !(time >= e.start + z.start && time <= e.start + z.end))
+                  playerRef.current?.seek(e.start + z.start);
+                select({ kind: "zoom", step, index: zoom });
+              }}
+              srcSizeOf={(step) => {
+                const m = media.get(project.steps[step]?.source ?? "");
+                return m ? { w: m.width, h: m.height } : null;
+              }}
+            />
+          )}
         </aside>
-        <Splitter dir="col" onDrag={(d) => setLeftW((w) => clampW(w + d))} />
+        <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w + d))} />
 
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
           <Preview
@@ -1328,45 +1422,6 @@ export function App() {
             onAddZoomAt={addZoomAt}
           />
         </section>
-        <Splitter dir="col" onDrag={(d) => setRightW((w) => clampW(w - d))} />
-
-        <aside className="side">
-          <h3 className="side-title">
-            {t("settingsOf")}:{" "}
-            {selected !== null && selStep ? `${t("step")} ${selected + 1} (${selStep.id})` : t("project")}
-          </h3>
-          {selected !== null && selStep ? (
-            <StepInspector
-              project={project}
-              index={selected}
-              update={update}
-              voices={voices}
-              playheadLocal={playheadLocal}
-              speechStatus={speechStatus}
-              speechPlaying={speechPlaying === selected}
-              focus={selection}
-              drawing={drawingZoom && drawingZoom.step === selected ? drawingZoom : null}
-              onDrawZoom={(zoom, key) => editZoomRect(selected, zoom, key)}
-              syncSize={syncSize}
-              onAddZoom={() => addZoomAtPlayhead()}
-              onPreviewSpeech={() => (speechPlaying === selected ? stopSpeech() : previewSpeech(selected))}
-              srcSize={selMedia ? { w: selMedia.width, h: selMedia.height } : null}
-            />
-          ) : (
-            <ProjectInspector
-              project={project}
-              update={update}
-              voices={voices}
-              focusVideo={selection.kind === "video"}
-              srcSize={locMedia ? { w: locMedia.width, h: locMedia.height } : null}
-              projectPath={filePath}
-              backgroundError={(() => {
-                const bg = resolveLayout(project).background;
-                return typeof bg !== "string" && "image" in bg ? backgrounds.error(bg.image, filePath) : null;
-              })()}
-            />
-          )}
-        </aside>
       </main>
 
       {(issues.length > 0 || mediaErrors.length > 0) && (
