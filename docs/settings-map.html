@@ -1,0 +1,439 @@
+<title>設定の地図</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* レイアウト: 1 段組みの資料。層の凡例 → 図 4 枚(画面 / データ / ドラッグの行き先 / 作る入口)→ 気づいたこと → 詳しい一覧 */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --fg: #1d2330;
+  --muted: #5d6677;
+  --line: #d4d9e2;
+  --accent: #3563d9;
+  --warn: #c2410c;
+  --video: #e7e9ee;
+  --c-pr: #dfe8ff; --c-pr-fg: #2a4fae;
+  --c-st: #dcf2e5; --c-st-fg: #1f6b42;
+  --c-tl: #ffecc7; --c-tl-fg: #7d5400;
+  --c-pv: #f1e3fa; --c-pv-fg: #74309a;
+  --c-js-fg: #b42323;
+  --c-m2-fg: #6c7385;
+  --font-body: "BIZ UDPGothic", "Yu Gothic UI", "Hiragino Sans", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181e; --panel: #1d2129; --fg: #e4e7ee; --muted: #9aa3b5; --line: #353b49;
+    --accent: #7ea0ff; --warn: #fb923c; --video: #2a2f3a;
+    --c-pr: #24315a; --c-pr-fg: #b8caff; --c-st: #1f3a2c; --c-st-fg: #a6e3c0;
+    --c-tl: #3d3218; --c-tl-fg: #f3d58f; --c-pv: #3a2547; --c-pv-fg: #e1bdf5;
+    --c-js-fg: #f59a9a; --c-m2-fg: #8d95a8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181e; --panel: #1d2129; --fg: #e4e7ee; --muted: #9aa3b5; --line: #353b49;
+  --accent: #7ea0ff; --warn: #fb923c; --video: #2a2f3a;
+  --c-pr: #24315a; --c-pr-fg: #b8caff; --c-st: #1f3a2c; --c-st-fg: #a6e3c0;
+  --c-tl: #3d3218; --c-tl-fg: #f3d58f; --c-pv: #3a2547; --c-pv-fg: #e1bdf5;
+  --c-js-fg: #f59a9a; --c-m2-fg: #8d95a8;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body);
+  font-size: 15px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+main { max-width: 1080px; margin: 0 auto; display: grid; gap: 44px; }
+h1 { font-size: 28px; margin: 0; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0; text-wrap: balance; }
+h3 { font-size: 16px; margin: 0; }
+p { margin: 0; max-width: 70ch; }
+.lead { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: 0.86em; }
+section { display: grid; gap: 14px; min-width: 0; }
+
+/* 層の凡例 */
+.layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 760px) { .layers { grid-template-columns: 1fr; } }
+.layer { border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; border: 1px solid; }
+.layer h3 { font-size: 15px; }
+.layer p { font-size: 13.5px; }
+.layer.pr { background: var(--c-pr); color: var(--c-pr-fg); border-color: var(--c-pr-fg); }
+.layer.st { background: var(--c-st); color: var(--c-st-fg); border-color: var(--c-st-fg); }
+.layer.tl { background: var(--c-tl); color: var(--c-tl-fg); border-color: var(--c-tl-fg); }
+.marks { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+
+/* 図 */
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--fg); font-family: var(--font-body); }
+figcaption { font-size: 14px; color: var(--muted); max-width: 80ch; }
+figcaption b { color: var(--fg); }
+
+svg text { fill: currentColor; font-size: 12px; }
+svg .small { font-size: 11px; }
+svg .bold { font-weight: 700; font-size: 13px; }
+svg .mono { font-family: var(--font-mono); font-size: 12px; }
+svg .muted { fill: var(--muted); }
+svg .region { fill: var(--bg); stroke: var(--line); }
+svg .frame { fill: var(--panel); stroke: var(--line); }
+svg .video { fill: var(--video); }
+svg .pr { fill: var(--c-pr); stroke: var(--c-pr-fg); }
+svg .st { fill: var(--c-st); stroke: var(--c-st-fg); }
+svg .tl { fill: var(--c-tl); stroke: var(--c-tl-fg); }
+svg .pv { fill: var(--c-pv); stroke: var(--c-pv-fg); }
+svg .t-pr { fill: var(--c-pr-fg); }
+svg .t-st { fill: var(--c-st-fg); }
+svg .t-tl { fill: var(--c-tl-fg); }
+svg .t-pv { fill: var(--c-pv-fg); }
+svg .t-js { fill: var(--c-js-fg); }
+svg .t-m2 { fill: var(--c-m2-fg); }
+svg .js { fill: none; stroke: var(--c-js-fg); stroke-dasharray: 3 3; }
+svg .m2 { fill: none; stroke: var(--c-m2-fg); stroke-dasharray: 5 4; }
+svg .box-pr { fill: none; stroke: var(--c-pr-fg); stroke-width: 2; stroke-dasharray: 6 4; }
+svg .box-tl { fill: none; stroke: var(--c-tl-fg); stroke-width: 2; }
+svg .box-tl-d { fill: none; stroke: var(--c-tl-fg); stroke-width: 1.5; stroke-dasharray: 4 3; }
+svg .owner-pr { fill: var(--panel); stroke: var(--c-pr-fg); stroke-width: 1.5; }
+svg .owner-st { fill: var(--panel); stroke: var(--c-st-fg); stroke-width: 1.5; }
+svg .owner-back { fill: var(--panel); stroke: var(--c-st-fg); stroke-opacity: 0.5; }
+svg .clip { fill: none; stroke: var(--c-st-fg); }
+svg .ask { fill: var(--panel); stroke: var(--muted); stroke-dasharray: 4 3; }
+svg .sel { stroke: var(--accent); stroke-width: 3; }
+svg .inherit { fill: none; stroke: currentColor; stroke-dasharray: 5 4; }
+svg .flow { fill: none; stroke: currentColor; stroke-width: 1.5; }
+svg .axis { stroke: var(--muted); }
+svg .warnmark { fill: var(--warn); font-weight: 700; font-size: 12px; }
+svg .diamond { fill: var(--c-tl-fg); }
+
+/* 気づいたこと */
+.findings { display: grid; gap: 10px; }
+.finding { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; display: grid; gap: 4px; }
+.finding h3 { display: flex; gap: 10px; align-items: baseline; }
+.finding h3 .n { color: var(--warn); font-weight: 700; white-space: nowrap; }
+.finding.good h3 .n { color: var(--c-st-fg); }
+.finding p { font-size: 14px; }
+
+/* 詳しい一覧 */
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+summary { cursor: pointer; font-weight: 700; }
+.table-wrap { overflow-x: auto; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<main>
+  <header style="display:grid; gap:8px">
+    <h1>設定の地図</h1>
+    <p class="lead">プロジェクトファイルの設定が何に属していて、画面のどこから変えるのかを図にした資料です。データの正は <code>src/core/schema.ts</code>。2026-11-07 時点の実装に合わせています。</p>
+  </header>
+
+  <section>
+    <h2>3 つの層</h2>
+    <p class="lead">設定は 3 つの層に分かれます。下の図はすべてこの 3 色で描いています。</p>
+    <div class="layers">
+      <div class="layer pr"><h3>共通(プロジェクト)</h3><p>出力・背景・余白、テロップなどの既定の見た目、声・音量・辞書。時刻を持たず、全ステップに効く。</p></div>
+      <div class="layer st"><h3>構成(ステップ)</h3><p>録画・In/Out・速度・録画の音。映像クリップ 1 つが 1 ステップで、要素の入れ物になる。</p></div>
+      <div class="layer tl"><h3>要素(時刻を持つもの)</h3><p>テロップ・読み上げ・保持・ズーム。M2 からポインター・蛍光ペン・図形。どれも「時刻 + 位置 + 見た目」の形。</p></div>
+    </div>
+    <div class="marks">
+      <span>◇ 画面側の位置(ズームしても動かない)</span>
+      <span>◆ 映像側の位置(ズームに追従)</span>
+      <span>⏱ ステップ内の時刻</span>
+      <span>点線の枠 = M2 で入る予定</span>
+      <span>赤い点線 = JSON でしか変えられない</span>
+      <span style="color:var(--warn); font-weight:700">⚠n = 下の「気づいたこと」の番号</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>図 1. 画面のどこで、どの層を触っているか</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 620" role="img" aria-label="編集画面の各領域に、そこで変えられる設定を層の色で置いた図。プレビューとタイムラインはほぼ要素だけを触るが、プレビューの録画の枠は共通の設定で、テロップの位置は開いている設定によって共通にもなる。右の欄はズームを選んでもステップの全項目が並ぶ。">
+          <rect class="frame" x="0.5" y="0.5" width="999" height="619" rx="8"/>
+          <!-- ツールバー -->
+          <rect class="region" x="0.5" y="0.5" width="999" height="36" rx="8"/>
+          <text class="muted" x="12" y="23">ツールバー</text>
+          <rect class="st" x="96" y="8" width="76" height="20" rx="4"/><text class="t-st" x="104" y="22">録画を追加</text>
+          <text class="muted small" x="184" y="22">保存・書き出し・元に戻す</text>
+
+          <!-- 左の欄 -->
+          <rect class="region" x="0.5" y="36" width="180" height="583"/>
+          <text class="bold" x="12" y="60">左の欄</text>
+          <rect class="pr" x="12" y="72" width="158" height="22" rx="4"/><text class="t-pr" x="20" y="87">プロジェクトの設定を開く</text>
+          <text class="muted small" x="12" y="122">ステップ一覧</text>
+          <rect class="st" x="12" y="130" width="136" height="22" rx="4"/><text class="t-st" x="20" y="145">並べ替え・複製・削除</text>
+
+          <!-- プレビュー -->
+          <rect class="region" x="180" y="36" width="520" height="300"/>
+          <text class="bold" x="192" y="60">プレビュー</text>
+          <rect class="video" x="220" y="70" width="440" height="220" rx="2"/>
+          <rect class="box-pr" x="240" y="84" width="270" height="150"/>
+          <rect class="pr" x="248" y="92" width="112" height="22" rx="4"/><text class="t-pr" x="256" y="107">録画の枠 = 余白</text>
+          <text class="warnmark" x="366" y="107">⚠1 全ステップに効く</text>
+          <rect class="box-tl" x="400" y="132" width="100" height="80"/>
+          <rect class="tl" x="406" y="184" width="76" height="22" rx="4"/><text class="t-tl" x="414" y="199">ズームの枠</text>
+          <text class="muted small" x="404" y="126">◆</text>
+          <rect class="box-tl-d" x="262" y="246" width="380" height="36"/>
+          <rect class="tl" x="270" y="253" width="88" height="22" rx="4"/><text class="t-tl" x="278" y="268">テロップの文</text>
+          <rect class="tl" x="366" y="253" width="64" height="22" rx="4"/><text class="t-tl" x="374" y="268">位置・幅</text>
+          <text x="436" y="268">か</text>
+          <rect class="pr" x="452" y="253" width="44" height="22" rx="4"/><text class="t-pr" x="460" y="268">全体</text>
+          <text class="warnmark" x="502" y="268">⚠2 行き先が見えない</text>
+          <text class="muted small" x="646" y="268">◇</text>
+          <rect class="tl" x="220" y="302" width="86" height="22" rx="4"/><text class="t-tl" x="228" y="317">＋ 枠を追加</text>
+          <text class="muted small" x="316" y="317">← 映像の真下の帯</text>
+
+          <!-- 再生操作 -->
+          <rect class="region" x="180" y="336" width="520" height="34"/>
+          <text class="muted" x="192" y="358">再生操作(設定は持たない)</text>
+
+          <!-- タイムライン -->
+          <rect class="region" x="180" y="370" width="520" height="249"/>
+          <text class="bold" x="192" y="394">タイムライン ⏱</text>
+          <text class="muted" x="192" y="430">映像</text>
+          <rect class="clip" x="260" y="412" width="210" height="26" rx="3"/>
+          <rect class="clip" x="474" y="412" width="214" height="26" rx="3"/>
+          <rect class="st" x="268" y="415" width="96" height="20" rx="4"/><text class="t-st" x="276" y="429">In/Out・分割</text>
+          <rect class="tl" x="620" y="415" width="42" height="20" rx="4"/><text class="t-tl" x="628" y="429">保持</text>
+          <text class="muted" x="192" y="468">テロップ</text>
+          <rect class="tl" x="300" y="452" width="260" height="24" rx="4"/><text class="t-tl" x="310" y="468">開始・終了</text>
+          <text class="muted" x="192" y="506">読み上げ</text>
+          <rect class="tl" x="260" y="490" width="130" height="24" rx="4"/><text class="t-tl" x="270" y="506">開始</text>
+          <rect class="tl" x="400" y="490" width="100" height="24" rx="4"/><text class="t-tl" x="410" y="506">開始</text>
+          <text class="muted" x="192" y="544">ズーム</text>
+          <rect class="tl" x="340" y="528" width="200" height="24" rx="4"/><text class="t-tl" x="380" y="544">開始・終了・枠の時刻</text>
+          <polygon class="diamond" points="356,534 362,540 356,546 350,540"/>
+          <polygon class="diamond" points="524,534 530,540 524,546 518,540"/>
+          <text class="muted small" x="192" y="596">時刻はここで、位置はプレビューで決める</text>
+
+          <!-- 右の欄 -->
+          <rect class="region" x="700" y="36" width="299.5" height="583"/>
+          <text class="bold" x="712" y="60">右の欄</text>
+          <text class="muted small" x="712" y="86">プロジェクトを開いたとき</text>
+          <rect class="pr" x="712" y="96" width="136" height="24" rx="4"/><text class="t-pr" x="720" y="112">出力</text>
+          <rect class="pr" x="712" y="126" width="136" height="24" rx="4"/><text class="t-pr" x="720" y="142">背景・余白</text>
+          <rect class="pr" x="712" y="156" width="136" height="24" rx="4"/><text class="t-pr" x="720" y="172">テロップの見た目</text>
+          <rect class="pr" x="712" y="186" width="136" height="24" rx="4"/><text class="t-pr" x="720" y="202">声・音量・辞書</text>
+          <rect class="m2" x="712" y="216" width="136" height="24" rx="4"/><text class="t-m2" x="720" y="232">ポインター等の見た目</text>
+
+          <text class="muted small" x="860" y="86">ズームを選んだとき</text>
+          <rect class="st" x="860" y="96" width="128" height="24" rx="4"/><text class="t-st" x="868" y="112">In/Out・速度</text>
+          <rect class="tl" x="860" y="126" width="128" height="24" rx="4"/><text class="t-tl" x="868" y="142">テロップ</text>
+          <rect class="tl" x="860" y="156" width="128" height="24" rx="4"/><text class="t-tl" x="868" y="172">読み上げ</text>
+          <rect class="st" x="860" y="186" width="128" height="24" rx="4"/><text class="t-st" x="868" y="202">録画の音</text>
+          <rect class="tl" x="860" y="216" width="128" height="24" rx="4"/><text class="t-tl" x="868" y="232">保持</text>
+          <rect class="tl sel" x="860" y="246" width="128" height="24" rx="4"/><text class="t-tl" x="868" y="262">ズーム ← 選んだもの</text>
+          <rect class="m2" x="860" y="276" width="128" height="24" rx="4"/><text class="t-m2" x="868" y="292">ポインター</text>
+          <rect class="m2" x="860" y="306" width="128" height="24" rx="4"/><text class="t-m2" x="868" y="322">蛍光ペン</text>
+          <rect class="m2" x="860" y="336" width="128" height="24" rx="4"/><text class="t-m2" x="868" y="352">図形</text>
+          <text class="warnmark" x="860" y="384">⚠3 選んでいない</text>
+          <text class="warnmark" x="860" y="400">ものも全部並ぶ</text>
+        </svg>
+      </div>
+      <figcaption><b>プレビューとタイムラインは、ほぼ要素(黄)だけを触ります。</b>例外が 2 つあります。プレビューの録画の枠は共通の設定(青)で、テロップの位置はそのときの右の欄の状態によって共通にも個別にもなります。右の欄は、ズームを 1 つ選んでもステップの全項目が並び、M2 の要素が加わるとさらに伸びます。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>図 2. データの持ち主と、共通の値の流れ</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 470" role="img" aria-label="左にプロジェクトの共通の値、右にステップと時刻を持つ要素を並べ、共通の値が要素へ流れ込む継承を点線の矢印で示した図。余白と出力には個別の値がなく、読み上げの声と速さは画面からは 1 つ目にしか変えられない。">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          </defs>
+          <rect class="owner-pr" x="10" y="12" width="290" height="448" rx="8"/>
+          <text class="bold" x="26" y="40">プロジェクト(共通)</text>
+          <rect class="owner-back" x="390" y="4" width="600" height="448" rx="8"/>
+          <rect class="owner-st" x="380" y="12" width="602" height="448" rx="8"/>
+          <text class="bold" x="396" y="40">ステップ(録画の 1 区間)<tspan class="muted small" dx="8">× ステップの数</tspan></text>
+
+          <!-- A 出力・背景 -->
+          <rect class="pr" x="26" y="60" width="48" height="24" rx="4"/><text class="t-pr" x="38" y="76">出力</text>
+          <rect class="pr" x="82" y="60" width="48" height="24" rx="4"/><text class="t-pr" x="94" y="76">背景</text>
+          <text class="muted small" x="396" y="76">個別の値なし(全ステップ同じ)</text>
+          <!-- B 余白 -->
+          <rect class="pr" x="26" y="100" width="112" height="24" rx="4"/><text class="t-pr" x="34" y="116">余白 = 録画の枠</text>
+          <text class="warnmark" x="146" y="116">⚠1</text>
+          <text class="muted small" x="396" y="116">個別の値なし。プレビューで動かすと全ステップが動く</text>
+          <!-- C 録画の音 -->
+          <rect class="js" x="26" y="144" width="72" height="24" rx="4"/><text class="t-js" x="34" y="160">録画の音</text>
+          <text class="t-js small" x="104" y="160">JSON のみ</text>
+          <line class="inherit" x1="168" y1="156" x2="392" y2="156" marker-end="url(#ah)"/>
+          <rect class="st" x="396" y="144" width="72" height="24" rx="4"/><text class="t-st" x="404" y="160">録画の音</text>
+          <rect class="st" x="476" y="144" width="132" height="24" rx="4"/><text class="t-st" x="484" y="160">録画・In/Out・速度</text>
+
+          <!-- 時刻の軸 -->
+          <text class="muted small" x="490" y="208" text-anchor="end">⏱ ステップ内の時刻</text>
+          <line class="axis" x1="500" y1="204" x2="966" y2="204"/>
+          <line class="axis" x1="500" y1="198" x2="500" y2="210"/>
+          <line class="axis" x1="966" y1="198" x2="966" y2="210"/>
+          <text class="muted small" x="500" y="192" text-anchor="middle">0</text>
+          <text class="muted small" x="966" y="192" text-anchor="end">ステップの終わり</text>
+
+          <!-- D テロップ -->
+          <rect class="pr" x="26" y="224" width="112" height="24" rx="4"/><text class="t-pr" x="34" y="240">テロップの見た目</text>
+          <text class="t-js small" x="26" y="266">行間・揃えは JSON のみ ⚠6</text>
+          <line class="inherit" x1="140" y1="236" x2="392" y2="236" marker-end="url(#ah)"/>
+          <text class="small" x="266" y="228" text-anchor="middle">空なら共通を使う</text>
+          <text x="396" y="240">テロップ ◇</text>
+          <rect class="tl" x="560" y="224" width="360" height="24" rx="4"/><text class="t-tl" x="570" y="240">文・開始/終了・位置・幅・サイズ・背景</text>
+
+          <!-- E 読み上げ -->
+          <rect class="pr" x="26" y="278" width="140" height="24" rx="4"/><text class="t-pr" x="34" y="294">声・速さ・音量・辞書</text>
+          <line class="inherit" x1="168" y1="290" x2="392" y2="290" marker-end="url(#ah)"/>
+          <text x="396" y="294">読み上げ</text>
+          <rect class="tl" x="500" y="278" width="200" height="24" rx="4"/><text class="t-tl" x="510" y="294">1 つ目: 文・開始・声</text>
+          <rect class="tl" x="716" y="278" width="150" height="24" rx="4"/><text class="t-tl" x="726" y="294">2 つ目: 文・開始</text>
+          <text class="warnmark" x="874" y="294">⚠4</text>
+          <line class="flow" x1="580" y1="250" x2="580" y2="276" marker-end="url(#ah)"/>
+          <text class="small" x="586" y="266">文が空ならテロップの文を読む</text>
+
+          <!-- F 保持 -->
+          <text class="muted small" x="26" y="344">(共通の値なし)</text>
+          <text x="396" y="344">保持</text>
+          <rect class="tl" x="760" y="328" width="80" height="24" rx="4"/><text class="t-tl" x="770" y="344">位置・長さ</text>
+
+          <!-- G ズーム -->
+          <text class="muted small" x="26" y="394">動きの時間: 倍率から自動</text>
+          <line class="inherit" x1="168" y1="390" x2="392" y2="390" marker-end="url(#ah)"/>
+          <text x="396" y="394">ズーム ◆</text>
+          <rect class="tl" x="580" y="378" width="300" height="24" rx="4"/>
+          <polygon class="diamond" points="606,384 612,390 606,396 600,390"/>
+          <polygon class="diamond" points="856,384 862,390 856,396 850,390"/>
+          <text class="t-tl" x="622" y="394">開始/終了・枠・止める・動きの時間</text>
+
+          <!-- H ポインター -->
+          <rect class="m2" x="26" y="424" width="140" height="24" rx="4"/><text class="t-m2" x="34" y="440">ポインター等の見た目</text>
+          <line class="inherit" x1="168" y1="436" x2="392" y2="436" marker-end="url(#ah)"/>
+          <text x="396" y="440">ポインター等 ◆</text>
+          <rect class="m2" x="640" y="424" width="260" height="24" rx="4"/><text class="t-m2" x="650" y="440">軌跡・出入り・見た目(M2)</text>
+        </svg>
+      </div>
+      <figcaption><b>点線の矢印は「ステップ側が空なら共通の値を使う」です。</b>要素はすべてステップの中にあり、時刻はステップの先頭からの時間で持ちます。余白(録画の枠)と出力・背景だけはステップ側に値がなく、常に全ステップで同じです。読み上げの声・速さは 1 つずつ持てますが、画面からは 1 つ目にしか書けません。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>図 3. プレビューのドラッグがどこに書き込むか</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 250" role="img" aria-label="プレビューでテロップをドラッグすると、右の欄でプロジェクトを開いていれば全ステップ共通の位置に、それ以外ならそのステップの位置に書き込む。録画の枠のドラッグは常に全ステップ共通の余白に書き込む。">
+          <defs>
+            <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          </defs>
+          <rect class="pv" x="10" y="58" width="180" height="44" rx="6"/><text class="t-pv" x="100" y="85" text-anchor="middle">テロップをドラッグ</text>
+          <line class="flow" x1="190" y1="80" x2="236" y2="80" marker-end="url(#ah3)"/>
+          <rect class="ask" x="240" y="58" width="210" height="44" rx="6"/><text x="345" y="85" text-anchor="middle">右の欄で開いている設定は?</text>
+          <polyline class="flow" points="450,70 510,70 510,40 556,40" marker-end="url(#ah3)"/>
+          <text class="small" x="504" y="30" text-anchor="end">プロジェクト</text>
+          <polyline class="flow" points="450,90 510,90 510,120 556,120" marker-end="url(#ah3)"/>
+          <text class="small" x="504" y="136" text-anchor="end">それ以外</text>
+          <rect class="pr" x="560" y="18" width="340" height="44" rx="6"/>
+          <text class="mono t-pr" x="576" y="36">styles.caption.position</text>
+          <text class="t-pr" x="576" y="54">全ステップのテロップが動く</text>
+          <rect class="tl" x="560" y="98" width="340" height="44" rx="6"/>
+          <text class="mono t-tl" x="576" y="116">caption.position</text>
+          <text class="t-tl" x="576" y="134">このステップのテロップだけ動く</text>
+          <text class="warnmark" x="912" y="84">⚠2</text>
+
+          <rect class="pv" x="10" y="182" width="180" height="44" rx="6"/><text class="t-pv" x="100" y="209" text-anchor="middle">録画の枠をドラッグ</text>
+          <line class="flow" x1="190" y1="204" x2="556" y2="204" marker-end="url(#ah3)"/>
+          <text class="small" x="372" y="196" text-anchor="middle">いつも</text>
+          <rect class="pr" x="560" y="182" width="340" height="44" rx="6"/>
+          <text class="mono t-pr" x="576" y="200">layout.margin</text>
+          <text class="t-pr" x="576" y="218">全ステップの録画が動く</text>
+          <text class="warnmark" x="912" y="208">⚠1</text>
+        </svg>
+      </div>
+      <figcaption><b>プレビュー上の見た目が同じ操作でも、書き込み先の層が違います。</b>テロップは画面に出ていない条件で行き先が変わり、録画の枠は今見ているステップに関係なく全体を動かします。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>図 4. 要素を作る入口の数</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 236" role="img" aria-label="要素を作る入口の数の比較。ズーム 6、ステップ 3、保持 3、読み上げ 2、テロップ 1。ポインター・蛍光ペン・図形は未定。">
+          <text x="10" y="37">ズーム</text>
+          <rect class="tl" x="120" y="22" width="264" height="22" rx="3"/><text class="t-tl bold" x="392" y="38">6</text>
+          <text class="muted small" x="420" y="37">Z・プレビューの右クリック・段のドラッグ・段のダブルクリック・段の右クリック・右の欄</text>
+          <text x="10" y="73">ステップ</text>
+          <rect class="st" x="120" y="58" width="132" height="22" rx="3"/><text class="t-st bold" x="260" y="74">3</text>
+          <text class="muted small" x="420" y="73">録画を追加・分割(Ctrl+K・右クリック)・一覧の右クリックで複製</text>
+          <text x="10" y="109">保持</text>
+          <rect class="tl" x="120" y="94" width="132" height="22" rx="3"/><text class="t-tl bold" x="260" y="110">3</text>
+          <text class="muted small" x="420" y="109">クリップの右クリック(ここ・末尾)・右の欄</text>
+          <text x="10" y="145">読み上げ</text>
+          <rect class="tl" x="120" y="130" width="88" height="22" rx="3"/><text class="t-tl bold" x="216" y="146">2</text>
+          <text class="muted small" x="420" y="145">段のダブルクリック・右の欄</text>
+          <text x="10" y="181">テロップ</text>
+          <rect class="tl" x="120" y="166" width="44" height="22" rx="3"/><text class="t-tl bold" x="172" y="182">1</text>
+          <text class="muted small" x="420" y="181">段のダブルクリック(録画の追加・分割では自動で付く)</text>
+          <text x="10" y="217">ポインター等</text>
+          <rect class="m2" x="120" y="202" width="264" height="22" rx="3"/><text class="t-m2 bold" x="392" y="218">?</text>
+          <text class="muted small" x="420" y="217">M2。今のままだと入口を個別に考えることになる</text>
+        </svg>
+      </div>
+      <figcaption><b>作る入口の数は要素ごとに 1〜6 とばらばらです。</b>キー・挿入ボタン・段のダブルクリックのように型を決めておけば、ポインター・蛍光ペン・図形も同じ入口で作れます。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>気づいたこと</h2>
+    <div class="findings">
+      <div class="finding"><h3><span class="n">⚠1</span>プレビューで触った録画の枠が、全ステップに効く</h3><p>録画の枠(余白)はプロジェクトの設定です。プレビューで触れる対象のうち、全体に効くのはこれだけです。今見ているステップだけを直しているように見えます。</p></div>
+      <div class="finding"><h3><span class="n">⚠2</span>テロップの位置の行き先が隠れている</h3><p>同じドラッグが、右の欄でプロジェクトを開いていれば全ステップ共通に、それ以外ならそのステップだけに効きます。</p></div>
+      <div class="finding"><h3><span class="n">⚠3</span>右の欄に、選んでいないものも全部並ぶ</h3><p>ズームを 1 つ選ぶと、ステップの全項目が並び、選んだ所に色が付くだけです。M2 の要素が加わるとさらに長くなります。</p></div>
+      <div class="finding"><h3><span class="n">⚠4</span>読み上げの声・速さは 1 つ目にしか書けない</h3><p>データでは読み上げ 1 つごとに持てます。右の欄では一覧の後ろに 1 組だけあり、ステップ全体の設定に見えます。</p></div>
+      <div class="finding"><h3><span class="n">⚠5</span>作る入口の数がばらばら</h3><p>図 4 のとおりです。</p></div>
+      <div class="finding"><h3><span class="n">⚠6</span>JSON でしか変えられない項目が散らばっている</h3><p>テロップの行間・揃え、ステップごとのフォント・色、共通の録画の音、ステップの読み上げの音量、エンジン。AI が書く前提で意図して省いたものと、作りかけのものが区別されていません。</p></div>
+      <div class="finding good"><h3><span class="n">○</span>時刻と座標の決まりは一貫している</h3><p>時刻はすべてステップ内の時刻、位置は画面側(◇ テロップ・余白)と映像側(◆ ズーム・ポインター・蛍光ペン)の 2 種類だけです。UI を整理するときの土台にできます。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <details>
+      <summary>詳しい一覧(項目ごとの変える場所)</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>持ち主</th><th>項目</th><th>JSON</th><th>変える場所</th></tr></thead>
+          <tbody>
+            <tr><td>プロジェクト</td><td>幅・高さ・fps・画質・SRT</td><td><code>output</code></td><td>右の欄(共通)</td></tr>
+            <tr><td>プロジェクト</td><td>背景・切り取る・影</td><td><code>layout</code></td><td>右の欄(共通)</td></tr>
+            <tr><td>プロジェクト</td><td>余白(録画の枠)</td><td><code>layout.margin</code></td><td>右の欄(共通)・プレビュー・矢印キー</td></tr>
+            <tr><td>プロジェクト</td><td>テロップのフォント・サイズ・色・背景</td><td><code>styles.caption</code></td><td>右の欄(共通)</td></tr>
+            <tr><td>プロジェクト</td><td>テロップの位置・幅</td><td><code>styles.caption.position / width</code></td><td>右の欄(共通)・プレビュー(共通を開いているとき)</td></tr>
+            <tr><td>プロジェクト</td><td>テロップの行間・揃え</td><td><code>styles.caption.lineHeight / align</code></td><td>JSON のみ</td></tr>
+            <tr><td>プロジェクト</td><td>声・速さ・読み上げの音量・辞書</td><td><code>speech</code>, <code>audio.speech</code>, <code>dictionary</code></td><td>右の欄(共通)</td></tr>
+            <tr><td>プロジェクト</td><td>エンジン・録画の音</td><td><code>speech.engine</code>, <code>audio.source</code></td><td>JSON のみ</td></tr>
+            <tr><td>ステップ</td><td>ID・録画・速度</td><td><code>id</code>, <code>source</code>, <code>speed</code></td><td>右の欄</td></tr>
+            <tr><td>ステップ</td><td>In / Out</td><td><code>in</code>, <code>out</code></td><td>右の欄・クリップの端</td></tr>
+            <tr><td>ステップ</td><td>録画の音</td><td><code>audio.source</code></td><td>右の欄</td></tr>
+            <tr><td>ステップ</td><td>読み上げの音量</td><td><code>audio.speech</code></td><td>JSON のみ</td></tr>
+            <tr><td>テロップ</td><td>文</td><td><code>caption.text</code></td><td>右の欄・プレビュー(文字のクリック)</td></tr>
+            <tr><td>テロップ</td><td>開始・終了</td><td><code>caption.start / end</code></td><td>右の欄・帯の端</td></tr>
+            <tr><td>テロップ</td><td>位置・幅</td><td><code>caption.position / width</code></td><td>右の欄・プレビュー(ステップを開いているとき)</td></tr>
+            <tr><td>テロップ</td><td>サイズ・背景</td><td><code>caption.style.size / background</code></td><td>右の欄</td></tr>
+            <tr><td>テロップ</td><td>フォント・色・行間・揃え</td><td><code>caption.style.*</code></td><td>JSON のみ</td></tr>
+            <tr><td>読み上げ</td><td>文・開始</td><td><code>speech[i].text / start</code></td><td>右の欄・帯のドラッグ</td></tr>
+            <tr><td>読み上げ</td><td>声・速さ</td><td><code>speech[i].voice / params</code></td><td>右の欄(1 つ目だけ)</td></tr>
+            <tr><td>保持</td><td>位置・長さ</td><td><code>holds[i]</code></td><td>右の欄・斜線の端</td></tr>
+            <tr><td>ズーム</td><td>開始・終了</td><td><code>zooms[i].start / end</code></td><td>右の欄・帯の端</td></tr>
+            <tr><td>ズーム</td><td>枠の時刻・範囲</td><td><code>zooms[i].keys</code></td><td>◆・プレビュー・右の欄(数値)</td></tr>
+            <tr><td>ズーム</td><td>止める・縦横比・動きの時間</td><td><code>hold</code>, <code>keepAspect</code>, <code>transition</code></td><td>右の欄</td></tr>
+            <tr><td>ポインター・蛍光ペン</td><td>軌跡・出入り・見た目</td><td><code>pointers</code>, <code>highlights</code></td><td>M2(今は JSON のみ、描画しない)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+</main>

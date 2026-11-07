@@ -258,18 +258,58 @@ h4 {
   min-width: 0;
 }
 
+/* 映像と、その真下の操作の帯を上に寄せる。余った高さは帯と再生操作の間に回る */
 .preview {
   min-height: 0;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 映像と操作の帯をひとまとまりとして上下中央に置く */
+  justify-content: safe center;
 }
 
 /* プレビューを拡大したときに表示位置を動かす領域。小さいときは中央に置く(margin: auto) */
 .preview-scroll {
-  position: absolute;
-  inset: 0;
+  flex: none;
+  width: 100%;
   overflow: hidden;
   display: grid;
+}
+
+/* プレビューの真下の操作の帯(枠の編集中だけの切り替え、表示倍率)。幅は映像に合わせる */
+.preview-tools {
+  flex: none;
+  min-width: min(100%, 480px);
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  overflow: hidden;
+}
+
+.preview-tools-left,
+.preview-tools-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.preview-tools-right {
+  flex-shrink: 0;
+}
+
+.preview-tools button {
+  white-space: nowrap;
+}
+
+.preview-tools button.on {
+  background: var(--accent);
+  color: #fff;
 }
 
 .preview-stage {
@@ -907,14 +947,49 @@ button.icon.play {
   cursor: ew-resize;
 }
 
-.caption-handle {
+/* テロップの枠。縁(padding の部分)は移動・枠の選択、内側は文字の入力。中心(top)に合わせて上下に広がる */
+.caption-box {
   position: absolute;
+  z-index: 1;
+  padding: 6px;
+  transform: translateY(-50%);
   cursor: move;
   border: 1px dashed transparent;
 }
 
-.caption-handle:hover {
+.caption-box:hover {
   border-color: rgb(255 255 255 / 0.8);
+}
+
+.caption-box.selected {
+  border: 1px solid var(--accent);
+}
+
+.caption-box.editing {
+  border: 1px dashed var(--accent);
+}
+
+.caption-text {
+  cursor: text;
+}
+
+/* プレビュー上のテロップの入力欄。キャンバスのテロップと同じ書体・大きさで重ね、高さは文に合わせて伸びる */
+.caption-input {
+  display: block;
+  width: 100%;
+  field-sizing: content;
+  resize: none;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.caption-input::placeholder {
+  color: inherit;
+  opacity: 0.45;
 }
 
 /* テロップの幅の枠。テロップを選んでいるとき・枠や取っ手に触れているときに出す */
@@ -922,10 +997,11 @@ button.icon.play {
   position: absolute;
   pointer-events: none;
   border: 1px dashed transparent;
+  z-index: 2;
 }
 
 .caption-width.shown,
-.caption-handle:hover + .caption-width,
+.caption-box:hover + .caption-width,
 .caption-width:has(.caption-edge:hover) {
   border-color: rgb(255 180 77 / 0.9);
 }
@@ -951,7 +1027,7 @@ button.icon.play {
 }
 
 .caption-width.shown .caption-edge,
-.caption-handle:hover + .caption-width .caption-edge,
+.caption-box:hover + .caption-width .caption-edge,
 .caption-edge:hover {
   opacity: 1;
 }
@@ -979,29 +1055,53 @@ button.icon.play {
   background: #000;
 }
 
-.preview-hint {
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  max-width: 90%;
-  padding: 3px 10px;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 0.7);
-  font-size: 12px;
-  pointer-events: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 4px 8px;
+/* キー操作の一覧 */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.5);
 }
 
-/* 編集中だけ出す切り替え(中心固定/隅固定、開始枠/終了枠)は押せるようにする */
-.preview-hint .seg {
-  pointer-events: auto;
-  margin-left: 0;
+.dialog {
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 12px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
+}
+
+.dialog h3 {
+  margin: 0 0 8px;
+}
+
+.shortcut-table {
+  border-collapse: collapse;
+}
+
+.shortcut-table td {
+  padding: 3px 12px 3px 0;
+  vertical-align: top;
+}
+
+.shortcut-table kbd {
+  font-family: inherit;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 /* 文字のリンクのように見せるボタン(録画の追加の案内など) */

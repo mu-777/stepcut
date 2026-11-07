@@ -1,5 +1,6 @@
-// 画面の部品: 右クリックメニューと、カラムの境界(ドラッグで幅を変える)。
+// 画面の部品: 右クリックメニュー、カラムの境界(ドラッグで幅を変える)、キー操作の一覧。
 import { useEffect, useRef } from "react";
+import { type MessageKey, t } from "./i18n";
 import type { MenuItem } from "./timeline";
 
 export function ContextMenu(props: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
@@ -103,4 +104,64 @@ export function saveChoice(key: string, value: string): void {
   } catch {
     // 覚えられなくても動く
   }
+}
+
+/** キー操作の一覧(ヘルプメニュー・プレビューの下の帯の ? から開く)。外のクリックか Esc で閉じる */
+export function ShortcutsDialog(props: { onClose: () => void }) {
+  const { onClose } = props;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  const rows: [string, MessageKey][] = [
+    ["Space", "scPlay"],
+    ["J / K / L", "scJkl"],
+    ["← / →", "scSeek"],
+    ["↑ / ↓", "scBoundary"],
+    ["Home / End", "scHomeEnd"],
+    ["Ctrl+K", "scSplit"],
+    ["Z", "scZoom"],
+    ["M", "scMute"],
+    ["F", "scFullscreen"],
+    ["Delete", "scDelete"],
+    ["Ctrl+Z / Ctrl+Shift+Z", "scUndo"],
+    ["Ctrl+C / Ctrl+V", "scCopy"],
+    ["← ↑ → ↓", "scNudge"],
+    ["Alt", "scAlt"],
+    ["Shift", "scShiftSeek"],
+    ["Esc", "scEsc"],
+    ["Ctrl+Wheel", "scWheel"],
+    [t("middleDrag"), "scPan"],
+  ];
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 背景のクリックで閉じる(Esc でも閉じられる)
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Esc は window で拾う
+    <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog" role="dialog" aria-label={t("shortcuts")}>
+        <h3>{t("shortcuts")}</h3>
+        <table className="shortcut-table">
+          <tbody>
+            {rows.map(([keys, label]) => (
+              <tr key={label}>
+                <td>
+                  <kbd>{keys}</kbd>
+                </td>
+                <td>{t(label)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>
+            {t("close")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

@@ -152,6 +152,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("Control+k");
   await page.waitForTimeout(200);
   check((await page.locator(".step-item").count()) === 3, "Ctrl+K で分割してステップが 3 つになる");
+  check(
+    (await page.locator(".tl-bar.caption").count()) === 3,
+    "分割した後半にも空のテロップ(プレースホルダー)が付く",
+  );
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   check((await page.locator(".step-item").count()) === 2, "Undo で 2 つに戻る");
 
@@ -297,6 +301,15 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     { x: ob3.x + ob3.width + 40, y: ob3.y + ob3.height / 2 },
   );
   check((await areaH()) === h0, "辺のハンドルは高さを変えずに幅だけ変える");
+  // 録画の隅の外までドラッグしても、枠の大きさは変わらない(内側だけを動く)
+  const wBefore = await areaW();
+  const ob4 = await page.locator(".box-outline").boundingBox();
+  const st4 = await page.locator(".preview-stage").boundingBox();
+  await drag(page, center(ob4), { x: st4.x + 2, y: st4.y + 2 });
+  check(
+    (await areaW()) === wBefore && (await areaH()) === h0,
+    `隅へのドラッグで枠の大きさが変わらない (幅 ${wBefore} → ${await areaW()})`,
+  );
   await shot(page, "05-zoom-edit");
   // 枠の外をクリック(ドラッグなし)で確定する
   const layer = await page.locator(".draw-layer").boundingBox();
@@ -312,8 +325,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".draw-layer").count()) === 1,
     "タイムラインのズームのクリックで枠の編集を始める",
   );
+  // 目盛りのクリック(シーク)で編集を終える。シークした位置で帯をクリックし直して枠を足す
   const rulerBox = await page.locator(".tl-ruler").boundingBox();
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
+  await page.waitForTimeout(300);
+  check((await page.locator(".draw-layer").count()) === 0, "目盛りのクリックで枠の編集を終える");
+  await page.mouse.click(zb.x + zb.width * 0.9, zb.y + zb.height / 2);
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
   await page.waitForTimeout(300);
@@ -340,7 +357,18 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".seg-label").textContent()).includes("1/2"),
     "点線の枠のクリックでその枠の編集に切り替える",
   );
-  await page.keyboard.press("Escape");
+  // プレビューの外(ステップ一覧の余白)のクリックでも編集を終える
+  await page.mouse.click(5, 600);
+  await page.waitForTimeout(200);
+  check((await page.locator(".draw-layer").count()) === 0, "プレビューの外のクリックで枠の編集を終える");
+  // 再生を始めても編集を終える
+  await page.mouse.click(zb.x + zb.width / 2, zb.y + zb.height / 2);
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /^(Play|再生)$/ }).click();
+  await page.waitForTimeout(300);
+  check((await page.locator(".draw-layer").count()) === 0, "再生ボタンで枠の編集を終える");
+  await page.getByRole("button", { name: /^(Pause|停止)$/ }).click();
+  await page.waitForTimeout(200);
 
   // Z キーで再生位置にズームを足す
   await page.keyboard.press("End");
@@ -359,9 +387,22 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const vb = await page.locator(".box-outline").boundingBox();
   check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
   check(
-    (await page.locator(".preview-hint .seg").count()) === 1,
-    "枠の編集中はプレビュー上部に中心固定/隅固定の切り替えが出る",
+    (await page.locator(".preview-tools .seg").count()) === 1,
+    "枠の編集中はプレビューの下の帯に中心固定/隅固定の切り替えが出る",
   );
+  check((await page.locator(".preview-hint").count()) === 0, "プレビューの上に操作の説明を重ねない");
+  // 映像と帯をひとまとまりとして上下中央に置く
+  {
+    const pv = await page.locator(".preview").boundingBox();
+    const sg = await page.locator(".preview-stage").boundingBox();
+    const tb = await page.locator(".preview-tools").boundingBox();
+    const above = sg.y - pv.y;
+    const below = pv.y + pv.height - (tb.y + tb.height);
+    check(
+      Math.abs(above - below) <= 2,
+      `映像と帯は上下中央 (上 ${Math.round(above)} / 下 ${Math.round(below)})`,
+    );
+  }
   await drag(page, center(vb), { x: center(vb).x + 4, y: center(vb).y + 30 });
   const marginOf = async () =>
     Promise.all([/^(Left|左)$/, /^(Right|右)$/].map((re) => page.getByLabel(re).inputValue().then(Number)));
@@ -375,11 +416,15 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   );
   const [ml2, mr2] = await marginOf();
   check(ml2 > ml && Math.abs(ml2 - mr2) <= 2, `角のハンドルは中心固定で縮小 (左 ${ml2} / 右 ${mr2})`);
-  // 矢印キーで 1px ずつ動かす
+  // 矢印キーで 10px、Shift+矢印キーで 1px 動かす
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(100);
+  const [ml3a] = await marginOf();
+  check(ml3a === ml2 + 10, `→ で録画を 10px 右へ動かす (左 ${ml2} → ${ml3a})`);
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.waitForTimeout(100);
   const [ml3] = await marginOf();
-  check(ml3 === ml2 + 1, `→ で録画を 1px 右へ動かす (左 ${ml2} → ${ml3})`);
+  check(ml3 === ml3a + 1, `Shift+→ で録画を 1px 右へ動かす (左 ${ml3a} → ${ml3})`);
   // 画面の左辺に吸着する
   const vb4 = await page.locator(".box-outline").boundingBox();
   await drag(page, center(vb4), { x: center(vb4).x - (vb4.x - stage.x) + 4, y: center(vb4).y });
@@ -407,13 +452,19 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const noMargin = page.getByLabel(/No margins|余白なし/);
   const before = await marginOf();
   await noMargin.check();
+  await page.waitForTimeout(200);
+  const zeroed = await marginOf();
   check(
-    (await marginOf()).every((v) => v === 0),
-    "余白なしで上下左右の余白が 0",
+    zeroed.every((v) => v === 0),
+    `余白なしで上下左右の余白が 0 (${before} → ${zeroed})`,
   );
   await noMargin.uncheck();
+  await page.waitForTimeout(200);
   const after = await marginOf();
-  check(after[0] === before[0] && after[1] === before[1], `余白なしを外すと元の余白に戻る (${after})`);
+  check(
+    after[0] === before[0] && after[1] === before[1],
+    `余白なしを外すと元の余白に戻る (${before} → ${after})`,
+  );
 
   // テロップをプレビュー上でドラッグする(ステップの個別設定になる)
   await page.locator(".step-item").first().click();
@@ -421,22 +472,42 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(400);
-  const ch = await page.locator(".caption-handle").boundingBox();
+  const ch = await page.locator(".caption-text").boundingBox();
   check(ch !== null, "テロップの上にドラッグ用の枠が出る");
   await drag(page, center(ch), { x: center(ch).x, y: center(ch).y - 200 });
   await page.waitForTimeout(300);
   check((await page.locator(".badge").count()) === 1, "テロップを動かすとステップの個別設定になる");
   await page.getByRole("button", { name: /Use project setting|プロジェクト設定に戻す/ }).click();
   check((await page.locator(".badge").count()) === 0, "プロジェクト設定に戻せる");
-  // テロップのクリックでテロップの設定へ
+  // テロップの文字のクリックでテロップの設定へ移り、その場で入力できる(PowerPoint と同じ)
   await page.locator(".nav-item").click();
   await page.waitForTimeout(200);
-  const ch2 = await page.locator(".caption-handle").boundingBox();
+  const ch2 = await page.locator(".caption-text").boundingBox();
   await page.mouse.click(center(ch2).x, center(ch2).y);
   await page.waitForTimeout(200);
   check(
     (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ",
     "プレビューのテロップをクリックするとテロップの設定へ移る",
+  );
+  check((await page.locator(".caption-input").count()) === 1, "テロップの文字のクリックで入力欄が出る");
+  await page.keyboard.type("です");
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップです",
+    "プレビュー上の入力が右の欄のテロップにも入る",
+  );
+  await shot(page, "08-caption-input");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".caption-input").count()) === 0 &&
+      (await page.locator(".caption-box.selected").count()) === 1,
+    "Esc で入力を終え、テロップの枠を選んだ状態になる",
+  );
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  check(
+    (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ",
+    "プレビュー上の入力は Undo 1 回で戻る",
   );
 
   // テロップのラインのダブルクリックで、テロップのないステップにテロップを作る
@@ -487,8 +558,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // テロップを選ぶと左右の端に取っ手が出て、ドラッグで幅を変えられる
   await page.locator(".step-item").first().click();
   await page.waitForTimeout(300);
-  const ch3 = await page.locator(".caption-handle").boundingBox();
-  await page.mouse.click(center(ch3).x, center(ch3).y);
+  // 枠(文字の外側の縁)のクリックで枠を選ぶ
+  const ch3 = await page.locator(".caption-box").boundingBox();
+  await page.mouse.click(ch3.x + 3, center(ch3).y);
   await page.waitForTimeout(200);
   const edge = await page.locator(".caption-edge.r").boundingBox();
   await drag(page, center(edge), { x: center(edge).x - 80, y: center(edge).y });

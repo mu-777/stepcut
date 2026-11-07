@@ -15,3 +15,10 @@ paths:
 - テスト用の録画は ffmpeg で作る(`tests/e2e/ui-smoke.cjs` 参照)。ffmpeg は開発環境の道具で、アプリには同梱しない
 - 生成物は `test-output/`(git 管理外)に置く
 - 書き出した mp4 のフレームを確かめるときは `ffmpeg -ss <秒> -i` (高速シーク)ではなく `-vf "select='eq(n\,<番号>)'"` で取り出す。高速シークで取り出したフレームには、元の動画にない帯などのずれが出ることがある
+
+## Windows のローカルで動かすとき
+
+- VS Code の中のターミナル・拡張から起動すると `ELECTRON_RUN_AS_NODE=1` が引き継がれ、Electron が Node として起動して Playwright が「Process failed to launch!」で落ちる。消してから実行する(PowerShell: `Remove-Item Env:ELECTRON_RUN_AS_NODE`)
+- Playwright は依存に入っていない。`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i --no-save playwright` で一時的に入れる(Electron を使うのでブラウザは不要)
+- 全項目を終えてもプロセスが終わらないことがある。出力をファイルに書き出してバックグラウンドで動かし、最後の「コンソールエラーなし」が出たら止める
+- ffmpeg がなければ、`test-output/ui/rec.mp4` を WSL の ffmpeg で先に作っておく(作成済みならテストは作り直さない)

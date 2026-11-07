@@ -38,12 +38,13 @@ export function splitStep(project: Project, index: number, t: number, keepRest: 
   const steps = [...project.steps];
   steps[index] = first;
   if (keepRest) {
-    // 後半はテロップと同じ文を読む設定(既定でオン)で始める
+    // 後半は空のテロップ(プレビューには仮の文を出す)と、テロップと同じ文を読む設定(既定でオン)で始める
     const rest: Step = {
       id: uniqueStepId(project, step.id),
       source: step.source,
       in: at,
       out: step.out,
+      caption: { text: "" },
       speech: {},
     };
     if (step.speed !== undefined) rest.speed = step.speed;

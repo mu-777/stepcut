@@ -2,10 +2,10 @@
 // 枠の編集(ズーム範囲、録画の位置と大きさ)は共通の操作: 枠の中のドラッグで移動、四隅で縦横比を保った拡大縮小、四辺の中央で縦横比の変更。
 // Ctrl+ホイールでプレビューだけを拡大縮小できる(細かい調整用。書き出しには影響しない)。
 import { type MutableRefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { resolveCaptionPlacement, resolveLayout } from "../../core/defaults";
+import { resolveCaptionPlacement, resolveCaptionStyle, resolveLayout } from "../../core/defaults";
 import { computeLayout, type Rect, zoomViewRect } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
-import { captionBox, outputToSource, sourceToOutput } from "./compositor";
+import { captionBox, captionFont, outputToSource, sourceToOutput } from "./compositor";
 import { t } from "./i18n";
 import { Player, type PlayerState } from "./player";
 
@@ -54,8 +54,8 @@ export function Preview(props: {
   onVideoClick: (inside: boolean) => void;
   /** 右クリック。点は出力のピクセル */
   onContextMenu: (clientX: number, clientY: number, out: { x: number; y: number }) => void;
-  /** プレビューの上に重ねて出す操作の説明と、編集中だけの切り替え */
-  hint: React.ReactNode;
+  /** プレビューの真下の帯に置く、プレビュー上の操作の部品(編集中だけの切り替え、表示倍率) */
+  tools: React.ReactNode;
   /** プレビューの表示倍率(1 = 全体表示) */
   viewZoom: number;
   onViewZoom: (z: number) => void;
@@ -63,8 +63,16 @@ export function Preview(props: {
   captionStep: Step | null;
   /** テロップの中心(画面側座標) */
   onCaptionMove: (pos: { x: number; y: number }, key: string) => void;
-  /** テロップをクリックした(ドラッグなし) */
+  /** テロップの枠(文字の外側の縁)をクリックした(ドラッグなし)。枠を選ぶ */
   onCaptionClick: () => void;
+  /** テロップの文字をクリックした(ドラッグなし)。その場で文字の入力を始める */
+  onCaptionEdit: () => void;
+  /** プレビュー上でテロップの文字を入力中 */
+  captionEditing: boolean;
+  /** 入力した文字 */
+  onCaptionText: (text: string) => void;
+  /** 文字の入力を終えた(Esc・フォーカスが外れた) */
+  onCaptionEditEnd: () => void;
   /** テロップの幅(出力の幅に対する割合)。key は 1 回のドラッグで同じ */
   onCaptionWidth: (width: number, key: string) => void;
   /** テロップを選んでいる(幅の取っ手を出す) */
@@ -74,9 +82,12 @@ export function Preview(props: {
   /** 描画の GPU コンテキストが失われた(用意した画像を作り直す) */
   onContextLost: () => void;
 }) {
+  const outerRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fitSize, setFitSize] = useState({ w: 640, h: 360 });
+  /** 映像を置ける高さ(操作の帯の分を除く) */
+  const [availH, setAvailH] = useState(360);
   const onTimeRef = useRef(props.onTime);
   onTimeRef.current = props.onTime;
   const onLostRef = useRef(props.onContextLost);
@@ -111,15 +122,17 @@ export function Preview(props: {
     };
   }, [stateRef, playerRef]);
 
-  // 枠に合わせて出力の縦横比で大きさを決める。描画の解像度は出力を超えない
+  // 枠に合わせて出力の縦横比で大きさを決める。描画の解像度は出力を超えない。
+  // 操作の帯は映像の真下に置くので、その高さを除いた中に収める(余った高さは帯の下に回る)
   useEffect(() => {
-    const el = wrapRef.current;
+    const el = outerRef.current;
     if (!el) return;
     const resize = () => {
       const maxW = el.clientWidth;
-      const maxH = el.clientHeight;
+      const maxH = Math.max(1, el.clientHeight - TOOLS_H);
       const scale = Math.min(maxW / outW, maxH / outH);
       setFitSize({ w: Math.max(1, Math.floor(outW * scale)), h: Math.max(1, Math.floor(outH * scale)) });
+      setAvailH(maxH);
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -245,8 +258,22 @@ export function Preview(props: {
         edgeX={[videoBox.x, videoBox.x + videoBox.w]}
         edgeY={[videoBox.y, videoBox.y + videoBox.h]}
         onCommit={d.onCommit}
-        onChange={(b, key) => {
+        onChange={(b, key, _shape, move) => {
           const a = outputToSource(props.project, size.w, size.h, d.srcW, d.srcH, b.x, b.y);
+          if (move && d.rect) {
+            // 移動では大きさを変えない(画面の座標への換算の誤差や端での切り詰めで枠が伸び縮みしないように)
+            const { w, h } = d.rect;
+            d.onRect(
+              {
+                x: Math.round(Math.min(Math.max(0, a.x), Math.max(0, d.srcW - w))),
+                y: Math.round(Math.min(Math.max(0, a.y), Math.max(0, d.srcH - h))),
+                w,
+                h,
+              },
+              key,
+            );
+            return;
+          }
           const c = outputToSource(props.project, size.w, size.h, d.srcW, d.srcH, b.x + b.w, b.y + b.h);
           if (c.x - a.x < 4 || c.y - a.y < 4) return;
           d.onRect(
@@ -331,63 +358,97 @@ export function Preview(props: {
           ))}
         </div>
       );
+      // PowerPoint と同じく、枠(文字の外側の縁)のクリックで枠を選び、文字のクリックで入力を始める。どちらもドラッグなら移動
+      const style = resolveCaptionStyle(props.project, cs);
+      const fontPx = style.size * (size.h / 1080);
+      const pad = fontPx * 0.4;
+      const editing = props.captionEditing;
+      // 入力中は折り返す幅いっぱいの入力欄を出す(キャンバスのテロップは描かない)
+      const textRect = editing ? { x: c.cx - wrapW / 2 - pad, w: wrapW + pad * 2, h: c.box.h } : c.box;
+      /** 押してからドラッグならテロップを動かし、動かさずに離したら onClick */
+      const dragOrClick = (e: React.PointerEvent, onClick: () => void) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const x0 = e.clientX;
+        const y0 = e.clientY;
+        const key = `drag-caption-${Date.now()}`;
+        const halfH = c.box.h / 2;
+        const below = videoBox.y + videoBox.h;
+        let moved = false;
+        const move = (ev: PointerEvent) => {
+          if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < CLICK_PX) return;
+          moved = true;
+          let cx = c.cx + ev.clientX - x0;
+          let cy = c.cy + ev.clientY - y0;
+          let gx: number | null = null;
+          let gy: number | null = null;
+          if (!ev.altKey) {
+            // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)に吸着する
+            if (Math.abs(cx - size.w / 2) <= SNAP) {
+              cx = size.w / 2;
+              gx = cx;
+            }
+            const cands = [
+              { center: (below + size.h) / 2, line: (below + size.h) / 2 },
+              { center: below + halfH, line: below },
+              { center: size.h - halfH, line: size.h - 1 },
+            ]
+              .filter((x) => below < size.h || x.line !== (below + size.h) / 2)
+              .map((x) => ({ ...x, d: Math.abs(x.center - cy) }))
+              .filter((x) => x.d <= SNAP)
+              .sort((a, b) => a.d - b.d);
+            const best = cands[0];
+            if (best) {
+              cy = best.center;
+              gy = best.line;
+            }
+          }
+          setCaptionGuides({ x: gx, y: gy });
+          const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
+          props.onCaptionMove({ x: r4(cx / size.w), y: r4(cy / size.h) }, key);
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          setCaptionGuides({ x: null, y: null });
+          if (!moved) onClick();
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      };
       captionHandle = (
         <>
           <div
-            className="caption-handle"
-            style={{ left: c.box.x, top: c.box.y, width: c.box.w, height: c.box.h }}
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              e.stopPropagation();
-              e.preventDefault();
-              const x0 = e.clientX;
-              const y0 = e.clientY;
-              const key = `drag-caption-${Date.now()}`;
-              const halfH = c.box.h / 2;
-              const below = videoBox.y + videoBox.h;
-              let moved = false;
-              const move = (ev: PointerEvent) => {
-                if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < CLICK_PX) return;
-                moved = true;
-                let cx = c.cx + ev.clientX - x0;
-                let cy = c.cy + ev.clientY - y0;
-                let gx: number | null = null;
-                let gy: number | null = null;
-                if (!ev.altKey) {
-                  // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)に吸着する
-                  if (Math.abs(cx - size.w / 2) <= SNAP) {
-                    cx = size.w / 2;
-                    gx = cx;
-                  }
-                  const cands = [
-                    { center: (below + size.h) / 2, line: (below + size.h) / 2 },
-                    { center: below + halfH, line: below },
-                    { center: size.h - halfH, line: size.h - 1 },
-                  ]
-                    .filter((x) => below < size.h || x.line !== (below + size.h) / 2)
-                    .map((x) => ({ ...x, d: Math.abs(x.center - cy) }))
-                    .filter((x) => x.d <= SNAP)
-                    .sort((a, b) => a.d - b.d);
-                  const best = cands[0];
-                  if (best) {
-                    cy = best.center;
-                    gy = best.line;
-                  }
-                }
-                setCaptionGuides({ x: gx, y: gy });
-                const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
-                props.onCaptionMove({ x: r4(cx / size.w), y: r4(cy / size.h) }, key);
-              };
-              const up = () => {
-                window.removeEventListener("pointermove", move);
-                window.removeEventListener("pointerup", up);
-                setCaptionGuides({ x: null, y: null });
-                if (!moved) props.onCaptionClick();
-              };
-              window.addEventListener("pointermove", move);
-              window.addEventListener("pointerup", up);
-            }}
-          />
+            className={`caption-box ${editing ? "editing" : props.captionSelected ? "selected" : ""}`}
+            style={{ left: textRect.x - CAPTION_FRAME, top: c.cy, width: textRect.w + CAPTION_FRAME * 2 }}
+            onPointerDown={(e) => dragOrClick(e, props.onCaptionClick)}
+          >
+            {editing ? (
+              <CaptionInput
+                value={cs.caption?.text ?? ""}
+                placeholder={t("captionPlaceholder")}
+                style={{
+                  font: captionFont(style.font, fontPx),
+                  lineHeight: `${c.lineH}px`,
+                  color: style.color,
+                  textAlign: style.align === "left" ? "left" : "center",
+                  padding: `${pad / 2}px ${pad}px`,
+                  background: c.boxColor ?? "transparent",
+                  minHeight: textRect.h,
+                }}
+                onChange={props.onCaptionText}
+                onEnd={props.onCaptionEditEnd}
+              />
+            ) : (
+              <div
+                className="caption-text"
+                style={{ height: textRect.h }}
+                title={t("tipCaption")}
+                onPointerDown={(e) => dragOrClick(e, props.onCaptionEdit)}
+              />
+            )}
+          </div>
           {widthFrame}
         </>
       );
@@ -395,9 +456,14 @@ export function Preview(props: {
   }
 
   return (
-    <div className="preview">
-      {props.hint && <div className="preview-hint">{props.hint}</div>}
-      <div className="preview-scroll" ref={wrapRef} onPointerDown={panFrom}>
+    <div className="preview" ref={outerRef}>
+      <div
+        className="preview-scroll"
+        ref={wrapRef}
+        // 全体表示では映像の高さにして、操作の帯を映像の真下に置く。拡大中は置ける高さいっぱいに広げる
+        style={{ height: viewZoom === 1 ? size.h : availH }}
+        onPointerDown={panFrom}
+      >
         {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用 */}
         <div
           className="preview-stage"
@@ -427,7 +493,52 @@ export function Preview(props: {
           {captionGuides.y !== null && <div className="guide h" style={{ top: captionGuides.y }} />}
         </div>
       </div>
+      <div className="preview-tools" style={{ width: fitSize.w, height: TOOLS_H }}>
+        {props.tools}
+      </div>
     </div>
+  );
+}
+
+/** プレビューの真下の操作の帯の高さ(px)。編集を始めても映像の大きさが変わらないよう、常に確保する */
+const TOOLS_H = 34;
+/** テロップの枠(文字の外側の縁)の幅(px。CSS の padding 6px と線 1px)。ここを押すと枠を選ぶ・動かす */
+const CAPTION_FRAME = 7;
+
+/** プレビュー上のテロップの文字の入力欄。出したときにフォーカスし、文の末尾にカーソルを置く */
+function CaptionInput(props: {
+  value: string;
+  placeholder: string;
+  style: React.CSSProperties;
+  onChange: (text: string) => void;
+  onEnd: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      className="caption-input"
+      aria-label={props.placeholder}
+      value={props.value}
+      placeholder={props.placeholder}
+      style={props.style}
+      // 入力欄の中のドラッグは文字の選択にする(枠の移動にしない)
+      onPointerDown={(e) => e.stopPropagation()}
+      onChange={(e) => props.onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={props.onEnd}
+    />
   );
 }
 
@@ -476,14 +587,15 @@ function BoxEditor(props: {
   current?: number;
   onPick?: (i: number) => void;
   allowDraw?: boolean;
-  /** 新しく描くときに収める範囲 */
+  /** 新しく描くとき・移動するときに収める範囲。移動では大きさを変えず、範囲の内側だけを動かす */
   bounds?: Box;
   anchor: Anchor;
   snapX: number[];
   snapY: number[];
   edgeX: number[];
   edgeY: number[];
-  onChange: (b: Box, key: string, shapeChanged: boolean) => void;
+  /** move は枠ごとの移動(大きさは変わらない) */
+  onChange: (b: Box, key: string, shapeChanged: boolean, move: boolean) => void;
   onCommit?: () => void;
 }) {
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
@@ -534,6 +646,11 @@ function BoxEditor(props: {
             b.y += sy.d;
             gy = sy.at;
           }
+        }
+        if (props.bounds) {
+          const B = props.bounds;
+          b.x = Math.max(B.x, Math.min(b.x, B.x + B.w - b.w));
+          b.y = Math.max(B.y, Math.min(b.y, B.y + B.h - b.h));
         }
       } else if (mode === "draw") {
         // 新しく描く: 押した点と今の点を対角にする
@@ -606,7 +723,12 @@ function BoxEditor(props: {
       setGuides({ x: gx, y: gy });
       if (mode === "draw") setPreview(b);
       else
-        props.onChange(b, key, mode !== "move" && !(HANDLE_DIR[mode][0] !== 0 && HANDLE_DIR[mode][1] !== 0));
+        props.onChange(
+          b,
+          key,
+          mode !== "move" && !(HANDLE_DIR[mode][0] !== 0 && HANDLE_DIR[mode][1] !== 0),
+          mode === "move",
+        );
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -618,7 +740,7 @@ function BoxEditor(props: {
         return;
       }
       setPreview((pv) => {
-        if (pv) props.onChange(pv, key, true);
+        if (pv) props.onChange(pv, key, true, false);
         return null;
       });
     };
@@ -633,6 +755,7 @@ function BoxEditor(props: {
     <div
       className={`box-layer ${props.allowDraw ? "draw-layer" : ""}`}
       onPointerDown={props.allowDraw ? (e) => begin(e, "draw") : undefined}
+      title={props.allowDraw ? t("tipBoxDraw") : undefined}
     >
       {ghosts.length > 1 && (
         <svg className="box-path" aria-hidden="true">
@@ -671,12 +794,23 @@ function BoxEditor(props: {
           className="box-outline"
           style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
           onPointerDown={(e) => begin(e, "move")}
+          title={t("tipBoxMove")}
         >
           {(["nw", "ne", "sw", "se"] as const).map((c) => (
-            <div key={c} className={`box-handle ${c}`} onPointerDown={(e) => begin(e, c)} />
+            <div
+              key={c}
+              className={`box-handle ${c}`}
+              title={t("tipBoxCorner")}
+              onPointerDown={(e) => begin(e, c)}
+            />
           ))}
           {(["n", "s", "e", "w"] as const).map((c) => (
-            <div key={c} className={`box-handle edge ${c}`} onPointerDown={(e) => begin(e, c)} />
+            <div
+              key={c}
+              className={`box-handle edge ${c}`}
+              title={t("tipBoxEdge")}
+              onPointerDown={(e) => begin(e, c)}
+            />
           ))}
         </div>
       )}

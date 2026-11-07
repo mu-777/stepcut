@@ -37,7 +37,15 @@ import { Preview } from "./preview";
 import { SpeechStore } from "./speech";
 import { ThumbCache } from "./thumbs";
 import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
-import { ContextMenu, loadChoice, loadPref, Splitter, saveChoice, savePref } from "./widgets";
+import {
+  ContextMenu,
+  loadChoice,
+  loadPref,
+  ShortcutsDialog,
+  Splitter,
+  saveChoice,
+  savePref,
+} from "./widgets";
 
 /** ズームの範囲の編集。key は編集中の枠(時刻の順の番号) */
 type DrawingZoom = { step: number; zoom: number; key: number };
@@ -65,6 +73,9 @@ export function App() {
   useEffect(() => playerRef.current?.setMuted(muted), [muted]);
   const [trimPreview, setTrimPreview] = useState<{ step: number; time: number } | null>(null);
   const [drawingZoom, setDrawingZoom] = useState<DrawingZoom | null>(null);
+  /** プレビュー上でテロップの文字を入力中のステップ */
+  const [captionEdit, setCaptionEdit] = useState<number | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
   const [anchor, setAnchor] = useState(() =>
     loadChoice("boxAnchor", ["center", "corner"] as const, "center"),
@@ -126,6 +137,7 @@ export function App() {
     backgrounds,
     projectPath: filePath,
     captionPlaceholder: t("captionPlaceholder"),
+    hideCaptionStep: captionEdit,
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -174,7 +186,7 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
   useLayoutEffect(() => {
     playerRef.current?.renderStill();
-  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion]);
+  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion, captionEdit]);
 
   // 選択が範囲外になったら(削除・外部変更)プロジェクトの選択に戻す
   useEffect(() => {
@@ -252,6 +264,7 @@ export function App() {
       setSelection({ kind: "step", step: p.steps.length - 1 });
     },
     export: () => doExport(),
+    shortcuts: () => setShortcutsOpen(true),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
     redo: () => (isTyping() ? document.execCommand("redo") : setHist(redo)),
   };
@@ -354,7 +367,7 @@ export function App() {
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
     let handled = true;
-    // 録画の枠・ズームの枠を編集中は、矢印キーで 1px ずつ動かす(Shift で 10px)
+    // 録画の枠・ズームの枠を編集中は、矢印キーで 10px ずつ動かす(Shift で 1px。シークの Shift と同じく細かく)
     const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
     if (
       arrow &&
@@ -410,6 +423,28 @@ export function App() {
     return () => window.removeEventListener("pointerdown", onDown, true);
   }, []);
 
+  // 枠の編集(ズーム・録画)は、プレビューの外のクリックでも終える。プレビュー上のクリックは BoxEditor・Preview が扱う。
+  // タイムライン・再生操作のクリックと再生の開始でも終える(タイムラインのズームのクリックはその後で編集を始め直す)。
+  // 数値で直せるよう設定の欄と操作の帯では終えない
+  const endBoxEditRef = useRef(() => {});
+  endBoxEditRef.current = () => {
+    if (drawingZoom) setDrawingZoom(null);
+    if (selection.kind === "video") setSelection({ kind: "project" });
+  };
+  useEffect(() => {
+    if (playing) endBoxEditRef.current();
+  }, [playing]);
+  useEffect(() => {
+    const keep = ".preview-stage, .preview-tools, .side, .context-menu, .dialog-backdrop";
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (e.button !== 0 || !target || target.closest(keep)) return;
+      endBoxEditRef.current();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyRef.current(e);
     window.addEventListener("keydown", onKey);
@@ -432,10 +467,11 @@ export function App() {
   }, [selStep, project, speech, speechVersion]);
 
   /**
-   * 選んでいる枠を矢印キーで動かす。録画の枠は出力の 1px、ズームの枠は録画の 1px 単位。動かしたら true
+   * 選んでいる枠を矢印キーで動かす。録画の枠は出力の、ズームの枠は録画のピクセル単位。fine なら 1px、それ以外は 10px。
+   * 動かしたら true
    */
-  const nudgeBox = (dx: number, dy: number, big: boolean): boolean => {
-    const n = big ? 10 : 1;
+  const nudgeBox = (dx: number, dy: number, fine: boolean): boolean => {
+    const n = fine ? 1 : 10;
     if (drawingZoom) {
       const st = project.steps[drawingZoom.step];
       const z = st?.zooms?.[drawingZoom.zoom];
@@ -813,6 +849,11 @@ export function App() {
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
+  // 再生を始めた・再生位置が別のステップへ移ったなどでテロップが出なくなったら、文字の入力を終える
+  const captionEditing = captionEdit !== null && captionStep !== null && loc?.entry.index === captionEdit;
+  useEffect(() => {
+    if (captionEdit !== null && !captionEditing) setCaptionEdit(null);
+  }, [captionEdit, captionEditing]);
   /**
    * プレビューでのテロップの置き方の変更(位置・幅)。プロジェクトの設定を開いているときはプロジェクトの値、
    * それ以外はそのステップの個別設定
@@ -905,7 +946,7 @@ export function App() {
             {t("project")}
           </button>
           <h3>{t("stepList")}</h3>
-          {project.sources.length === 0 && (
+          {project.steps.length === 0 && (
             <button type="button" className="link-button hint" onClick={confirmAddRecording}>
               {t("noSources")}
             </button>
@@ -1007,17 +1048,17 @@ export function App() {
               else if (selection.kind === "video") setSelection({ kind: "project" });
             }}
             onContextMenu={previewMenu}
-            hint={
-              drawingZoom || (selection.kind === "video" && !playing) ? (
-                <>
-                  <span>{t(drawingZoom ? "drawingRect" : "editingVideoBox")}</span>
-                  {(drawingZoom || selection.kind === "video") && (
-                    <div className="seg">
+            tools={
+              <>
+                <div className="preview-tools-left">
+                  {(drawingZoom || (selection.kind === "video" && !playing)) && (
+                    <div className="seg" title={t("anchorTip")}>
                       {(["center", "corner"] as const).map((a) => (
                         <button
                           key={a}
                           type="button"
                           className={`small ${anchor === a ? "on" : ""}`}
+                          aria-pressed={anchor === a}
                           onClick={() => setAnchor(a)}
                         >
                           {t(a === "center" ? "anchorCenter" : "anchorCorner")}
@@ -1059,29 +1100,65 @@ export function App() {
                               </button>
                             </div>
                           )}
-                          <div className="seg">
-                            <button type="button" className="small" onClick={addZoomKeyAtPlayhead}>
-                              ＋ {t("addZoomKey")}
-                            </button>
-                          </div>
+                          <button type="button" className="small" onClick={addZoomKeyAtPlayhead}>
+                            ＋ {t("addZoomKey")}
+                          </button>
                           {n > 1 && (
-                            <div className="seg">
-                              <button
-                                type="button"
-                                className={`small ${syncSize ? "on" : ""}`}
-                                aria-pressed={syncSize}
-                                title={t("syncSizeHint")}
-                                onClick={() => setSyncSize((v) => !v)}
-                              >
-                                {t("syncSize")}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              className={`small ${syncSize ? "on" : ""}`}
+                              aria-pressed={syncSize}
+                              title={t("syncSizeHint")}
+                              onClick={() => setSyncSize((v) => !v)}
+                            >
+                              {t("syncSize")}
+                            </button>
                           )}
                         </>
                       );
                     })()}
-                </>
-              ) : null
+                </div>
+                <div className="preview-tools-right">
+                  {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
+                  <button
+                    type="button"
+                    className="small"
+                    title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
+                    aria-label={t("previewZoomOut")}
+                    disabled={viewZoom <= 1}
+                    onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    className="small zoom-pct"
+                    title={t("previewFit")}
+                    onClick={() => setViewZoom(1)}
+                  >
+                    {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
+                    aria-label={t("previewZoomIn")}
+                    disabled={viewZoom >= 8}
+                    onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    title={`${t("shortcuts")} (Ctrl+/)`}
+                    aria-label={t("shortcuts")}
+                    onClick={() => setShortcutsOpen(true)}
+                  >
+                    ?
+                  </button>
+                </div>
+              </>
             }
             viewZoom={viewZoom}
             onViewZoom={setViewZoom}
@@ -1092,6 +1169,27 @@ export function App() {
             onCaptionClick={() => {
               if (loc) setSelection({ kind: "caption", step: loc.entry.index });
             }}
+            onCaptionEdit={() => {
+              if (!loc) return;
+              setSelection({ kind: "caption", step: loc.entry.index });
+              setCaptionEdit(loc.entry.index);
+            }}
+            captionEditing={captionEditing}
+            onCaptionText={(text) => {
+              if (captionEdit === null) return;
+              const i = captionEdit;
+              // 右の欄のテロップの入力欄と同じ履歴のまとまりにする
+              update(
+                (p) => ({
+                  ...p,
+                  steps: p.steps.map((s, j) =>
+                    j === i ? { ...s, caption: { ...(s.caption ?? {}), text } } : s,
+                  ),
+                }),
+                `step${i}.caption.text`,
+              );
+            }}
+            onCaptionEditEnd={() => setCaptionEdit(null)}
             onEmptyDoubleClick={() => {
               if (project.steps.length === 0) confirmAddRecording();
             }}
@@ -1193,36 +1291,6 @@ export function App() {
               >
                 <Icon name={muted ? "muted" : "volume"} />
               </button>
-              <span className="sep" />
-              {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
-              <button
-                type="button"
-                className="small"
-                title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
-                aria-label={t("previewZoomOut")}
-                disabled={viewZoom <= 1}
-                onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="small zoom-pct"
-                title={t("previewFit")}
-                onClick={() => setViewZoom(1)}
-              >
-                {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
-              </button>
-              <button
-                type="button"
-                className="small"
-                title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
-                aria-label={t("previewZoomIn")}
-                disabled={viewZoom >= 8}
-                onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
-              >
-                +
-              </button>
               <button
                 type="button"
                 className="icon"
@@ -1319,6 +1387,7 @@ export function App() {
         </footer>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }

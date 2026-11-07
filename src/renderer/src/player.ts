@@ -30,6 +30,8 @@ export interface PlayerState {
   projectPath: string | null;
   /** テロップの文が空のときにプレビューにだけ出す文 */
   captionPlaceholder?: string;
+  /** テロップを描かないステップの番号(プレビュー上でテロップの文を入力中) */
+  hideCaptionStep?: number | null;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -117,6 +119,7 @@ export class Player {
       ignoreZoom: st.ignoreZoom,
       backgroundImage: this.backgroundImage(st),
       captionPlaceholder: st.captionPlaceholder,
+      hideCaption: entry !== null && st.hideCaptionStep === entry.index,
     });
   }
 

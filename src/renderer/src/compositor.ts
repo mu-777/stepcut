@@ -34,6 +34,8 @@ export interface FrameInput {
   backgroundImage?: Frame | null;
   /** テロップの文が空のときに薄く出す文(編集画面のプレビューだけ。書き出しでは渡さない) */
   captionPlaceholder?: string;
+  /** テロップを描かない(プレビュー上でテロップの文を入力中。入力欄を重ねて出す) */
+  hideCaption?: boolean;
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
@@ -78,7 +80,7 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
     ctx.drawImage(f.frame, view.x * kx, view.y * ky, view.w * kx, view.h * ky, box.x, box.y, box.w, box.h);
   }
 
-  if (f.step) {
+  if (f.step && !f.hideCaption) {
     const w = captionWindow(f.step, f.stepDuration, f.captionPlaceholder !== undefined);
     if (w && f.local >= w.start && f.local < w.end) drawCaption(ctx, f, v);
   }
@@ -96,6 +98,11 @@ export interface CaptionBox {
   boxColor: string | null;
   textW: number;
   lineH: number;
+}
+
+/** テロップの書体(CSS の font の書式。プレビュー上の入力欄も同じものを使う) */
+export function captionFont(font: string, px: number): string {
+  return `${px}px "${font}", "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
 }
 
 /**
@@ -119,7 +126,7 @@ export function captionBox(
   const place = resolveCaptionPlacement(project, step);
   const size = style.size * scale;
   const lineH = size * style.lineHeight;
-  ctx.font = `${size}px "${style.font}", "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", sans-serif`;
+  ctx.font = captionFont(style.font, size);
   const measure = (s: string) => ctx.measureText(s).width;
   const lines = wrapText(text, place.width * outW, measure);
   const textW = Math.max(...lines.map(measure), 0);

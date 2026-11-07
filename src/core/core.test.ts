@@ -316,6 +316,8 @@ describe("edit", () => {
       ["a-2", 13, 20],
     ]);
     expect(r.steps[0]?.holds).toEqual([{ at: 1, duration: 1 }]);
+    // 後半には空のテロップを付ける(プレビューに仮の文を出す)
+    expect(r.steps[1]?.caption).toEqual({ text: "" });
   });
 
   it("後半を捨てられる", () => {

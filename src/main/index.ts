@@ -82,6 +82,10 @@ function buildMenu(): void {
       ],
     },
     { role: "viewMenu" },
+    {
+      role: "help",
+      submenu: [{ label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", click: sendMenu("shortcuts") }],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
