@@ -259,9 +259,17 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // 設定パネルの幅をドラッグで変える
   const left0 = (await page.locator("aside.panel").boundingBox()).width;
   const sp = await page.locator(".splitter.col").nth(1).boundingBox();
-  await drag(page, center(sp), { x: center(sp).x + 80, y: center(sp).y });
+  await drag(page, center(sp), { x: center(sp).x - 80, y: center(sp).y });
   const left1 = (await page.locator("aside.panel").boundingBox()).width;
   check(left1 - left0 > 60, `設定パネルの幅を変えられる (${left0} → ${left1})`);
+  // 左から サムネイル列 | プレビュー | 設定パネル の順
+  const railBox = await page.locator(".step-rail").boundingBox();
+  const centerBox = await page.locator(".center").boundingBox();
+  const panelBox = await page.locator("aside.panel").boundingBox();
+  check(
+    railBox.x < centerBox.x && centerBox.x + centerBox.width <= panelBox.x,
+    "サムネイル列・プレビュー・設定パネルが左から順に並ぶ",
+  );
   // サムネイル列の幅も変えられる
   const rail0 = (await page.locator(".step-rail").boundingBox()).width;
   const rsp = await page.locator(".splitter.col").first().boundingBox();
@@ -272,6 +280,23 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     rail1 - rail0 > 30 && th1 > rail0,
     `サムネイル列の幅を変えるとサムネイルも大きくなる (${rail0} → ${rail1})`,
   );
+
+  // プレビューの上の帯から、テロップの入力とズームの追加を始められる
+  await thumbs.nth(1).click();
+  await page.keyboard.press("ArrowRight");
+  await page.getByRole("button", { name: /^(Caption|テロップ)$/ }).click();
+  check((await page.locator(".caption-input").count()) === 1, "帯の「テロップ」でその場の入力を始める");
+  await page.keyboard.press("Escape");
+  const quickBefore = await page.locator(".tl-bar.zoom").count();
+  await page.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
+  check(
+    (await page.locator(".tl-bar.zoom").count()) === quickBefore + 1 &&
+      (await page.locator(".box-outline").count()) === 1,
+    "帯の「＋ ズーム」でズームを足し、範囲の編集を始める",
+  );
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.waitForTimeout(200);
 
   // プレビューの右クリックでズームを作り、枠を動かす(UI-05)
   await thumbs.nth(1).click();

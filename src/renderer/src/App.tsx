@@ -949,7 +949,7 @@ export function App() {
         </div>
       )}
 
-      <main className="main" style={{ gridTemplateColumns: `${railW}px 5px ${panelW}px 5px minmax(0, 1fr)` }}>
+      <main className="main" style={{ gridTemplateColumns: `${railW}px 5px minmax(0, 1fr) 5px ${panelW}px` }}>
         <StepRail
           timeline={timeline}
           media={media}
@@ -970,101 +970,6 @@ export function App() {
           onAdd={() => actions.current.addSource?.()}
         />
         <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 200))} />
-        <aside className="panel">
-          {view === "project" ? (
-            <>
-              <h3 className="panel-title">{t("panelProjectTitle")}</h3>
-              <ProjectPanel
-                project={project}
-                update={update}
-                voices={voices}
-                focusVideo={selection.kind === "video"}
-                focusShared={sharedFocus}
-                backgroundError={(() => {
-                  const bg = resolveLayout(project).background;
-                  return typeof bg !== "string" && "image" in bg
-                    ? backgrounds.error(bg.image, filePath)
-                    : null;
-                })()}
-              />
-            </>
-          ) : target !== null && tgtStep ? (
-            <>
-              <div className="panel-head">
-                <h3 className="panel-title">
-                  {t("step")} {target + 1}
-                  <span className="muted"> {tgtStep.id}</span>
-                </h3>
-                <div className="seg">
-                  <button
-                    type="button"
-                    className="small"
-                    title={t("prevStep")}
-                    aria-label={t("prevStep")}
-                    disabled={target <= 0}
-                    onClick={() => selectStep(target - 1)}
-                  >
-                    ◀
-                  </button>
-                  <button
-                    type="button"
-                    className="small"
-                    title={t("nextStep")}
-                    aria-label={t("nextStep")}
-                    disabled={target >= project.steps.length - 1}
-                    onClick={() => selectStep(target + 1)}
-                  >
-                    ▶
-                  </button>
-                </div>
-              </div>
-              <StepDetail
-                project={project}
-                index={target}
-                update={update}
-                voices={voices}
-                focus={selection}
-                playheadLocal={playheadLocal}
-                speechStatus={speechStatus}
-                speechPlaying={speechPlaying === target}
-                onPreviewSpeech={() => {
-                  if (speechPlaying === target) stopSpeech();
-                  else previewSpeech(target);
-                }}
-                onGoShared={() => {
-                  setView("project");
-                  setSharedFocus(true);
-                }}
-                drawing={drawingZoom}
-                onDrawZoom={editZoomRect}
-                syncSize={syncSize}
-                onAddZoom={() => addZoomAtPlayhead()}
-                onSelectZoom={(zoom) => {
-                  if (zoom === null) {
-                    select({ kind: "step", step: target });
-                    return;
-                  }
-                  const e = timeline[target];
-                  const z = tgtStep.zooms?.[zoom];
-                  // ズームの区間の外にいれば、区間の始まりへ移ってから選ぶ(再生位置にいちばん近い枠を編集する)
-                  if (e && z && !(time >= e.start + z.start && time <= e.start + z.end))
-                    playerRef.current?.seek(e.start + z.start);
-                  select({ kind: "zoom", step: target, index: zoom });
-                }}
-                srcSizeOf={(step) => {
-                  const m = media.get(project.steps[step]?.source ?? "");
-                  return m ? { w: m.width, h: m.height } : null;
-                }}
-              />
-            </>
-          ) : (
-            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
-              {t("noSources")}
-            </button>
-          )}
-        </aside>
-        <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w + d))} />
-
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
           <Preview
             outW={out.width}
@@ -1206,6 +1111,31 @@ export function App() {
                         </>
                       );
                     })()}
+                  {/* 基本の編集はプレビューで済ませる。ここから始め、細かい数値は右の設定パネルで直す */}
+                  {!drawingZoom && selection.kind !== "video" && !playing && loc && (
+                    <>
+                      <button
+                        type="button"
+                        className="small"
+                        title={t("quickCaptionTip")}
+                        disabled={captionStep === null}
+                        onClick={() => {
+                          setSelection({ kind: "caption", step: loc.entry.index });
+                          setCaptionEdit(loc.entry.index);
+                        }}
+                      >
+                        {t("quickCaption")}
+                      </button>
+                      <button
+                        type="button"
+                        className="small"
+                        title={t("quickZoomTip")}
+                        onClick={() => addZoomAtPlayhead()}
+                      >
+                        ＋ {t("quickZoom")}
+                      </button>
+                    </>
+                  )}
                 </div>
                 <div className="preview-tools-right">
                   {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
@@ -1417,6 +1347,100 @@ export function App() {
             onAddZoomAt={addZoomAt}
           />
         </section>
+        <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w - d))} />
+        <aside className="panel">
+          {view === "project" ? (
+            <>
+              <h3 className="panel-title">{t("panelProjectTitle")}</h3>
+              <ProjectPanel
+                project={project}
+                update={update}
+                voices={voices}
+                focusVideo={selection.kind === "video"}
+                focusShared={sharedFocus}
+                backgroundError={(() => {
+                  const bg = resolveLayout(project).background;
+                  return typeof bg !== "string" && "image" in bg
+                    ? backgrounds.error(bg.image, filePath)
+                    : null;
+                })()}
+              />
+            </>
+          ) : target !== null && tgtStep ? (
+            <>
+              <div className="panel-head">
+                <h3 className="panel-title">
+                  {t("step")} {target + 1}
+                  <span className="muted"> {tgtStep.id}</span>
+                </h3>
+                <div className="seg">
+                  <button
+                    type="button"
+                    className="small"
+                    title={t("prevStep")}
+                    aria-label={t("prevStep")}
+                    disabled={target <= 0}
+                    onClick={() => selectStep(target - 1)}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    title={t("nextStep")}
+                    aria-label={t("nextStep")}
+                    disabled={target >= project.steps.length - 1}
+                    onClick={() => selectStep(target + 1)}
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
+              <StepDetail
+                project={project}
+                index={target}
+                update={update}
+                voices={voices}
+                focus={selection}
+                playheadLocal={playheadLocal}
+                speechStatus={speechStatus}
+                speechPlaying={speechPlaying === target}
+                onPreviewSpeech={() => {
+                  if (speechPlaying === target) stopSpeech();
+                  else previewSpeech(target);
+                }}
+                onGoShared={() => {
+                  setView("project");
+                  setSharedFocus(true);
+                }}
+                drawing={drawingZoom}
+                onDrawZoom={editZoomRect}
+                syncSize={syncSize}
+                onAddZoom={() => addZoomAtPlayhead()}
+                onSelectZoom={(zoom) => {
+                  if (zoom === null) {
+                    select({ kind: "step", step: target });
+                    return;
+                  }
+                  const e = timeline[target];
+                  const z = tgtStep.zooms?.[zoom];
+                  // ズームの区間の外にいれば、区間の始まりへ移ってから選ぶ(再生位置にいちばん近い枠を編集する)
+                  if (e && z && !(time >= e.start + z.start && time <= e.start + z.end))
+                    playerRef.current?.seek(e.start + z.start);
+                  select({ kind: "zoom", step: target, index: zoom });
+                }}
+                srcSizeOf={(step) => {
+                  const m = media.get(project.steps[step]?.source ?? "");
+                  return m ? { w: m.width, h: m.height } : null;
+                }}
+              />
+            </>
+          ) : (
+            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
+              {t("noSources")}
+            </button>
+          )}
+        </aside>
       </main>
 
       {(issues.length > 0 || mediaErrors.length > 0) && (

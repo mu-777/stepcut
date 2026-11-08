@@ -1,4 +1,4 @@
-// 左の設定パネル。全体の設定と、ステップの詳細(録画・速度 / 文 / ズーム)。
+// 右の設定パネル。全体の設定と、ステップの詳細(録画・速度 / 文 / ズーム)。
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
