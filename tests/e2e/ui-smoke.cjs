@@ -99,18 +99,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     await page.locator(".rail-project").click();
     await page.waitForTimeout(100);
   };
-  /** サムネイル i にマウスを重ねたときに出るテロップの文 */
-  const tipOf = async (i) => {
-    await thumbs.nth(i).hover();
-    await page.waitForTimeout(100);
-    const text = await page.locator(".rail-tip").textContent();
-    await page.mouse.move(700, 5);
-    return text;
-  };
+  /** サムネイル i の横に出ている ID・長さ・テロップの文 */
+  const tipOf = (i) => thumbs.nth(i).locator(".rail-text").textContent();
   check((await thumbs.count()) === 2, "プロジェクトを開いてサムネイルが 2 つ並ぶ");
   check((await page.locator(".tl-clip").count()) === 2, "タイムラインにクリップが 2 つ");
   check((await page.locator(".tl-tile canvas").count()) > 0, "クリップにサムネイルが並ぶ");
-  check((await tipOf(0)).includes("最初のステップ"), "サムネイルにマウスを重ねるとテロップの文が出る");
+  check((await tipOf(0)).includes("最初のステップ"), "サムネイルの横にテロップの文が出る");
   const timeText = () => page.locator(".transport .time").textContent();
   const panelTitle = () => page.locator(".panel-title").textContent();
 
@@ -271,15 +265,25 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "サムネイル列・プレビュー・設定パネルが左から順に並ぶ",
   );
   // サムネイル列の幅も変えられる
+  // 狭めるとサムネイルだけになり、文はマウスを重ねたときに出る
   const rail0 = (await page.locator(".step-rail").boundingBox()).width;
+  const pic0 = (await thumbs.first().locator(".rail-pic").boundingBox()).width;
   const rsp = await page.locator(".splitter.col").first().boundingBox();
-  await drag(page, center(rsp), { x: center(rsp).x + 40, y: center(rsp).y });
+  await drag(page, center(rsp), { x: center(rsp).x - 110, y: center(rsp).y });
   const rail1 = (await page.locator(".step-rail").boundingBox()).width;
-  const th1 = (await thumbs.first().boundingBox()).width;
+  const pic1 = (await thumbs.first().locator(".rail-pic").boundingBox()).width;
   check(
-    rail1 - rail0 > 30 && th1 > rail0,
-    `サムネイル列の幅を変えるとサムネイルも大きくなる (${rail0} → ${rail1})`,
+    rail0 - rail1 > 80 && !(await thumbs.first().locator(".rail-text").isVisible()) && pic1 > rail1 - 20,
+    `サムネイル列を狭めるとサムネイルだけを列の幅いっぱいに出す (${rail0} → ${rail1}, ${pic0} → ${pic1})`,
   );
+  await thumbs.nth(0).hover();
+  await page.waitForTimeout(100);
+  const tip = (await page.locator(".rail-tip").count()) ? await page.locator(".rail-tip").textContent() : "";
+  await page.mouse.move(700, 5);
+  check(tip.includes("最初のステップ"), "サムネイルだけのときはマウスを重ねるとテロップの文が出る");
+  const rsp2 = await page.locator(".splitter.col").first().boundingBox();
+  await drag(page, center(rsp2), { x: center(rsp2).x + 110, y: center(rsp2).y });
+  check(await thumbs.first().locator(".rail-text").isVisible(), "広げるとサムネイルの横に文が戻る");
 
   // プレビューの上の帯から、テロップの入力とズームの追加を始められる
   await thumbs.nth(1).click();

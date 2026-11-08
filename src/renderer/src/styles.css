@@ -165,6 +165,7 @@ textarea {
 /* 左端のサムネイル列(ステップの一覧の代わり)。押すとプレビューがそのステップへ移り、右の設定パネルが切り替わる */
 .step-rail {
   min-width: 0;
+  container: step-rail / inline-size;
   background: var(--bg);
   border-right: 1px solid var(--line);
   display: flex;
@@ -203,11 +204,32 @@ textarea {
   gap: 6px;
 }
 
+/* サムネイルと、その横のテロップの文。列が狭ければサムネイルだけを列の幅いっぱいに出す */
 .rail-thumb {
-  position: relative;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
-  padding: 0;
+  padding: 3px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.rail-thumb:hover {
+  background: var(--panel-2);
+}
+
+.rail-thumb.on {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
+.rail-pic {
+  position: relative;
+  flex: none;
+  width: 96px;
   aspect-ratio: 16 / 9;
   background: #000;
   border: 2px solid transparent;
@@ -215,15 +237,60 @@ textarea {
   overflow: hidden;
 }
 
-.rail-thumb canvas {
+.rail-pic canvas {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.rail-thumb.on {
+.rail-thumb.on .rail-pic {
   border-color: var(--accent);
+}
+
+.rail-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rail-meta {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 列の幅に応じて折り返し、3 行を超える分は … で切る */
+.rail-caption {
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+@container step-rail (max-width: 170px) {
+  .rail-thumb {
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+  .rail-thumb:hover,
+  .rail-thumb.on {
+    background: transparent;
+  }
+  .rail-pic {
+    width: 100%;
+  }
+  .rail-text {
+    display: none;
+  }
 }
 
 .rail-num {

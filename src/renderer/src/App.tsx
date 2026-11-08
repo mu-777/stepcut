@@ -102,12 +102,12 @@ export function App() {
   const [sharedFocus, setSharedFocus] = useState(false);
   const [panelW, setPanelW] = useState(() => loadPref("panelWidth", 320));
   /** 左端のサムネイル列の幅 */
-  const [railW, setRailW] = useState(() => loadPref("railWidth", 76));
+  const [railW, setRailW] = useState(() => loadPref("stepRailWidth", 220));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
   /** プレビューの表示倍率(1 = 全体表示)。書き出しには影響しない */
   const [viewZoom, setViewZoom] = useState(1);
   useEffect(() => savePref("panelWidth", panelW), [panelW]);
-  useEffect(() => savePref("railWidth", railW), [railW]);
+  useEffect(() => savePref("stepRailWidth", railW), [railW]);
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
   const [thumbsVersion, setThumbsVersion] = useState(0);
   const thumbs = useMemo(() => new ThumbCache(() => setThumbsVersion((v) => v + 1)), []);
@@ -969,7 +969,7 @@ export function App() {
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
         />
-        <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 200))} />
+        <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 400))} />
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
           <Preview
             outW={out.width}

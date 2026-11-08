@@ -1,5 +1,6 @@
 // 左端のサムネイル列。いちばん上の「全体」で全体の設定、サムネイルでそのステップの詳細を開く。
-// ステップの一覧の代わりなので、テロップの文はマウスを重ねたときに横に出す。
+// ステップの一覧の代わり。列が広ければサムネイルの横にテロップの文を出し、狭ければサムネイルだけにする。
+// 文が隠れている・切れているときは、マウスを重ねると横に全文を出す。
 
 import { useState } from "react";
 import { sourceTimeAt, type TimelineEntry } from "../../core/timeline";
@@ -60,13 +61,26 @@ export function StepRail(props: {
                 onClick={() => props.onStep(e.index)}
                 onContextMenu={(ev) => props.onStepMenu(ev, e.index)}
                 onPointerEnter={(ev) => {
+                  const text = ev.currentTarget.querySelector<HTMLElement>(".rail-caption");
+                  // 文が全部見えていれば出さない
+                  if (text && text.offsetParent !== null && text.scrollHeight <= text.clientHeight) return;
                   const r = ev.currentTarget.getBoundingClientRect();
                   setTip({ i: e.index, x: r.right + 8, y: r.top + r.height / 2 });
                 }}
                 onPointerLeave={() => setTip(null)}
               >
-                <ThumbTile thumb={thumb} />
-                <span className="rail-num">{e.index + 1}</span>
+                <span className="rail-pic">
+                  <ThumbTile thumb={thumb} />
+                  <span className="rail-num">{e.index + 1}</span>
+                </span>
+                <span className="rail-text">
+                  <span className="rail-meta">
+                    {e.step.id} · {e.duration.toFixed(1)}s
+                  </span>
+                  <span className={`rail-caption ${e.step.caption?.text ? "" : "muted"}`}>
+                    {e.step.caption?.text || t("noCaption")}
+                  </span>
+                </span>
               </button>
             </li>
           );
