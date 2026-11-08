@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAudio } from "./defaults";
 import type { Project, Step } from "./schema";
 import { timeStretch } from "./stretch";
-import { fadeLevel } from "./timeline";
+import { fadeLevel, stepHolds } from "./timeline";
 
 const RATE = 48000;
 const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 0, out: 10, ...over });
@@ -63,5 +63,22 @@ describe("フェードと早送りの音声", () => {
     const follow = step({ speed: 2, audio: { source: { enabled: true, keepPitch: false } } });
     expect(resolveAudio(proj([follow]), follow).keepPitch).toBe(false);
     expect(resolveAudio(proj([step()]), step()).sourceEnabled).toBe(true);
+  });
+});
+
+describe("ズーム中の映像の止め方", () => {
+  const zoom = { start: 2, end: 5, keys: [{ t: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }] };
+  it("拡大・縮小の動きの間だけ止めるズームは、動きの前後を保持にする", () => {
+    expect(stepHolds(step({ zooms: [{ ...zoom, hold: "transition", transition: 0.5 }] }))).toEqual([
+      { at: 1.5, duration: 0.5 },
+      { at: 5, duration: 0.5 },
+    ]);
+    // 書いていなければ固定の秒数。ステップの頭より前には出さない
+    expect(stepHolds(step({ zooms: [{ ...zoom, start: 0.3, hold: "transition" }] }))).toEqual([
+      { at: 0, duration: 0.3 },
+      { at: 5, duration: 0.8 },
+    ]);
+    expect(stepHolds(step({ zooms: [{ ...zoom }] }))).toEqual([{ at: 2, duration: 3 }]);
+    expect(stepHolds(step({ zooms: [{ ...zoom, hold: false }] }))).toEqual([]);
   });
 });

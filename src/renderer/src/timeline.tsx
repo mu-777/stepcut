@@ -10,7 +10,7 @@ import {
   speechText,
   stepSpeed,
   withSpeechPieces,
-  zoomHolds,
+  zoomHoldMode,
   zoomTransition,
 } from "../../core/defaults";
 import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
@@ -852,7 +852,7 @@ export function Timeline(props: {
                       ),
                       <Bar
                         key={`z${z.start}`}
-                        className={`zoom ${zoomHolds(z) ? "hold" : ""} ${isSel("zoom", i, k) ? "selected" : ""}`}
+                        className={`zoom ${zoomHoldMode(z) === "zoom" ? "hold" : ""} ${isSel("zoom", i, k) ? "selected" : ""}`}
                         left={z.start * scale}
                         width={(z.end - z.start) * scale}
                         label={`${zs.toFixed(1)}×`}

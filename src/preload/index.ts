@@ -6,7 +6,9 @@ const api: Api = {
   openProjectDialog: () => ipcRenderer.invoke("project:open-dialog"),
   readProject: (filePath) => ipcRenderer.invoke("project:read", filePath),
   initialProject: () => ipcRenderer.invoke("project:initial"),
-  saveProject: (filePath, text, prevPath) => ipcRenderer.invoke("project:save", filePath, text, prevPath),
+  saveProject: (filePath, text, prevPath, name) =>
+    ipcRenderer.invoke("project:save", filePath, text, prevPath, name),
+  renameProject: (filePath, name) => ipcRenderer.invoke("project:rename", filePath, name),
   pickSources: () => ipcRenderer.invoke("sources:pick"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSettings: (patch) => ipcRenderer.invoke("settings:set", patch),

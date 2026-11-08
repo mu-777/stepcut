@@ -15,32 +15,29 @@ const paths: Record<string, string> = {
   panelProject: "M3 5h18v14H3zM7 8.5h10v7H7z",
   // 設定パネルの欄をすべて閉じる: 向かい合う山形
   collapseAll: "M7 4l5 5 5-5M7 20l5-5 5 5",
+  chevronLeft: "M15 5l-7 7 7 7",
+  chevronRight: "M9 5l7 7-7 7",
   // ヘッダー(線だけのアイコン)
-  fileNew: "M6 3h8l5 5v13H6zM14 3v5h5M12 11v6M9 14h6",
-  fileOpen: "M3 6h6l2 2h10v11H3z",
-  fileSave: "M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6",
-  fileSaveAs: "M12 20H5V4h11l3 3v4M8 4v5h7V4M15 21l6-6-2-2-6 6v2z",
-  addRecording: "M3 6h12v12H3zM15 10l6-3v10l-6-3M9 9v6M6 12h6",
+  // ファイル(新規・開く・保存のメニュー): 書類
+  fileMenu: "M6 3h8l5 5v13H6zM14 3v5h5M9 13h7M9 17h7",
   exportVideo: "M12 15V3M7 8l5-5 5 5M4 14v6h16v-6",
   undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
   redo: "M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
+  // 歯車(塗り。Material Icons の settings、Apache-2.0)
   settings:
-    "M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1",
+    "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.47.47 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z",
 };
 
 /** 線も描くアイコン。OUTLINE は線だけ(塗らない) */
 const LINE_ICONS = [
   "panelProject",
   "collapseAll",
-  "fileNew",
-  "fileOpen",
-  "fileSave",
-  "fileSaveAs",
-  "addRecording",
+  "chevronLeft",
+  "chevronRight",
+  "fileMenu",
   "exportVideo",
   "undo",
   "redo",
-  "settings",
 ];
 const STROKED = new Set(["volume", "muted", ...LINE_ICONS]);
 const OUTLINE = new Set(LINE_ICONS);

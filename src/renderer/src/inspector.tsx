@@ -16,7 +16,7 @@ import {
   speechSynced,
   speechText,
   withSpeechPieces,
-  zoomHolds,
+  zoomHoldMode,
   zoomTransition,
 } from "../../core/defaults";
 import {
@@ -999,10 +999,30 @@ function ZoomSection(props: {
         ).toFixed(2)}
         onChange={(v) => setZoom("transition", { transition: v })}
       />
-      <CheckField
+      <SelectField
         label={t("hold")}
-        value={zoomHolds(z)}
-        onChange={(v) => setZoom("hold", { hold: v ? undefined : false })}
+        value={zoomHoldMode(z)}
+        options={[
+          { value: "zoom", label: t("holdZoom") },
+          { value: "transition", label: t("holdTransition") },
+          { value: "none", label: t("holdNone") },
+        ]}
+        onChange={(v) =>
+          setZoom(
+            "hold",
+            v === "transition"
+              ? {
+                  hold: "transition",
+                  // 止める長さを今の動きの秒数に合わせて書いておく(書かないと固定の秒数になる)
+                  transition:
+                    z.transition ??
+                    Math.round(
+                      zoomTransition({ ...z, hold: undefined }, zoomScale(z, crop, src.w, src.h)) * 100,
+                    ) / 100,
+                }
+              : { hold: v === "zoom" ? undefined : false },
+          )
+        }
       />
       <CheckField
         label={t("zoomKeepAspect")}

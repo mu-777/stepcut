@@ -99,6 +99,11 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     await page.locator(".rail-project").click();
     await page.waitForTimeout(100);
   };
+  /** ヘッダーの「ファイル」のメニューから保存する */
+  const saveProject = async () => {
+    await page.getByRole("button", { name: /^(File|ファイル)/ }).click();
+    await page.getByRole("menuitem", { name: /^(Save|保存)/ }).click();
+  };
   /** サムネイル i の横に出ている ID・長さ・テロップの文 */
   const tipOf = (i) => thumbs.nth(i).locator(".rail-text").textContent();
   check((await thumbs.count()) === 2, "プロジェクトを開いてサムネイルが 2 つ並ぶ");
@@ -137,6 +142,17 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       (await page.locator(".fold-summary").first().textContent()).startsWith("4.0"),
     "録画・速度は閉じて長さだけを出し、文とズームは開いている",
   );
+  {
+    const nav = page.locator(".panel-nav button");
+    const b0 = await nav.nth(0).boundingBox();
+    const b1 = await nav.nth(1).boundingBox();
+    const tt = await page.locator(".panel-nav .panel-title").boundingBox();
+    const hh = await page.locator(".panel-head").boundingBox();
+    check(
+      b0.x < tt.x && tt.x + tt.width <= b1.x && Math.abs(tt.x + tt.width / 2 - (hh.x + hh.width / 2)) < 3,
+      "ステップの見出しは真ん中で、左右に前後のステップへの矢印",
+    );
+  }
   await page.getByRole("button", { name: /Add zoom|ズームを追加/ }).click();
   const box = await page.locator(".draw-layer").boundingBox();
   await drag(
@@ -155,10 +171,27 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await shot(page, "02-zoom");
   check((await page.locator(".tl-bar.zoom").count()) === 1, "ズームがタイムラインに出る");
   check((await page.locator(".tl-hold.zoom-hold").count()) === 1, "ズーム中は既定で映像を止める");
-  await page
-    .getByLabel(/Freeze video while zoomed|ズーム中は映像を止める/)
-    .first()
-    .uncheck();
+  // ズーム中の映像: 止める / 動きの間だけ止める / 流す
+  const holdSel = page
+    .locator(".field")
+    .filter({ has: page.locator("> span", { hasText: /^(Video while zoomed|ズーム中の映像)$/ }) })
+    .locator("select")
+    .first();
+  await holdSel.selectOption("transition");
+  await page.waitForTimeout(200);
+  {
+    // ズームが頭から始まるときは拡大の前に止める区間がなく、縮小の後だけになる
+    const zw = (await page.locator(".tl-bar.zoom").first().boundingBox()).width;
+    const hw = await page
+      .locator(".tl-hold.zoom-hold")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    check(
+      hw.length >= 1 && hw.length <= 2 && hw.every((w) => w < zw),
+      `「拡大・縮小の動きの間だけ止める」で、動きの前後だけが保持になる (${hw.map(Math.round).join(", ")} < ${Math.round(zw)})`,
+    );
+  }
+  await holdSel.selectOption("none");
+  await page.waitForTimeout(200);
   check((await page.locator(".tl-hold.zoom-hold").count()) === 0, "映像を止める設定を外せる");
 
   // S で分割、Undo で戻す(ズーム範囲の編集中は矢印キーで枠が動くので、Esc で編集を終えてから)
@@ -237,7 +270,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 保存(開いたファイルへ上書き)
   // メニューのショートカットは xvfb 上の Playwright から届かないため、ボタンで保存する
-  await page.getByRole("button", { name: /^(Save|保存)$/ }).click();
+  await saveProject();
   await page.waitForTimeout(800);
   const saved = JSON.parse(fs.readFileSync(projectPath, "utf8"));
   check(saved.steps[0].zooms?.length === 1, "保存した JSON にズームが入る");
@@ -485,8 +518,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".seg-label").textContent()).includes("1/2"),
     "点線の枠のクリックでその枠の編集に切り替える",
   );
-  // プレビューの外(ツールバーの余白)のクリックでも編集を終える
-  await page.locator(".toolbar .tb-title").click();
+  // プレビューの外(ヘッダーの余白)のクリックでも編集を終える
+  const tbBox = await page.locator(".toolbar").boundingBox();
+  await page.mouse.click(tbBox.x + tbBox.width * 0.3, tbBox.y + tbBox.height / 2);
   await page.waitForTimeout(200);
   check((await page.locator(".draw-layer").count()) === 0, "プレビューの外のクリックで枠の編集を終える");
   // 再生を始めても編集を終える
@@ -570,7 +604,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // 背景をプリセット「ミント」に変える
   await page.locator(".swatch").nth(2).click();
   await page.waitForTimeout(500);
-  await page.getByRole("button", { name: /^(Save|保存)$/ }).click();
+  await saveProject();
   await page.waitForTimeout(800);
   const saved2 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
   check(saved2.layout?.margin?.top > 0.04, `録画の余白が保存される (上 ${saved2.layout?.margin?.top})`);
@@ -804,17 +838,50 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(100);
   check((await page.locator(".fold.open").count()) === 0, "「すべての欄を閉じる」で全部の欄を閉じる");
 
-  // ヘッダー: アイコン付きのボタン、真ん中にプロジェクトの名前、右端に書き出し
+  // ヘッダー: 文字なしのアイコン、プロジェクトの名前はウィンドウの中央、書き出しは右端
   const hdr = await page.locator(".toolbar").boundingBox();
   const exportBtn = await page.locator(".tb-btn.primary").boundingBox();
   const titleBox = await page.locator(".tb-title").boundingBox();
+  const winW = await page.evaluate(() => window.innerWidth);
   check(
-    (await page.locator(".tb-btn svg").count()) >= 9 &&
-      (await page.locator(".tb-name").textContent()).includes("ui") &&
-      exportBtn.x > titleBox.x + titleBox.width - 1 &&
-      hdr.x + hdr.width - (exportBtn.x + exportBtn.width) < 16 &&
-      hdr.height >= 50,
-    `ヘッダーはアイコン付きで、真ん中にプロジェクト名、書き出しは右端 (高さ ${hdr.height})`,
+    (await page.locator(".tb-btn svg").count()) === 5 &&
+      (await page.locator(".tb-btn span").count()) === 0 &&
+      (await page.locator(".tb-name").textContent()) === "ui" &&
+      Math.abs(titleBox.x + titleBox.width / 2 - winW / 2) < 3 &&
+      hdr.x + hdr.width - (exportBtn.x + exportBtn.width) < 16,
+    `ヘッダーは文字なしのアイコンで、プロジェクト名はウィンドウの中央、書き出しは右端 (中央のずれ ${Math.round(titleBox.x + titleBox.width / 2 - winW / 2)})`,
+  );
+  // 新規・開く・保存は「ファイル」のメニューにまとめる
+  await page.getByRole("button", { name: /^(File|ファイル)/ }).click();
+  check(
+    (await page.getByRole("menuitem").allTextContents())
+      .join(",")
+      .match(/(New|新規).*(Open|開く).*(Save|保存)/) !== null,
+    "「ファイル」のメニューに新規・開く・保存",
+  );
+  await page.keyboard.press("Escape");
+  // タイトルのクリックで名前を変える(ファイル名が変わる)。戻しておく
+  const rename = async (name) => {
+    await page.locator(".tb-title").click();
+    await page.locator(".tb-title-input").fill(name);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+  };
+  await rename("ui-renamed");
+  const renamed = fs.existsSync(path.join(path.dirname(projectPath), "ui-renamed.sanno.json"));
+  const renamedTitle = await page.locator(".tb-name").textContent();
+  await rename("ui");
+  check(
+    renamed && renamedTitle === "ui-renamed" && fs.existsSync(projectPath),
+    "タイトルのクリックでプロジェクトの名前(ファイル名)を変えられる",
+  );
+  // 右パネルの見出し: 真ん中にタイトル、右端にすべて閉じるボタン
+  const ph = await page.locator(".panel-head").boundingBox();
+  const pt = await page.locator(".panel-head .panel-title").boundingBox();
+  const pf = await page.locator(".panel-head .fold-all").boundingBox();
+  check(
+    Math.abs(pt.x + pt.width / 2 - (ph.x + ph.width / 2)) < 3 && ph.x + ph.width - (pf.x + pf.width) < 4,
+    "右パネルの見出しは真ん中、すべて閉じるボタンは右端",
   );
   check(
     /ui — Screen Annotator/.test(await page.title()),
@@ -834,7 +901,8 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 新規(録画なし): 録画の追加の案内はサムネイル列の「全体」の下、設定パネルは全体の設定
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: /^(New|新規)$/ }).click();
+  await page.getByRole("button", { name: /^(File|ファイル)/ }).click();
+  await page.getByRole("menuitem", { name: /^(New|新規)/ }).click();
   await page.waitForTimeout(300);
   const addBig = await page.locator(".rail-add").boundingBox();
   const railBig = await page.locator(".step-rail").boundingBox();
@@ -858,6 +926,15 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     /mp4/.test((await page.locator(".banner").textContent()) ?? ""),
     "サムネイル列へのドロップを受け付け、mp4 以外は断る",
   );
+
+  // まだ保存していないプロジェクトの保存は、先にヘッダーで名前を入れてもらう
+  await saveProject();
+  await page.waitForTimeout(150);
+  check(
+    (await page.locator(".tb-title-input").count()) === 1,
+    "無題の「保存」でヘッダーの名前の入力が始まる",
+  );
+  await page.keyboard.press("Escape");
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();

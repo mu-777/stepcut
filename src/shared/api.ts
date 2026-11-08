@@ -62,7 +62,15 @@ export interface Api {
   /** 起動時の引数で渡されたプロジェクト */
   initialProject(): Promise<OpenedProject | null>;
   /** 保存。素材パスを保存先基準で書き換えた JSON を返す。filePath が null なら保存先を尋ねる */
-  saveProject(filePath: string | null, text: string, prevPath: string | null): Promise<OpenedProject | null>;
+  /** name は新しいプロジェクトのファイル名(拡張子なし)。アプリの設定の保存先があれば尋ねずにそこへ保存する */
+  saveProject(
+    filePath: string | null,
+    text: string,
+    prevPath: string | null,
+    name?: string,
+  ): Promise<OpenedProject | null>;
+  /** プロジェクトのファイル名を変える(同じフォルダー)。新しいパスを返す */
+  renameProject(filePath: string, name: string): Promise<string>;
   pickSources(): Promise<string[]>;
   // アプリの設定
   getSettings(): Promise<AppSettings>;

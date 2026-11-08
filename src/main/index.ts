@@ -1,4 +1,14 @@
-import { appendFile, type FileHandle, mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  type FileHandle,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
 import type { AppSettings, ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
@@ -10,6 +20,12 @@ import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 
 const PROJECT_FILTER = { name: "Screen Annotator Project", extensions: ["json"] };
+
+const exists = (p: string) =>
+  access(p).then(
+    () => true,
+    () => false,
+  );
 
 let mainWindow: BrowserWindow | null = null;
 let dirty = false;
@@ -62,7 +78,6 @@ function buildMenu(): void {
         { label: "New", accelerator: "CmdOrCtrl+N", click: sendMenu("new") },
         { label: "Open…", accelerator: "CmdOrCtrl+O", click: sendMenu("open") },
         { label: "Save", accelerator: "CmdOrCtrl+S", click: sendMenu("save") },
-        { label: "Save As…", accelerator: "CmdOrCtrl+Shift+S", click: sendMenu("saveAs") },
         { type: "separator" },
         { label: "Add Recording…", click: sendMenu("addSource") },
         { label: "Export…", accelerator: "CmdOrCtrl+E", click: sendMenu("export") },
@@ -127,17 +142,23 @@ function registerIpc(): void {
   ipcMain.handle("project:initial", () => (initialProject ? readProject(initialProject) : null));
   ipcMain.handle(
     "project:save",
-    async (_e, filePath: string | null, text: string, prevPath: string | null) => {
+    async (_e, filePath: string | null, text: string, prevPath: string | null, name?: string) => {
       let target = filePath;
       if (!target) {
-        // 名前を付けて保存は今のファイルの場所、新しいプロジェクトはアプリの設定の保存先から始める
+        // 新しいプロジェクト: 名前(ヘッダーで入力したもの)で、アプリの設定の保存先に置く。
+        // 保存先を決めていない・同じ名前のファイルがあるときは、その名前で保存先を尋ねる
+        const fileName = `${name || "project"}.sanno.json`;
         const dir = (await loadSettings()).projectDir;
-        const r = await dialog.showSaveDialog({
-          filters: [PROJECT_FILTER],
-          defaultPath: prevPath ?? (dir ? path.join(dir, "project.sanno.json") : "project.sanno.json"),
-        });
-        if (r.canceled || !r.filePath) return null;
-        target = r.filePath;
+        const direct = dir && name ? path.join(dir, fileName) : null;
+        if (direct && !(await exists(direct))) target = direct;
+        else {
+          const r = await dialog.showSaveDialog({
+            filters: [PROJECT_FILTER],
+            defaultPath: dir ? path.join(dir, fileName) : fileName,
+          });
+          if (r.canceled || !r.filePath) return null;
+          target = r.filePath;
+        }
       }
       const rebased = rebaseSourcePaths(text, prevPath ? path.dirname(prevPath) : null, path.dirname(target));
       watcher.markSaved(rebased);
@@ -146,6 +167,16 @@ function registerIpc(): void {
       return { filePath: target, text: rebased } satisfies OpenedProject;
     },
   );
+  // プロジェクトの名前の変更: 同じフォルダーでファイル名を変える(素材のパスは同じフォルダーからの相対なので変わらない)
+  ipcMain.handle("project:rename", async (_e, from: string, name: string) => {
+    const ext = /\.sanno\.json$/i.test(from) ? ".sanno.json" : path.extname(from);
+    const target = path.join(path.dirname(from), `${name}${ext}`);
+    if (target === from) return target;
+    if (await exists(target)) throw new Error(`同じ名前のファイルがあります / Already exists: ${target}`);
+    await rename(from, target);
+    watcher.watch(target, await readFile(target, "utf8"));
+    return target;
+  });
   ipcMain.handle("sources:pick", async () => {
     const r = await dialog.showOpenDialog({
       filters: [{ name: "MP4", extensions: ["mp4"] }],

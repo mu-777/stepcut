@@ -83,7 +83,7 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
       if (next && next.at < cur.at + cur.duration - EPS) {
         errors.push({
           path: at(".holds"),
-          message: `保持が重なっています(${cur.at} 秒と ${next.at} 秒。hold: true のズームも保持に含みます)`,
+          message: `保持が重なっています(${cur.at} 秒と ${next.at} 秒。hold が true か "transition" のズームも保持に含みます)`,
         });
       }
     }

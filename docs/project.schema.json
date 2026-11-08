@@ -673,7 +673,15 @@
                   "type": "boolean"
                 },
                 "hold": {
-                  "type": "boolean"
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string",
+                      "const": "transition"
+                    }
+                  ]
                 },
                 "transition": {
                   "type": "number",

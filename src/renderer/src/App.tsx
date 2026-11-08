@@ -70,8 +70,6 @@ const isTyping = () => {
 /** 検証の指摘の場所。ステップは画面と同じ「ステップ N」を添える(JSON の場所も残す) */
 /** ヘッダーのボタンの文字は「…」を付けない(押すとダイアログが開くことはアイコンで足りる) */
 const bare = (label: string) => label.replace(/…$/, "");
-/** フォルダーの部分(ヘッダーにプロジェクトの場所として出す) */
-const dirName = (p: string) => p.replace(/[\\/][^\\/]*$/, "");
 /** プロジェクトの名前(ファイル名から拡張子を除く) */
 const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.sanno)?\.json$/i, "");
 
@@ -100,6 +98,12 @@ export function App() {
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** ヘッダーのプロジェクト名を入力中 */
+  const [titleEdit, setTitleEdit] = useState(false);
+  /** まだ保存していないプロジェクトに付けた名前(保存するときのファイル名) */
+  const [pendingName, setPendingName] = useState<string | null>(null);
+  /** 名前を入れ終えたら保存する(未保存で「保存」を押した) */
+  const saveAfterName = useRef(false);
   /** 言語を切り替えたら増やして描き直す */
   const [, setLangVersion] = useState(0);
   /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
@@ -192,7 +196,7 @@ export function App() {
   useEffect(() => {
     api.setDirty(dirty);
   }, [dirty]);
-  const projectName = filePath ? baseName(filePath) : t("untitled");
+  const projectName = filePath ? baseName(filePath) : (pendingName ?? t("untitled"));
   // ウィンドウのタイトル(タスクバー)にもプロジェクトの名前を出す
   useEffect(() => {
     document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
@@ -272,6 +276,7 @@ export function App() {
       setHist(initHistory(p));
       setSavedText(serializeProject(p));
       setFilePath(null);
+      setPendingName(null);
       setSelection({ kind: "project" });
     },
     open: async () => {
@@ -279,8 +284,15 @@ export function App() {
       const r = await api.openProjectDialog();
       if (r) loadProject(r.filePath, r.text, false);
     },
-    save: () => save(filePath),
-    saveAs: () => save(null),
+    // まだ保存していないプロジェクトは、先にヘッダーで名前を入れてもらう
+    save: () => {
+      if (filePath) void save(filePath);
+      else if (pendingName) void save(null, pendingName);
+      else {
+        saveAfterName.current = true;
+        setTitleEdit(true);
+      }
+    },
     addSource: async () => addSourcePaths(await api.pickSources()),
     export: () => doExport(),
     shortcuts: () => setShortcutsOpen(true),
@@ -323,9 +335,33 @@ export function App() {
     setSelection({ kind: "step", step: p.steps.length - 1 });
   }
 
-  async function save(path: string | null) {
-    const r = await api.saveProject(path, serializeProject(project), filePath);
-    if (r) loadProject(r.filePath, r.text, true);
+  async function save(path: string | null, name?: string) {
+    const r = await api.saveProject(path, serializeProject(project), filePath, name);
+    if (r) {
+      loadProject(r.filePath, r.text, true);
+      setPendingName(null);
+    }
+  }
+
+  /** ヘッダーのプロジェクト名の入力を終えた。保存済みならファイル名を変え、未保存なら保存するときの名前にする */
+  async function commitName(raw: string | null) {
+    setTitleEdit(false);
+    const wantSave = saveAfterName.current;
+    saveAfterName.current = false;
+    // ファイル名に使えない文字は除く
+    const name = raw?.replace(/[\\/:*?"<>|]/g, "").trim() ?? "";
+    if (!name) return;
+    if (!filePath) {
+      setPendingName(name);
+      if (wantSave) await save(null, name);
+      return;
+    }
+    if (name === baseName(filePath)) return;
+    try {
+      setFilePath(await api.renameProject(filePath, name));
+    } catch (e) {
+      setBanner({ kind: "error", text: (e as Error).message });
+    }
   }
 
   async function doExport() {
@@ -953,91 +989,107 @@ export function App() {
 
   return (
     <div className="app">
+      {/* 左: ファイル(新規・開く・保存)と元に戻す/やり直し、真ん中: プロジェクトの名前、右: アプリの設定と書き出し。
+          真ん中をウィンドウの中央にそろえるため、左右は同じ幅の列にする */}
       <header className="toolbar">
-        {/* 左: ファイルと編集の操作、真ん中: プロジェクトの名前、右: アプリの設定と書き出し */}
-        <div className="tb-group">
-          {(
-            [
-              ["fileNew", "new", "Ctrl+N", () => actions.current.new?.()],
-              ["fileOpen", "open", "Ctrl+O", () => actions.current.open?.()],
-              ["fileSave", "save", "Ctrl+S", () => actions.current.save?.()],
-              ["fileSaveAs", "saveAs", "Ctrl+Shift+S", () => actions.current.saveAs?.()],
-            ] as const
-          ).map(([icon, label, key, fn]) => (
-            <button key={icon} type="button" className="tb-btn" title={`${t(label)} (${key})`} onClick={fn}>
-              <Icon name={icon} />
-              <span>{bare(t(label))}</span>
-            </button>
-          ))}
-        </div>
-        <span className="tb-sep" />
-        <button
-          type="button"
-          className="tb-btn"
-          title={`${t("addRecording")} (${t("dropHint")})`}
-          onClick={() => actions.current.addSource?.()}
-        >
-          <Icon name="addRecording" />
-          <span>{bare(t("addRecording"))}</span>
-        </button>
-        <span className="tb-sep" />
-        <div className="tb-group">
+        <div className="tb-side">
+          <button
+            type="button"
+            className="tb-btn"
+            title={t("fileMenu")}
+            aria-label={t("fileMenu")}
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({
+                x: r.left,
+                y: r.bottom + 2,
+                items: [
+                  { label: t("new"), shortcut: "Ctrl+N", action: () => actions.current.new?.() },
+                  { label: t("open"), shortcut: "Ctrl+O", action: () => actions.current.open?.() },
+                  { label: t("save"), shortcut: "Ctrl+S", action: () => actions.current.save?.() },
+                ],
+              });
+            }}
+          >
+            <Icon name="fileMenu" />
+          </button>
+          <span className="tb-sep" />
           <button
             type="button"
             className="tb-btn"
             title={`${t("undo")} (Ctrl+Z)`}
+            aria-label={t("undo")}
             onClick={() => setHist(undo)}
             disabled={hist.past.length === 0}
           >
             <Icon name="undo" />
-            <span>{t("undo")}</span>
           </button>
           <button
             type="button"
             className="tb-btn"
             title={`${t("redo")} (Ctrl+Shift+Z)`}
+            aria-label={t("redo")}
             onClick={() => setHist(redo)}
             disabled={hist.future.length === 0}
           >
             <Icon name="redo" />
-            <span>{t("redo")}</span>
           </button>
         </div>
-        <div className="tb-title" title={filePath ?? undefined}>
-          <span className="tb-name">
-            {projectName}
+        {titleEdit ? (
+          <input
+            className="tb-title-input"
+            aria-label={t("projectName")}
+            defaultValue={filePath || pendingName ? projectName : ""}
+            placeholder={t("projectNamePlaceholder")}
+            // biome-ignore lint/a11y/noAutofocus: 名前の入力を始めたときだけ出す欄
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                saveAfterName.current = false;
+                setTitleEdit(false);
+              }
+            }}
+            onBlur={(e) => void commitName(titleEdit ? e.currentTarget.value : null)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="tb-title"
+            title={`${filePath ?? t("notSavedYet")}
+${t("renameTip")}`}
+            onClick={() => setTitleEdit(true)}
+          >
+            <span className="tb-name">{projectName}</span>
             {dirty && (
               <span className="tb-dirty" title={t("unsaved")}>
-                {" "}
                 ●
               </span>
             )}
-          </span>
-          <span className="tb-path">{filePath ? dirName(filePath) : t("notSavedYet")}</span>
-        </div>
-        <div className="tb-group">
+          </button>
+        )}
+        <div className="tb-side right">
           <button
             type="button"
             className="tb-btn"
             title={t("appSettings")}
+            aria-label={t("settings")}
             onClick={() => setSettingsOpen(true)}
           >
             <Icon name="settings" />
-            <span>{t("settings")}</span>
           </button>
           <button
             type="button"
             className="tb-btn primary"
             title={`${t("export")} (Ctrl+E)`}
+            aria-label={bare(t("export"))}
             onClick={() => doExport()}
             disabled={exporting !== null || project.steps.length === 0}
           >
             <Icon name="exportVideo" />
-            <span>
-              {exporting
-                ? `${t("exporting")} ${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
-                : bare(t("export"))}
-            </span>
+            {exporting && <span>{Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%</span>}
           </button>
         </div>
       </header>
@@ -1459,7 +1511,9 @@ export function App() {
           <FoldCommandContext.Provider value={foldCmd}>
             {view === "project" || target === null || !tgtStep ? (
               <>
+                {/* 見出しは真ん中、欄をすべて閉じるボタンは右端 */}
                 <div className="panel-head">
+                  <span />
                   <h3 className="panel-title">{t("panelProjectTitle")}</h3>
                   <button
                     type="button"
@@ -1487,10 +1541,34 @@ export function App() {
               </>
             ) : (
               <>
+                {/* 見出しは真ん中で左右に前後のステップへの矢印、欄をすべて閉じるボタンは右端 */}
                 <div className="panel-head">
-                  <h3 className="panel-title">
-                    {t("step")} {target + 1}
-                  </h3>
+                  <span />
+                  <div className="panel-nav">
+                    <button
+                      type="button"
+                      className="small icon-btn"
+                      title={t("prevStep")}
+                      aria-label={t("prevStep")}
+                      disabled={target <= 0}
+                      onClick={() => selectStep(target - 1)}
+                    >
+                      <Icon name="chevronLeft" />
+                    </button>
+                    <h3 className="panel-title">
+                      {t("step")} {target + 1}
+                    </h3>
+                    <button
+                      type="button"
+                      className="small icon-btn"
+                      title={t("nextStep")}
+                      aria-label={t("nextStep")}
+                      disabled={target >= project.steps.length - 1}
+                      onClick={() => selectStep(target + 1)}
+                    >
+                      <Icon name="chevronRight" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="small fold-all"
@@ -1500,28 +1578,6 @@ export function App() {
                   >
                     <Icon name="collapseAll" />
                   </button>
-                  <div className="seg">
-                    <button
-                      type="button"
-                      className="small"
-                      title={t("prevStep")}
-                      aria-label={t("prevStep")}
-                      disabled={target <= 0}
-                      onClick={() => selectStep(target - 1)}
-                    >
-                      ◀
-                    </button>
-                    <button
-                      type="button"
-                      className="small"
-                      title={t("nextStep")}
-                      aria-label={t("nextStep")}
-                      disabled={target >= project.steps.length - 1}
-                      onClick={() => selectStep(target + 1)}
-                    >
-                      ▶
-                    </button>
-                  </div>
                 </div>
                 <StepDetail
                   project={project}

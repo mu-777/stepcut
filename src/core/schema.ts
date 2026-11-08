@@ -98,7 +98,11 @@ export const zoomSchema = z.strictObject({
   keys: z.array(zoomKeySchema).min(1),
   /** true なら録画の縦横比を保つ(枠を広げて表示する)。既定は枠どおりの範囲だけを映す */
   keepAspect: z.boolean().optional(),
-  hold: z.boolean().optional(),
+  /**
+   * ズーム中に映像を止めるか。true(既定)はズームしている間ずっと、"transition" は拡大・縮小の動きの間だけ、
+   * false は止めない
+   */
+  hold: z.union([z.boolean(), z.literal("transition")]).optional(),
   transition: time.optional(),
 });
 

@@ -1,15 +1,25 @@
 // ステップ内の出力時刻とソース時刻の対応(docs/project-format.md 4 章)。
-import { speechPieces, stepSpeed, zoomHolds } from "./defaults";
+import { HOLD_TRANSITION, speechPieces, stepSpeed, zoomHoldMode } from "./defaults";
 import type { Hold, Step } from "./schema";
 
 // ソースの out ちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
 const LAST_FRAME_EPSILON = 0.001;
 
-/** 明示した保持と、映像を止めるズーム(hold の既定は true)を合わせて開始順に並べる */
+/**
+ * 明示した保持と、映像を止めるズーム(hold の既定は true)を合わせて開始順に並べる。
+ * 動きの間だけ止めるズームは、拡大(start の手前)と縮小(end の後)の動きの間を保持にする
+ */
 export function stepHolds(step: Step): Hold[] {
   const holds: Hold[] = [...(step.holds ?? [])];
   for (const z of step.zooms ?? []) {
-    if (zoomHolds(z) && z.end > z.start) holds.push({ at: z.start, duration: z.end - z.start });
+    const mode = zoomHoldMode(z);
+    if (mode === "zoom" && z.end > z.start) holds.push({ at: z.start, duration: z.end - z.start });
+    if (mode === "transition") {
+      const tr = z.transition ?? HOLD_TRANSITION;
+      const inAt = Math.max(0, z.start - tr);
+      if (z.start > inAt) holds.push({ at: inAt, duration: z.start - inAt });
+      if (tr > 0) holds.push({ at: z.end, duration: tr });
+    }
   }
   return holds.sort((a, b) => a.at - b.at);
 }

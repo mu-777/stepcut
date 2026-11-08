@@ -158,10 +158,19 @@ export function stepSpeed(step: Step): number {
  * 0 なら動きなしで切り替える。
  */
 export function zoomTransition(z: Zoom, scale: number): number {
-  return z.transition ?? 0.6 + 0.55 * Math.log(Math.max(1, scale));
+  if (z.transition !== undefined) return z.transition;
+  // 動きの間だけ止めるズームは、止める長さ(stepHolds)を録画の大きさによらず決めるため固定の秒数にする
+  if (z.hold === "transition") return HOLD_TRANSITION;
+  return 0.6 + 0.55 * Math.log(Math.max(1, scale));
 }
 
-/** ズーム中に映像を止めるか。既定は止める */
-export function zoomHolds(z: Zoom): boolean {
-  return z.hold ?? true;
+/** 動きの間だけ止めるズームで transition を書いていないときの動きの秒数 */
+export const HOLD_TRANSITION = 0.8;
+
+/** ズーム中に映像を止める範囲。zoom: ズームしている間ずっと(既定)、transition: 拡大・縮小の動きの間だけ、none: 止めない */
+export type ZoomHoldMode = "zoom" | "transition" | "none";
+
+export function zoomHoldMode(z: Zoom): ZoomHoldMode {
+  const h = z.hold ?? true;
+  return h === "transition" ? "transition" : h ? "zoom" : "none";
 }
