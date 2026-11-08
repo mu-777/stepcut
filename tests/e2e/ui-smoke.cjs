@@ -717,6 +717,13 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       /Project|全体/.test(await panelTitle()),
     "録画がないときは案内をサムネイル列に出し、設定パネルは全体の設定",
   );
+  const empty = await page.locator(".rail-empty").boundingBox();
+  const railList = await page.locator(".rail-thumbs").boundingBox();
+  check(
+    (await page.locator(".rail-empty").evaluate((el) => getComputedStyle(el).textAlign)) === "center" &&
+      empty.width > railList.width - 20,
+    "録画の追加の案内は列の幅いっぱいで中央に寄せる",
+  );
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();

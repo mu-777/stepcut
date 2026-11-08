@@ -234,7 +234,7 @@ const ja: typeof en = {
   untitled: "無題",
   unsaved: "未保存",
   steps: "ステップ",
-  noSources: "録画(mp4)を追加してください。",
+  noSources: "録画(mp4)を追加",
   play: "再生",
   pause: "停止",
   playbackRate: "再生速度(プレビューのみ)",

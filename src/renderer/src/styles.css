@@ -315,9 +315,12 @@ textarea {
   color: #ff6b5b;
 }
 
-.rail-empty {
+/* 録画がないときの案内。.link-button の左寄せより強くするため 2 つのクラスで指定する */
+.link-button.rail-empty {
+  width: 100%;
   padding: 4px 2px;
   font-size: 12px;
+  text-align: center;
   overflow-wrap: anywhere;
 }
 
