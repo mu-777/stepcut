@@ -292,6 +292,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
         .first()
         .locator(".rail-text")
         .evaluate((el) => getComputedStyle(el).display !== "none"),
+      proj: await page.locator(".rail-project").evaluate((el) => ({
+        h: el.getBoundingClientRect().height,
+        dir: getComputedStyle(el).flexDirection,
+      })),
     };
   };
   const narrowEnd = await railDrag(118 - rail1);
@@ -299,6 +303,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(
     !narrowEnd.text && wideStart.text && Math.abs(wideStart.pic - narrowEnd.pic) <= 5,
     `文が出る所でサムネイルの大きさが飛ばない (${narrowEnd.pic} → ${wideStart.pic})`,
+  );
+  check(
+    narrowEnd.proj.dir === "column" && wideStart.proj.dir === "row" && narrowEnd.proj.h === wideStart.proj.h,
+    `同じ所で「全体」が縦並びから横並びになり、高さは変わらない (${narrowEnd.proj.h} → ${wideStart.proj.h})`,
   );
   await railDrag(220 - 122);
   check(await thumbs.first().locator(".rail-text").isVisible(), "広げるとサムネイルの横に文が戻る");
