@@ -273,7 +273,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const rail1 = (await page.locator(".step-rail").boundingBox()).width;
   const pic1 = (await thumbs.first().locator(".rail-pic").boundingBox()).width;
   check(
-    rail0 - rail1 > 80 && !(await thumbs.first().locator(".rail-text").isVisible()) && pic1 > rail1 - 20,
+    rail0 - rail1 > 80 && !(await thumbs.first().locator(".rail-text").isVisible()) && pic1 > rail1 - 30,
     `サムネイル列を狭めるとサムネイルだけを列の幅いっぱいに出す (${rail0} → ${rail1}, ${pic0} → ${pic1})`,
   );
   await thumbs.nth(0).hover();
@@ -281,8 +281,26 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const tip = (await page.locator(".rail-tip").count()) ? await page.locator(".rail-tip").textContent() : "";
   await page.mouse.move(700, 5);
   check(tip.includes("最初のステップ"), "サムネイルだけのときはマウスを重ねるとテロップの文が出る");
-  const rsp2 = await page.locator(".splitter.col").first().boundingBox();
-  await drag(page, center(rsp2), { x: center(rsp2).x + 110, y: center(rsp2).y });
+  // 切り替わる所でサムネイルの大きさが飛ばない
+  const railDrag = async (dx) => {
+    const b = await page.locator(".splitter.col").first().boundingBox();
+    await drag(page, center(b), { x: center(b).x + dx, y: center(b).y });
+    return {
+      pic: (await thumbs.first().locator(".rail-pic").boundingBox()).width,
+      // 切り替わった直後は文の幅が 0 なので、表示の有無は display で見る
+      text: await thumbs
+        .first()
+        .locator(".rail-text")
+        .evaluate((el) => getComputedStyle(el).display !== "none"),
+    };
+  };
+  const narrowEnd = await railDrag(118 - rail1);
+  const wideStart = await railDrag(4);
+  check(
+    !narrowEnd.text && wideStart.text && Math.abs(wideStart.pic - narrowEnd.pic) <= 5,
+    `文が出る所でサムネイルの大きさが飛ばない (${narrowEnd.pic} → ${wideStart.pic})`,
+  );
+  await railDrag(220 - 122);
   check(await thumbs.first().locator(".rail-text").isVisible(), "広げるとサムネイルの横に文が戻る");
 
   // プレビューの上の帯から、テロップの入力とズームの追加を始められる

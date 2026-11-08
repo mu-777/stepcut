@@ -195,16 +195,21 @@ textarea {
 .rail-thumbs {
   list-style: none;
   margin: 0;
-  padding: 2px 6px 6px;
+  padding: 2px 0 6px 6px;
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  /* スクロールバーの有無でサムネイルの大きさが変わらないよう、右の余白はスクロールバーの幅(10px)で取る */
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-/* サムネイルと、その横のテロップの文。列が狭ければサムネイルだけを列の幅いっぱいに出す */
+/* サムネイルと、その横のテロップの文。列が狭ければサムネイルだけを列の幅いっぱいに出す。
+   切り替わる幅は、サムネイルだけのときの大きさが文ありの大きさ(96px)に届く所にする(大きさが飛ばない)。
+   列の幅 120px = 左の余白 6 + 行の余白と枠 (3+1)×2 + サムネイル 96 + スクロールバー 10 */
 .rail-thumb {
   display: flex;
   align-items: flex-start;
@@ -275,16 +280,7 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-@container step-rail (max-width: 170px) {
-  .rail-thumb {
-    padding: 0;
-    border: none;
-    background: transparent;
-  }
-  .rail-thumb:hover,
-  .rail-thumb.on {
-    background: transparent;
-  }
+@container step-rail (width < 120px) {
   .rail-pic {
     width: 100%;
   }
