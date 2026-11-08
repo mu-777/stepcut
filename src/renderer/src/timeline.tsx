@@ -80,7 +80,7 @@ function patchStep(update: Update, index: number, fn: (s: Step) => Step, key: st
   update((p) => ({ ...p, steps: p.steps.map((s, i) => (i === index ? fn(s) : s)) }), key);
 }
 
-function ThumbTile(props: { thumb: (CanvasImageSource & { width: number; height: number }) | null }) {
+export function ThumbTile(props: { thumb: (CanvasImageSource & { width: number; height: number }) | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
