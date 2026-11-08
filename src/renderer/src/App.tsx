@@ -101,10 +101,13 @@ export function App() {
   /** ステップの「共通の設定 ›」から全体の設定へ来た(テロップの見た目の欄を強調する) */
   const [sharedFocus, setSharedFocus] = useState(false);
   const [panelW, setPanelW] = useState(() => loadPref("panelWidth", 320));
+  /** 左端のサムネイル列の幅 */
+  const [railW, setRailW] = useState(() => loadPref("railWidth", 76));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
   /** プレビューの表示倍率(1 = 全体表示)。書き出しには影響しない */
   const [viewZoom, setViewZoom] = useState(1);
   useEffect(() => savePref("panelWidth", panelW), [panelW]);
+  useEffect(() => savePref("railWidth", railW), [railW]);
   useEffect(() => savePref("timelineHeight", timelineH), [timelineH]);
   const [thumbsVersion, setThumbsVersion] = useState(0);
   const thumbs = useMemo(() => new ThumbCache(() => setThumbsVersion((v) => v + 1)), []);
@@ -946,7 +949,7 @@ export function App() {
         </div>
       )}
 
-      <main className="main" style={{ gridTemplateColumns: `auto ${panelW}px 5px minmax(0, 1fr)` }}>
+      <main className="main" style={{ gridTemplateColumns: `${railW}px 5px ${panelW}px 5px minmax(0, 1fr)` }}>
         <StepRail
           timeline={timeline}
           media={media}
@@ -966,6 +969,7 @@ export function App() {
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
         />
+        <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 200))} />
         <aside className="panel">
           {view === "project" ? (
             <>

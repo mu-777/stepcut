@@ -258,10 +258,20 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 設定パネルの幅をドラッグで変える
   const left0 = (await page.locator("aside.panel").boundingBox()).width;
-  const sp = await page.locator(".splitter.col").first().boundingBox();
+  const sp = await page.locator(".splitter.col").nth(1).boundingBox();
   await drag(page, center(sp), { x: center(sp).x + 80, y: center(sp).y });
   const left1 = (await page.locator("aside.panel").boundingBox()).width;
   check(left1 - left0 > 60, `設定パネルの幅を変えられる (${left0} → ${left1})`);
+  // サムネイル列の幅も変えられる
+  const rail0 = (await page.locator(".step-rail").boundingBox()).width;
+  const rsp = await page.locator(".splitter.col").first().boundingBox();
+  await drag(page, center(rsp), { x: center(rsp).x + 40, y: center(rsp).y });
+  const rail1 = (await page.locator(".step-rail").boundingBox()).width;
+  const th1 = (await thumbs.first().boundingBox()).width;
+  check(
+    rail1 - rail0 > 30 && th1 > rail0,
+    `サムネイル列の幅を変えるとサムネイルも大きくなる (${rail0} → ${rail1})`,
+  );
 
   // プレビューの右クリックでズームを作り、枠を動かす(UI-05)
   await thumbs.nth(1).click();
