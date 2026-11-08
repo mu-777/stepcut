@@ -38,7 +38,7 @@ export function splitStep(project: Project, index: number, t: number, keepRest: 
   const steps = [...project.steps];
   steps[index] = first;
   if (keepRest) {
-    // 後半は空のテロップ(プレビューには仮の文を出す)と、テロップと同じ文を読む設定(既定でオン)で始める
+    // 後半は空のテロップ(プレビューには仮の文を出す)と、書き換えるまでテロップの文を読む読み上げで始める
     const rest: Step = {
       id: uniqueStepId(project, step.id),
       source: step.source,

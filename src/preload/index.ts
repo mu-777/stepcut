@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { Api, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
 
 const api: Api = {
@@ -8,6 +8,7 @@ const api: Api = {
   initialProject: () => ipcRenderer.invoke("project:initial"),
   saveProject: (filePath, text, prevPath) => ipcRenderer.invoke("project:save", filePath, text, prevPath),
   pickSources: () => ipcRenderer.invoke("sources:pick"),
+  pathForFile: (file) => webUtils.getPathForFile(file),
   pickImage: () => ipcRenderer.invoke("image:pick"),
   pickExportPath: (defaultPath) => ipcRenderer.invoke("export:pick", defaultPath),
   resolveSource: (projectPath, stored) => ipcRenderer.invoke("sources:resolve", projectPath, stored),

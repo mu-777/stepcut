@@ -125,3 +125,66 @@ export function withParam(
   else next[key] = value;
   return Object.keys(next).length ? next : undefined;
 }
+
+/** OS に入っているフォントのファミリー名(Local Font Access API)。読めなければ null。1 回だけ問い合わせる */
+let fontFamilies: Promise<string[] | null> | null = null;
+function loadFontFamilies(): Promise<string[] | null> {
+  fontFamilies ??= (async () => {
+    const query = (window as { queryLocalFonts?: () => Promise<{ family: string }[]> }).queryLocalFonts;
+    if (!query) return null;
+    try {
+      const fonts = await query();
+      return [...new Set(fonts.map((f) => f.family))].sort((a, b) => a.localeCompare(b));
+    } catch {
+      return null;
+    }
+  })();
+  return fontFamilies;
+}
+
+/** フォントの選択。OS のフォントを並べ、読めないときは名前を入力する欄にする。空なら既定のフォント */
+export function FontField(props: {
+  label: string;
+  value: string | undefined;
+  placeholder?: string;
+  onChange: (v: string | undefined) => void;
+}) {
+  const [families, setFamilies] = useState<string[] | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void loadFontFamilies().then((f) => {
+      if (alive) setFamilies(f);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (families === null)
+    return (
+      <TextField
+        label={props.label}
+        value={props.value ?? ""}
+        placeholder={props.placeholder}
+        onChange={(v) => props.onChange(v || undefined)}
+      />
+    );
+  const list = families ?? [];
+  // 一覧にないフォント(別の PC で選んだものなど)も、選んだままに見せる
+  const options = props.value && !list.includes(props.value) ? [props.value, ...list] : list;
+  return (
+    <Field label={props.label}>
+      <select
+        value={props.value ?? ""}
+        style={props.value ? { fontFamily: `"${props.value}"` } : undefined}
+        onChange={(e) => props.onChange(e.target.value || undefined)}
+      >
+        <option value="">{props.placeholder ?? "—"}</option>
+        {options.map((f) => (
+          <option key={f} value={f} style={{ fontFamily: `"${f}"` }}>
+            {f}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}

@@ -300,7 +300,7 @@ export function Timeline(props: {
     props.onSelect({ kind: "step", step: i });
     props.onSeek(at);
     props.openMenu(e.clientX, e.clientY, [
-      { label: t("split"), shortcut: "Ctrl+K", action: () => update((p) => splitStep(p, i, local, true)) },
+      { label: t("split"), shortcut: "S", action: () => update((p) => splitStep(p, i, local, true)) },
       { label: t("splitDiscard"), action: () => update((p) => splitStep(p, i, local, false)) },
       { label: t("addHoldHere"), action: () => update((p) => addHold(p, i, local, 1)) },
       {
@@ -452,9 +452,40 @@ export function Timeline(props: {
                         title={t("holds")}
                         onPointerDown={(e) => {
                           if (k < 0 || e.button !== 0) return;
-                          e.stopPropagation();
                           props.onSelect({ kind: "hold", step: i, index: k });
-                          scrubFrom(e);
+                          // ドラッグで位置を動かす(再生ヘッド・ステップの切れ目に始まりか終わりを吸着)。
+                          // 動かさずに離したら、そこへシークする
+                          const x0 = e.clientX;
+                          const free = e.shiftKey;
+                          const holds = stepHolds(step);
+                          const prev = [...holds].reverse().find((x) => x.at < h.at);
+                          const next = holds.find((x) => x.at > h.at);
+                          const lo = prev ? prev.at + prev.duration : 0;
+                          const hi = (next ? next.at : base) - h.duration;
+                          let moved = false;
+                          startDrag(
+                            e,
+                            (dx, key) => {
+                              if (!moved && Math.abs(dx) < 3) return;
+                              moved = true;
+                              const raw = entry.start + h.at + dx / scale;
+                              let tm = snap(raw);
+                              if (tm === raw) tm = snap(raw, h.duration);
+                              const at = r3(clamp(tm - entry.start, lo, hi));
+                              patchStep(
+                                update,
+                                i,
+                                (s) => ({
+                                  ...s,
+                                  holds: s.holds?.map((x, j) => (j === k ? { ...x, at } : x)),
+                                }),
+                                key,
+                              );
+                            },
+                            () => {
+                              if (!moved) props.onSeek(seekAt(x0, free));
+                            },
+                          );
                         }}
                       >
                         {k >= 0 && (
@@ -496,7 +527,7 @@ export function Timeline(props: {
                     />
                   )}
                   <span className="tl-clip-label">
-                    {i + 1}. {step.id}
+                    {t("step")} {i + 1}
                     {stepSpeed(step) > 1 ? ` ×${stepSpeed(step)}` : ""}
                   </span>
                   {(["in", "out"] as const).map((edge) => (

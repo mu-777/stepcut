@@ -315,20 +315,49 @@ textarea {
   color: #ff6b5b;
 }
 
-/* 録画がないときの案内。.link-button の左寄せより強くするため 2 つのクラスで指定する */
-.link-button.rail-empty {
-  width: 100%;
-  padding: 4px 2px;
+.rail-add {
+  margin: 4px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-style: dashed;
+  color: var(--muted);
+  background: transparent;
+}
+
+.rail-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* 録画がないときは、一覧の代わりに「全体」より下を ＋ のボタンで埋める */
+.step-rail.empty .rail-thumbs {
+  display: none;
+}
+
+.step-rail.empty .rail-add {
+  flex: 1;
+  margin-top: 2px;
+}
+
+.step-rail.empty .rail-add-plus {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.rail-add-label {
   font-size: 12px;
   text-align: center;
   overflow-wrap: anywhere;
 }
 
-.rail-add {
-  margin: 4px 6px 6px;
-  border-style: dashed;
-  color: var(--muted);
-  background: transparent;
+/* 録画のファイルを列の上にドラッグしている間 */
+.step-rail.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 }
 
 /* サムネイルにマウスを重ねたときのテロップの文 */
@@ -474,15 +503,18 @@ h4.first {
 }
 
 .item-button.selected {
-  border-color: var(--accent);
   background: #2c3a55;
 }
 
+/* 選んだズームは、見出しと設定の欄をまとめて枠で囲む */
 .item-list li.open {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-bottom: 6px;
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .section {
@@ -1025,6 +1057,11 @@ button.icon.play {
   outline: 2px solid var(--accent);
 }
 
+/* 置いた保持はドラッグで位置を動かせる(ズームの保持と読み上げを待つ保持は動かせない) */
+.tl-hold:not(.zoom-hold, .auto) {
+  cursor: grab;
+}
+
 .tl-handle {
   position: absolute;
   top: 0;
@@ -1428,4 +1465,16 @@ button.icon.play {
 
 .zoom-key.current {
   outline: 1px solid #ffb44d;
+}
+
+/* 設定パネルの「すべての欄を閉じる」 */
+.fold-all {
+  display: inline-flex;
+  padding: 2px 4px;
+  color: var(--muted);
+}
+
+.fold-all svg {
+  width: 16px;
+  height: 16px;
 }

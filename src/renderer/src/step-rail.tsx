@@ -1,6 +1,6 @@
 // 左端のサムネイル列。いちばん上の「全体」で全体の設定、サムネイルでそのステップの詳細を開く。
 // ステップの一覧の代わり。列が広ければサムネイルの横にテロップの文を出し、狭ければサムネイルだけにする。
-// 文が隠れている・切れているときは、マウスを重ねると横に全文を出す。
+// 文が隠れている・切れているときは、マウスを重ねると横に全文を出す。mp4 を列にドロップすると録画を足す。
 
 import { useState } from "react";
 import { sourceTimeAt, type TimelineEntry } from "../../core/timeline";
@@ -26,14 +26,37 @@ export function StepRail(props: {
   onStep: (i: number) => void;
   onStepMenu: (e: React.MouseEvent, i: number) => void;
   onAdd: () => void;
-  /** 録画がないときの案内を押した */
-  onAddFirst: () => void;
+  /** 列にファイルをドロップした(録画の追加) */
+  onDropFiles: (files: File[]) => void;
 }) {
   /** マウスを重ねたサムネイルと、その位置(テロップの文を横に出す) */
   const [tip, setTip] = useState<{ i: number; x: number; y: number } | null>(null);
   const tipEntry = tip ? props.timeline[tip.i] : undefined;
+  /** ファイルを列の上にドラッグしている */
+  const [dropping, setDropping] = useState(false);
+  const empty = props.timeline.length === 0;
+  const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
   return (
-    <nav className="step-rail" aria-label={t("steps")}>
+    <nav
+      className={`step-rail ${dropping ? "dropping" : ""} ${empty ? "empty" : ""}`}
+      aria-label={t("steps")}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        // 列の中の子要素へ移っただけなら消さない
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setDropping(false);
+        props.onDropFiles([...e.dataTransfer.files]);
+      }}
+    >
       <button
         type="button"
         className={`rail-project ${props.projectOpen ? "on" : ""}`}
@@ -45,13 +68,6 @@ export function StepRail(props: {
         <span>{t("panelProject")}</span>
       </button>
       <ol className="rail-thumbs" onScroll={() => setTip(null)}>
-        {props.timeline.length === 0 && (
-          <li>
-            <button type="button" className="link-button hint rail-empty" onClick={props.onAddFirst}>
-              {t("noSources")}
-            </button>
-          </li>
-        )}
         {props.timeline.map((e) => {
           const m = props.media.get(e.step.source);
           // ステップの頭から少し進んだところ(フェードや操作前の静止を避ける)
@@ -66,7 +82,7 @@ export function StepRail(props: {
                 type="button"
                 className={`rail-thumb ${on ? "on" : ""} ${props.playhead === e.index ? "playhead" : ""}`}
                 aria-current={on ? "true" : undefined}
-                aria-label={`${e.index + 1}. ${e.step.caption?.text || e.step.id}`}
+                aria-label={`${t("step")} ${e.index + 1}. ${e.step.caption?.text || t("noCaption")}`}
                 onClick={() => props.onStep(e.index)}
                 onContextMenu={(ev) => props.onStepMenu(ev, e.index)}
                 onPointerEnter={(ev) => {
@@ -84,7 +100,7 @@ export function StepRail(props: {
                 </span>
                 <span className="rail-text">
                   <span className="rail-meta">
-                    {e.step.id} · {e.duration.toFixed(1)}s
+                    {t("step")} {e.index + 1} · {e.duration.toFixed(1)}s
                   </span>
                   <span className={`rail-caption ${e.step.caption?.text ? "" : "muted"}`}>
                     {e.step.caption?.text || t("noCaption")}
@@ -95,13 +111,21 @@ export function StepRail(props: {
           );
         })}
       </ol>
-      <button type="button" className="rail-add" title={t("addRecording")} onClick={props.onAdd}>
-        ＋
+      {/* 録画がないときは「全体」より下を埋める大きなボタンにし、文字も添える */}
+      <button
+        type="button"
+        className="rail-add"
+        title={`${t("addRecording")} (${t("dropHint")})`}
+        aria-label={t("addRecording")}
+        onClick={props.onAdd}
+      >
+        <span className="rail-add-plus">＋</span>
+        {empty && <span className="rail-add-label">{t("addRecordingShort")}</span>}
       </button>
       {tipEntry && tip && (
         <div className="rail-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
           <span className="rail-tip-id">
-            {tip.i + 1}. {tipEntry.step.id} · {tipEntry.duration.toFixed(1)}s
+            {t("step")} {tip.i + 1} · {tipEntry.duration.toFixed(1)}s
           </span>
           {tipEntry.step.caption?.text || t("noCaption")}
         </div>

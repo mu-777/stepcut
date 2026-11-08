@@ -124,7 +124,7 @@ export function ShortcutsDialog(props: { onClose: () => void }) {
     ["← / →", "scSeek"],
     ["↑ / ↓", "scBoundary"],
     ["Home / End", "scHomeEnd"],
-    ["Ctrl+K", "scSplit"],
+    ["S", "scSplit"],
     ["Z", "scZoom"],
     ["M", "scMute"],
     ["F", "scFullscreen"],

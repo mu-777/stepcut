@@ -127,7 +127,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // ステップ 1 を選んでズームを追加し、プレビュー上で範囲を指定する
   await thumbs.first().click();
   check(
-    (await panelTitle()).includes("first") &&
+    /^(Step|ステップ) 1$/.test((await panelTitle()).trim()) &&
       (await page.locator(".fold").count()) === 3 &&
       (await page.locator(".rail-thumb.on").count()) === 1,
     "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 文 / ズーム)",
@@ -161,15 +161,15 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     .uncheck();
   check((await page.locator(".tl-hold.zoom-hold").count()) === 0, "映像を止める設定を外せる");
 
-  // Ctrl+K で分割、Undo で戻す(ズーム範囲の編集中は矢印キーで枠が動くので、Esc で編集を終えてから)
+  // S で分割、Undo で戻す(ズーム範囲の編集中は矢印キーで枠が動くので、Esc で編集を終えてから)
   await page.locator("body").click({ position: { x: 5, y: 300 } });
   await page.keyboard.press("Escape");
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("s");
   await page.waitForTimeout(200);
-  check((await thumbs.count()) === 3, "Ctrl+K で分割してステップが 3 つになる");
+  check((await thumbs.count()) === 3, "S で分割してステップが 3 つになる");
   check(
     (await page.locator(".tl-bar.caption").count()) === 3,
     "分割した後半にも空のテロップ(プレースホルダー)が付く",
@@ -190,12 +190,39 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   check((await tipOf(0)).includes("4.0s"), "トリムは Undo 1 回で戻る");
 
+  // 置いた保持はドラッグで位置を動かせる
+  await page.mouse.click(c1.x + pxPerSec, c1.y + c1.height / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: /Freeze here|ここで静止/ }).click();
+  await page.waitForTimeout(200);
+  // 再生ヘッドに吸着しないよう、再生ヘッドを末尾へ離しておく
+  await page.keyboard.press("End");
+  await page.waitForTimeout(100);
+  const hold0 = await page.locator(".tl-hold:not(.zoom-hold):not(.auto)").first().boundingBox();
+  await drag(page, { x: hold0.x + 6, y: center(hold0).y }, { x: hold0.x + 6 + pxPerSec, y: center(hold0).y });
+  const hold1 = await page.locator(".tl-hold:not(.zoom-hold):not(.auto)").first().boundingBox();
+  check(
+    Math.abs(hold1.x - hold0.x - pxPerSec) < pxPerSec * 0.2 && Math.abs(hold1.width - hold0.width) < 2,
+    `保持をドラッグで動かせる (${Math.round(hold0.x)} → ${Math.round(hold1.x)})`,
+  );
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.waitForTimeout(150);
+  check(
+    (await page.locator(".tl-hold:not(.zoom-hold):not(.auto)").count()) === 0,
+    "保持の追加と移動はそれぞれ Undo 1 回で戻る",
+  );
+
   // テロップの左端を右へ 1 秒詰める
   const cap = await page.locator(".tl-bar.caption").first().boundingBox();
   await drag(page, { x: cap.x + 3, y: center(cap).y }, { x: cap.x + 3 + pxPerSec, y: center(cap).y });
   check(
-    (await panelTitle()).includes("first") &&
-      (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ",
+    /^(Step|ステップ) 1$/.test((await panelTitle()).trim()) &&
+      (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ" &&
+      (await page.locator(".fold.open").count()) === 1,
+    "テロップを選ぶと文の欄だけが開き、ほかの欄は閉じる",
+  );
+  check(
+    (await page.locator(".section.focused textarea").first().inputValue()) === "最初のステップ",
     "テロップを選ぶとパネルはそのステップの詳細で、テロップの欄を強調する",
   );
 
@@ -344,6 +371,16 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".item-button.selected").count()) === 1 &&
       (await page.getByLabel(/^(Center X \(px\)|中心 X\(px\))$/).count()) === 1,
     "ズームを作るとステップの詳細でそのズームが開く",
+  );
+  check(
+    (await page.locator(".fold.open").count()) === 1 &&
+      (await page.locator(".item-list li.open").evaluate((el) => getComputedStyle(el).outlineStyle)) ===
+        "solid" &&
+      (await page
+        .locator(".item-list li.open")
+        .getByLabel(/^(Center X \(px\)|中心 X\(px\))$/)
+        .count()) === 1,
+    "ズームを選ぶとズームの欄だけが開き、見出しと設定の欄をまとめて枠で囲む",
   );
   const centerX = () =>
     page
@@ -596,8 +633,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(200);
   check(
     /Project|全体/.test(await panelTitle()) &&
-      /Caption style|テロップの見た目/.test(await page.locator(".section.focused h3").textContent()),
-    "「共通の設定 ›」で全体の設定のテロップの見た目へ移る",
+      (await page.locator(".fold.open").count()) === 1 &&
+      /Caption style|テロップの見た目/.test(await page.locator(".fold.open .fold-title").textContent()) &&
+      (await page.locator(".fold.open .section.focused").count()) === 1,
+    "「共通の設定 ›」で全体の設定のテロップの見た目の欄だけを開いて強調する",
   );
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
@@ -691,14 +730,31 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     .first()
     .inputValue();
   check(wv !== "" && Number(wv) < 0.8, `テロップの右端のドラッグで幅を変える (${wv})`);
+  // 読み上げ: 書き換えるまではテロップの文を読み、書き換えたらその文、テロップと同じ文に戻すとまたテロップに合わせる
+  const speechBox = page.getByLabel(/^(Text to read|読み上げ文)/).first();
+  const capText = await page.locator(".section.focused textarea").first().inputValue();
   check(
-    (await page.getByLabel(/Read the caption text|テロップと同じ文を読む/).count()) === 1,
-    "読み上げに「テロップと同じ文を読む」がある",
+    (await page.getByLabel(/Read the caption text|テロップと同じ文を読む/).count()) === 0,
+    "読み上げに「テロップと同じ文を読む」のチェックを置かない",
   );
+  await speechBox.fill("別の読み上げ");
+  await page.waitForTimeout(150);
+  check(
+    (await speechBox.inputValue()) === "別の読み上げ" &&
+      (await page.getByRole("button", { name: /Read the caption text again|テロップの文に戻す/ }).count()) ===
+        1,
+    "読み上げの文を書き換えられ、「テロップの文に戻す」が出る",
+  );
+  await page.getByRole("button", { name: /Read the caption text again|テロップの文に戻す/ }).click();
+  await page.waitForTimeout(150);
+  check((await speechBox.inputValue()) === capText, "「テロップの文に戻す」でテロップの文を読む");
 
   // 全体の設定
   await openProject();
   await page.waitForTimeout(300);
+  // 閉じている欄を開いてから中身を見る(欄の開閉は覚えている)
+  while ((await page.locator(".fold:not(.open)").count()) > 0)
+    await page.locator(".fold:not(.open) .fold-head").first().click();
   check(
     /Project|全体/.test(await panelTitle()) &&
       (await page.getByLabel(/No margins|余白なし/).count()) === 1 &&
@@ -706,23 +762,47 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "「全体」で出力・レイアウト・テロップの見た目・声の共通の設定",
   );
   await shot(page, "04-project");
+  // 選択欄のラベルには選択肢の文字も入るので、ラベルの見出しで探す
+  const fontSel = page
+    .locator(".field")
+    .filter({ has: page.locator("> span", { hasText: /^(Font|フォント)$/ }) })
+    .locator("select, input")
+    .first();
+  const fontOpts = await fontSel.evaluate((el) => (el.tagName === "SELECT" ? el.options.length : 0));
+  check(fontOpts > 5, `テロップのフォントを OS のフォントから選べる (${fontOpts} 件)`);
+  check(
+    (await page.locator(".fold").count()) === 4,
+    "全体の設定も欄(出力・レイアウト・テロップの見た目・読み上げ)ごとに畳める",
+  );
+  await page.locator(".fold-all").click();
+  await page.waitForTimeout(100);
+  check((await page.locator(".fold.open").count()) === 0, "「すべての欄を閉じる」で全部の欄を閉じる");
 
   // 新規(録画なし): 録画の追加の案内はサムネイル列の「全体」の下、設定パネルは全体の設定
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: /^(New|新規)$/ }).click();
   await page.waitForTimeout(300);
+  const addBig = await page.locator(".rail-add").boundingBox();
+  const railBig = await page.locator(".step-rail").boundingBox();
   check(
-    (await page.locator(".step-rail .rail-empty").count()) === 1 &&
+    (await page.locator(".rail-add-label").count()) === 1 &&
+      addBig.height > railBig.height * 0.6 &&
       (await page.locator(".rail-project.on").count()) === 1 &&
       /Project|全体/.test(await panelTitle()),
-    "録画がないときは案内をサムネイル列に出し、設定パネルは全体の設定",
+    "録画がないときは ＋ を列いっぱいに広げて「録画を追加」を添え、設定パネルは全体の設定",
   );
-  const empty = await page.locator(".rail-empty").boundingBox();
-  const railList = await page.locator(".rail-thumbs").boundingBox();
+  // mp4 以外を列にドロップすると断る(ドロップを受け付けている)
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(["x"], "note.txt", { type: "text/plain" }));
+    const rail = document.querySelector(".step-rail");
+    rail.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    rail.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(200);
   check(
-    (await page.locator(".rail-empty").evaluate((el) => getComputedStyle(el).textAlign)) === "center" &&
-      empty.width > railList.width - 20,
-    "録画の追加の案内は列の幅いっぱいで中央に寄せる",
+    /mp4/.test((await page.locator(".banner").textContent()) ?? ""),
+    "サムネイル列へのドロップを受け付け、mp4 以外は断る",
   );
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);

@@ -1,6 +1,6 @@
 // 右の設定パネル。全体の設定と、ステップの詳細(録画・速度 / 文 / ズーム)。
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import {
   CAPTION_BOX_COLOR,
   captionBoxColor,
@@ -32,7 +32,7 @@ import { speechTimes } from "../../core/timeline";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
-import { CheckField, Field, NumField, prune, SelectField, TextField, withParam } from "./fields";
+import { CheckField, Field, FontField, NumField, prune, SelectField, TextField, withParam } from "./fields";
 import { t } from "./i18n";
 import type { Selection } from "./timeline";
 import { loadChoice, saveChoice } from "./widgets";
@@ -78,24 +78,47 @@ export function viewOf(s: Selection): PanelView | null {
   return "step";
 }
 
-/** 開け閉めできる欄。開閉はステップをまたいで覚える。forced になったら開く(選んだ要素の欄) */
+/** 選んだ要素を直す欄の id。この欄だけを開き、ほかの欄を閉じる */
+export function foldOf(s: Selection): string | null {
+  if (s.kind === "video") return "p.layout";
+  if (s.kind === "caption" || s.kind === "speech") return "text";
+  if (s.kind === "zoom") return "zoom";
+  if (s.kind === "hold") return "recording";
+  return null;
+}
+
+/**
+ * 欄の開閉をまとめて変える指示(すべて閉じる・選んだ要素の欄だけ開く)。seq が変わるたびに 1 回だけ効く。
+ * 欄ごとの開閉はそのあと手で変えられ、覚えておく
+ */
+export interface FoldCommand {
+  seq: number;
+  open: (id: string) => boolean;
+}
+export const FoldCommandContext = createContext<FoldCommand | null>(null);
+/** 欄ごとに、最後に従った指示の seq(画面を切り替えて欄を作り直しても、同じ指示を当て直さない) */
+const appliedFold = new Map<string, number>();
+
+/** 開け閉めできる欄。開閉はステップをまたいで覚える。FoldCommandContext の指示でまとめて開け閉めする */
 function Fold(props: {
   id: string;
   title: string;
   summary?: string;
   /** 開閉を覚えていないときに開くか */
   defaultOpen: boolean;
-  forced: boolean;
   children: ReactNode;
 }) {
+  const cmd = useContext(FoldCommandContext);
   const [open, setOpen] = useState(
     () =>
       loadChoice(`fold.${props.id}`, ["open", "closed"] as const, props.defaultOpen ? "open" : "closed") ===
       "open",
   );
   useEffect(() => {
-    if (props.forced) setOpen(true);
-  }, [props.forced]);
+    if (!cmd || appliedFold.get(props.id) === cmd.seq) return;
+    appliedFold.set(props.id, cmd.seq);
+    setOpen(cmd.open(props.id));
+  }, [cmd, props.id]);
   useEffect(() => saveChoice(`fold.${props.id}`, open ? "open" : "closed"), [props.id, open]);
   return (
     <section className={`fold ${open ? "open" : ""}`}>
@@ -146,26 +169,13 @@ export function StepDetail(props: {
         title={t("sectionRecording")}
         summary={`${(step.out - step.in).toFixed(1)}s${speed > 1 ? ` ×${speed}` : ""}`}
         defaultOpen={false}
-        forced={mine && focus.kind === "hold"}
       >
         <StepRecording {...props} />
       </Fold>
-      <Fold
-        id="text"
-        defaultOpen
-        title={t("sectionText")}
-        summary={step.caption?.text || "—"}
-        forced={mine && (focus.kind === "caption" || focus.kind === "speech")}
-      >
+      <Fold id="text" defaultOpen title={t("sectionText")} summary={step.caption?.text || "—"}>
         <StepText {...props} />
       </Fold>
-      <Fold
-        id="zoom"
-        defaultOpen
-        title={t("sectionZoom")}
-        summary={String(zooms.length)}
-        forced={selZoom !== null}
-      >
+      <Fold id="zoom" defaultOpen title={t("sectionZoom")} summary={String(zooms.length)}>
         {zooms.length === 0 && <p className="hint">{t("noZooms")}</p>}
         <ol className="item-list">
           {zooms.map((z, k) => (
@@ -216,11 +226,7 @@ function StepRecording(props: {
   return (
     <>
       <Section focused={focus.kind === "step"}>
-        <TextField
-          label={t("id")}
-          value={step.id}
-          onChange={(v) => set("id")((s) => ({ ...s, id: v.replace(/[^A-Za-z0-9_-]/g, "") }))}
-        />
+        {/* ステップの id はファイルの中だけで使う。画面では「ステップ N」(時間の順の番号)で呼ぶ */}
         <SelectField
           label={t("source")}
           value={step.source}
@@ -365,6 +371,16 @@ function StepText(props: {
   const setCaption = (key: string, patch: Partial<NonNullable<Step["caption"]>>) =>
     set(`caption.${key}`)((s) => ({ ...s, caption: { ...(s.caption ?? { text: "" }), ...patch } }));
   // 読み上げ k を書き換える。最初の読み上げで text がなければテロップの文を読む。読み上げがなければ読まない
+  /** 1 つ目の読み上げの文を消し、テロップの文を読むようにする */
+  const followCaption = (s: Step) =>
+    withSpeechPieces(
+      s,
+      speechPieces(s).map((x, j) => {
+        if (j !== 0) return x;
+        const { text: _t, ...rest } = x;
+        return rest;
+      }),
+    );
   const setPiece = (k: number, key: string, patch: Partial<SpeechPiece>) =>
     set(`speech${k}.${key}`)((s) =>
       withSpeechPieces(
@@ -546,33 +562,27 @@ function StepText(props: {
               {t("speech")} {k + 1}
             </p>
           )}
-          {k === 0 && (
-            <CheckField
-              label={t("speechSyncCaption")}
-              value={synced}
-              onChange={(v) =>
-                // オフにするとテロップの文をコピーして、別の文に書き換えられるようにする
-                set("speech.sync")((s) =>
-                  withSpeechPieces(
-                    s,
-                    speechPieces(s).map((x, j) => {
-                      if (j !== 0) return x;
-                      const { text: _t, ...rest } = x;
-                      return v ? rest : { ...rest, text: s.caption?.text ?? "" };
-                    }),
-                  ),
-                )
-              }
-            />
-          )}
+          {/* 1 つ目は、書き換えるまでテロップの文を読む(テロップを直すと読み上げも変わる)。
+              書き換えたらその文を持ち、テロップと同じ文に戻したらまたテロップに合わせる */}
           <TextField
             label={t("speechText")}
             multiline
             value={speechSynced(step, k) ? caption.text : (p.text ?? "")}
-            disabled={speechSynced(step, k)}
             placeholder={t("speechPlaceholder")}
-            onChange={(v) => setPiece(k, "text", { text: v })}
+            onChange={(v) =>
+              k === 0 && v === caption.text
+                ? set("speech0.text")(followCaption)
+                : setPiece(k, "text", { text: v })
+            }
           />
+          {k === 0 &&
+            (synced ? (
+              <p className="hint">{t("speechFollowsCaption")}</p>
+            ) : (
+              <button type="button" className="small" onClick={() => set("speech.sync")(followCaption)}>
+                {t("speechResetToCaption")}
+              </button>
+            ))}
           <div className="row">
             <NumField
               label={t("speechStart")}
@@ -665,166 +675,167 @@ function TextDefaults(props: { project: Project; update: Update; voices: Voice[]
 
   return (
     <>
-      <Section focused={props.focused}>
-        <h3>{t("captionStyle")}</h3>
-        <TextField
-          label={t("font")}
-          value={capStyle.font ?? ""}
-          placeholder="Yu Gothic UI"
-          onChange={(v) =>
-            set(
-              "styles",
-              prune({ ...project.styles, caption: prune({ ...capStyle, font: v || undefined }) }),
-              "style.font",
-            )
-          }
-        />
-        <div className="row">
-          <NumField
-            label={t("size")}
-            value={capStyle.size}
-            placeholder="48"
-            step={2}
+      <Fold id="p.caption" title={t("captionStyle")} defaultOpen>
+        <Section focused={props.focused}>
+          <FontField
+            label={t("font")}
+            value={capStyle.font}
             onChange={(v) =>
               set(
                 "styles",
-                prune({ ...project.styles, caption: prune({ ...capStyle, size: v }) }),
-                "style.size",
+                prune({ ...project.styles, caption: prune({ ...capStyle, font: v }) }),
+                "style.font",
               )
             }
           />
-          <Field label={t("color")}>
-            <input
-              type="color"
-              value={(capStyle.color ?? "#FFFFFF").slice(0, 7)}
-              onChange={(e) =>
+          <div className="row">
+            <NumField
+              label={t("size")}
+              value={capStyle.size}
+              placeholder="48"
+              step={2}
+              onChange={(v) =>
                 set(
                   "styles",
-                  { ...project.styles, caption: { ...capStyle, color: e.target.value.toUpperCase() } },
-                  "style.color",
+                  prune({ ...project.styles, caption: prune({ ...capStyle, size: v }) }),
+                  "style.size",
                 )
               }
             />
-          </Field>
-        </div>
-        <SelectField
-          label={t("captionBg")}
-          value={captionBoxColor(capStyle.background ?? "auto") ? "on" : "none"}
-          options={[
-            { value: "none", label: t("bgNone") },
-            { value: "on", label: t("bgOn") },
-          ]}
-          onChange={(v) =>
-            set(
-              "styles",
-              prune({
-                ...project.styles,
-                caption: prune({ ...capStyle, background: v === "on" ? CAPTION_BOX_COLOR : undefined }),
-              }),
-              "style.bg",
-            )
-          }
-        />
-        <p className="field-label">{t("captionPlacement")}</p>
-        <div className="row">
-          <NumField
-            label={t("captionX")}
-            value={capStyle.position?.x}
-            step={0.01}
-            min={0}
-            max={1}
-            placeholder="auto"
-            onChange={(v) =>
-              setCapPos(v === undefined ? undefined : { x: v, y: capStyle.position?.y ?? 0.88 }, "style.x")
-            }
-          />
-          <NumField
-            label={t("captionY")}
-            value={capStyle.position?.y}
-            step={0.01}
-            min={0}
-            max={1}
-            placeholder="auto"
-            onChange={(v) =>
-              setCapPos(v === undefined ? undefined : { x: capStyle.position?.x ?? 0.5, y: v }, "style.y")
-            }
-          />
-          <NumField
-            label={t("captionWidthProject")}
-            value={capStyle.width}
-            step={0.05}
-            min={0.1}
-            max={1}
-            placeholder={String(DEFAULT_CAPTION_WIDTH)}
+            <Field label={t("color")}>
+              <input
+                type="color"
+                value={(capStyle.color ?? "#FFFFFF").slice(0, 7)}
+                onChange={(e) =>
+                  set(
+                    "styles",
+                    { ...project.styles, caption: { ...capStyle, color: e.target.value.toUpperCase() } },
+                    "style.color",
+                  )
+                }
+              />
+            </Field>
+          </div>
+          <SelectField
+            label={t("captionBg")}
+            value={captionBoxColor(capStyle.background ?? "auto") ? "on" : "none"}
+            options={[
+              { value: "none", label: t("bgNone") },
+              { value: "on", label: t("bgOn") },
+            ]}
             onChange={(v) =>
               set(
                 "styles",
-                prune({ ...project.styles, caption: prune({ ...capStyle, width: v }) }),
-                "style.w",
+                prune({
+                  ...project.styles,
+                  caption: prune({ ...capStyle, background: v === "on" ? CAPTION_BOX_COLOR : undefined }),
+                }),
+                "style.bg",
               )
             }
           />
-        </div>
-        {overrides > 0 && (
-          <button
-            type="button"
-            className="small"
-            onClick={() =>
-              update((p) => ({
-                ...p,
-                steps: p.steps.map((st) => {
-                  if (!st.caption) return st;
-                  const { position: _p, width: _w, ...rest } = st.caption;
-                  return { ...st, caption: rest };
-                }),
-              }))
-            }
-          >
-            {t("clearOverrides")} ({overrides})
-          </button>
-        )}
-      </Section>
+          <p className="field-label">{t("captionPlacement")}</p>
+          <div className="row">
+            <NumField
+              label={t("captionX")}
+              value={capStyle.position?.x}
+              step={0.01}
+              min={0}
+              max={1}
+              placeholder="auto"
+              onChange={(v) =>
+                setCapPos(v === undefined ? undefined : { x: v, y: capStyle.position?.y ?? 0.88 }, "style.x")
+              }
+            />
+            <NumField
+              label={t("captionY")}
+              value={capStyle.position?.y}
+              step={0.01}
+              min={0}
+              max={1}
+              placeholder="auto"
+              onChange={(v) =>
+                setCapPos(v === undefined ? undefined : { x: capStyle.position?.x ?? 0.5, y: v }, "style.y")
+              }
+            />
+            <NumField
+              label={t("captionWidthProject")}
+              value={capStyle.width}
+              step={0.05}
+              min={0.1}
+              max={1}
+              placeholder={String(DEFAULT_CAPTION_WIDTH)}
+              onChange={(v) =>
+                set(
+                  "styles",
+                  prune({ ...project.styles, caption: prune({ ...capStyle, width: v }) }),
+                  "style.w",
+                )
+              }
+            />
+          </div>
+          {overrides > 0 && (
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                update((p) => ({
+                  ...p,
+                  steps: p.steps.map((st) => {
+                    if (!st.caption) return st;
+                    const { position: _p, width: _w, ...rest } = st.caption;
+                    return { ...st, caption: rest };
+                  }),
+                }))
+              }
+            >
+              {t("clearOverrides")} ({overrides})
+            </button>
+          )}
+        </Section>
+      </Fold>
 
-      <h3>{t("speech")}</h3>
-      <VoiceSelect
-        label={t("voice")}
-        voices={voices}
-        value={project.speech?.voice}
-        emptyLabel={t("osDefault")}
-        onChange={(v) => set("speech", prune({ ...project.speech, voice: v }))}
-      />
-      <div className="row">
-        <NumField
-          label={t("rate")}
-          value={typeof project.speech?.params?.rate === "number" ? project.speech.params.rate : undefined}
-          step={0.1}
-          min={0.5}
-          max={3}
-          placeholder="1"
-          onChange={(v) =>
-            set(
-              "speech",
-              prune({ ...project.speech, params: withParam(project.speech?.params, "rate", v) }),
-              "speech.rate",
-            )
-          }
+      <Fold id="p.speech" title={t("speech")} defaultOpen>
+        <VoiceSelect
+          label={t("voice")}
+          voices={voices}
+          value={project.speech?.voice}
+          emptyLabel={t("osDefault")}
+          onChange={(v) => set("speech", prune({ ...project.speech, voice: v }))}
         />
-        <NumField
-          label={t("speechVolume")}
-          value={project.audio?.speech?.volume}
-          step={0.1}
-          min={0}
-          max={2}
-          placeholder="1"
-          onChange={(v) =>
-            set("audio", prune({ ...project.audio, speech: prune({ volume: v }) }), "audio.speech")
-          }
+        <div className="row">
+          <NumField
+            label={t("rate")}
+            value={typeof project.speech?.params?.rate === "number" ? project.speech.params.rate : undefined}
+            step={0.1}
+            min={0.5}
+            max={3}
+            placeholder="1"
+            onChange={(v) =>
+              set(
+                "speech",
+                prune({ ...project.speech, params: withParam(project.speech?.params, "rate", v) }),
+                "speech.rate",
+              )
+            }
+          />
+          <NumField
+            label={t("speechVolume")}
+            value={project.audio?.speech?.volume}
+            step={0.1}
+            min={0}
+            max={2}
+            placeholder="1"
+            onChange={(v) =>
+              set("audio", prune({ ...project.audio, speech: prune({ volume: v }) }), "audio.speech")
+            }
+          />
+        </div>
+        <DictionaryField
+          value={project.dictionary ?? []}
+          onChange={(entries) => set("dictionary", entries.length ? entries : undefined, "dictionary")}
         />
-      </div>
-      <DictionaryField
-        value={project.dictionary ?? []}
-        onChange={(entries) => set("dictionary", entries.length ? entries : undefined, "dictionary")}
-      />
+      </Fold>
     </>
   );
 }
@@ -1089,104 +1100,111 @@ export function ProjectPanel(props: {
 
   return (
     <div className="inspector">
-      <h3>{t("output")}</h3>
-      <Field label={`${t("width")} × ${t("height")}`}>
-        <select
-          value={RESOLUTIONS.find((r) => r.w === out.width && r.h === out.height)?.label ?? ""}
-          onChange={(e) => {
-            const r = RESOLUTIONS.find((x) => x.label === e.target.value);
-            if (r) set("output", { ...project.output, width: r.w, height: r.h });
-          }}
-        >
-          <option value="">—</option>
-          {RESOLUTIONS.map((r) => (
-            <option key={r.label}>{r.label}</option>
-          ))}
-        </select>
-      </Field>
-      <div className="row">
-        <NumField
-          label={t("width")}
-          value={out.width}
-          step={2}
-          onChange={(v) => set("output", prune({ ...project.output, width: even(v) }), "output.w")}
+      <Fold
+        id="p.output"
+        title={t("output")}
+        summary={`${out.width}×${out.height} · ${out.fps}fps`}
+        defaultOpen
+      >
+        <Field label={`${t("width")} × ${t("height")}`}>
+          <select
+            value={RESOLUTIONS.find((r) => r.w === out.width && r.h === out.height)?.label ?? ""}
+            onChange={(e) => {
+              const r = RESOLUTIONS.find((x) => x.label === e.target.value);
+              if (r) set("output", { ...project.output, width: r.w, height: r.h });
+            }}
+          >
+            <option value="">—</option>
+            {RESOLUTIONS.map((r) => (
+              <option key={r.label}>{r.label}</option>
+            ))}
+          </select>
+        </Field>
+        <div className="row">
+          <NumField
+            label={t("width")}
+            value={out.width}
+            step={2}
+            onChange={(v) => set("output", prune({ ...project.output, width: even(v) }), "output.w")}
+          />
+          <NumField
+            label={t("height")}
+            value={out.height}
+            step={2}
+            onChange={(v) => set("output", prune({ ...project.output, height: even(v) }), "output.h")}
+          />
+        </div>
+        <div className="row">
+          <SelectField
+            label={t("fps")}
+            value={String(out.fps)}
+            options={[
+              { value: "30", label: "30" },
+              { value: "60", label: "60" },
+            ]}
+            onChange={(v) => set("output", { ...project.output, fps: v === "60" ? 60 : 30 })}
+          />
+          <SelectField
+            label={t("quality")}
+            value={out.quality}
+            options={(["low", "medium", "high"] as const).map((q) => ({ value: q, label: t(q) }))}
+            onChange={(v) => set("output", { ...project.output, quality: v })}
+          />
+        </div>
+        <CheckField
+          label={t("srt")}
+          value={out.srt}
+          onChange={(v) => set("output", { ...project.output, srt: v })}
         />
-        <NumField
-          label={t("height")}
-          value={out.height}
-          step={2}
-          onChange={(v) => set("output", prune({ ...project.output, height: even(v) }), "output.h")}
-        />
-      </div>
-      <div className="row">
-        <SelectField
-          label={t("fps")}
-          value={String(out.fps)}
-          options={[
-            { value: "30", label: "30" },
-            { value: "60", label: "60" },
-          ]}
-          onChange={(v) => set("output", { ...project.output, fps: v === "60" ? 60 : 30 })}
-        />
-        <SelectField
-          label={t("quality")}
-          value={out.quality}
-          options={(["low", "medium", "high"] as const).map((q) => ({ value: q, label: t(q) }))}
-          onChange={(v) => set("output", { ...project.output, quality: v })}
-        />
-      </div>
-      <CheckField
-        label={t("srt")}
-        value={out.srt}
-        onChange={(v) => set("output", { ...project.output, srt: v })}
-      />
+      </Fold>
 
-      <h3>{t("layout")}</h3>
-      <BackgroundField
-        value={layout.background}
-        error={props.backgroundError}
-        onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
-      />
-      <Section focused={props.focusVideo}>
-        <MarginField
-          margin={layout.margin}
-          outW={out.width}
-          outH={out.height}
-          onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
+      <Fold id="p.layout" title={t("layout")} defaultOpen>
+        <BackgroundField
+          value={layout.background}
+          error={props.backgroundError}
+          onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
         />
+        <Section focused={props.focusVideo}>
+          <MarginField
+            margin={layout.margin}
+            outW={out.width}
+            outH={out.height}
+            onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
+          />
+          <CheckField
+            label={t("noMargin")}
+            value={noMargin}
+            onChange={(v) => {
+              if (v) {
+                // 直前の余白と置き方を覚えておき、外したら戻す(アプリを閉じるまで)
+                savedMargin = { margin: project.layout?.margin, fit: project.layout?.fit };
+                set(
+                  "layout",
+                  prune({
+                    ...project.layout,
+                    margin: { top: 0, right: 0, bottom: 0, left: 0 },
+                    fit: undefined,
+                  }),
+                );
+              } else {
+                const back = savedMargin ?? { margin: DEFAULT_MARGIN, fit: undefined };
+                savedMargin = null;
+                set("layout", prune({ ...project.layout, margin: back.margin, fit: back.fit }));
+              }
+            }}
+          />
+          <CheckField
+            label={t("fitCover")}
+            value={layout.fit === "cover"}
+            onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
+          />
+        </Section>
         <CheckField
-          label={t("noMargin")}
-          value={noMargin}
-          onChange={(v) => {
-            if (v) {
-              // 直前の余白と置き方を覚えておき、外したら戻す(アプリを閉じるまで)
-              savedMargin = { margin: project.layout?.margin, fit: project.layout?.fit };
-              set(
-                "layout",
-                prune({
-                  ...project.layout,
-                  margin: { top: 0, right: 0, bottom: 0, left: 0 },
-                  fit: undefined,
-                }),
-              );
-            } else {
-              const back = savedMargin ?? { margin: DEFAULT_MARGIN, fit: undefined };
-              savedMargin = null;
-              set("layout", prune({ ...project.layout, margin: back.margin, fit: back.fit }));
-            }
-          }}
+          label={t("shadow")}
+          value={layout.shadow}
+          onChange={(v) => set("layout", { ...project.layout, shadow: v })}
         />
-        <CheckField
-          label={t("fitCover")}
-          value={layout.fit === "cover"}
-          onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
-        />
-      </Section>
-      <CheckField
-        label={t("shadow")}
-        value={layout.shadow}
-        onChange={(v) => set("layout", { ...project.layout, shadow: v })}
-      />
+      </Fold>
 
       <TextDefaults project={project} update={update} voices={props.voices} focused={props.focusShared} />
     </div>

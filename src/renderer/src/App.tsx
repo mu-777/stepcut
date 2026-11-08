@@ -30,7 +30,15 @@ import { exportProject } from "./exporter";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
 import { Icon } from "./icons";
-import { type PanelView, ProjectPanel, StepDetail, viewOf } from "./inspector";
+import {
+  type FoldCommand,
+  FoldCommandContext,
+  foldOf,
+  type PanelView,
+  ProjectPanel,
+  StepDetail,
+  viewOf,
+} from "./inspector";
 import { openMedia, type SourceMedia } from "./media";
 import { PLAYBACK_RATES, type Player, type PlayerState } from "./player";
 import { Preview } from "./preview";
@@ -57,6 +65,12 @@ const isTyping = () => {
   const el = document.activeElement;
   return (el instanceof HTMLInputElement && TEXT_INPUTS.has(el.type)) || el instanceof HTMLTextAreaElement;
 };
+
+/** 検証の指摘の場所。ステップは画面と同じ「ステップ N」を添える(JSON の場所も残す) */
+function issuePath(path: string): string {
+  const m = /^steps\[(\d+)\]/.exec(path);
+  return m ? `${t("step")} ${Number(m[1]) + 1} (${path})` : path;
+}
 
 export function App() {
   const [hist, setHist] = useState<History>(() => initHistory(newProject()));
@@ -100,6 +114,11 @@ export function App() {
   const [view, setView] = useState<PanelView>("step");
   /** ステップの「共通の設定 ›」から全体の設定へ来た(テロップの見た目の欄を強調する) */
   const [sharedFocus, setSharedFocus] = useState(false);
+  /** 設定パネルの欄をまとめて開け閉めする指示 */
+  const [foldCmd, setFoldCmd] = useState<FoldCommand | null>(null);
+  /** id の欄だけを開き、ほかを閉じる(null ならすべて閉じる) */
+  const foldOnly = (id: string | null) =>
+    setFoldCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: (x) => x === id }));
   const [panelW, setPanelW] = useState(() => loadPref("panelWidth", 320));
   /** 左端のサムネイル列の幅 */
   const [railW, setRailW] = useState(() => loadPref("stepRailWidth", 220));
@@ -133,6 +152,9 @@ export function App() {
       setView(v);
       setSharedFocus(false);
     }
+    // 要素を選んだら、その欄だけを開いてほかの欄を閉じる
+    const fold = foldOf(selection);
+    if (fold) setFoldCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: (x) => x === fold }));
   }, [selection]);
 
   const update = useCallback((fn: (p: Project) => Project, key?: string) => {
@@ -243,45 +265,47 @@ export function App() {
     },
     save: () => save(filePath),
     saveAs: () => save(null),
-    addSource: async () => {
-      const paths = await api.pickSources();
-      if (!paths.length) return;
-      let p = project;
-      for (const path of paths) {
-        try {
-          const m = await openMedia(path);
-          let n = p.sources.length + 1;
-          while (p.sources.some((s) => s.id === `rec${n}`)) n++;
-          const id = `rec${n}`;
-          p = {
-            ...p,
-            sources: [...p.sources, { id, path }],
-            steps: [
-              ...p.steps,
-              {
-                id: uniqueStepId(p, "step"),
-                source: id,
-                in: 0,
-                out: Math.round(m.duration * 1000) / 1000,
-                // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
-                caption: { text: "" },
-                // テロップと同じ文を読む(既定でオン)
-                speech: {},
-              },
-            ],
-          };
-        } catch (e) {
-          setBanner({ kind: "error", text: (e as Error).message });
-        }
-      }
-      update(() => p);
-      setSelection({ kind: "step", step: p.steps.length - 1 });
-    },
+    addSource: async () => addSourcePaths(await api.pickSources()),
     export: () => doExport(),
     shortcuts: () => setShortcutsOpen(true),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
     redo: () => (isTyping() ? document.execCommand("redo") : setHist(redo)),
   };
+
+  /** 録画を末尾のステップとして足す(選んだファイル・ドロップしたファイル) */
+  async function addSourcePaths(paths: string[]) {
+    if (!paths.length) return;
+    let p = project;
+    for (const path of paths) {
+      try {
+        const m = await openMedia(path);
+        let n = p.sources.length + 1;
+        while (p.sources.some((s) => s.id === `rec${n}`)) n++;
+        const id = `rec${n}`;
+        p = {
+          ...p,
+          sources: [...p.sources, { id, path }],
+          steps: [
+            ...p.steps,
+            {
+              id: uniqueStepId(p, "step"),
+              source: id,
+              in: 0,
+              out: Math.round(m.duration * 1000) / 1000,
+              // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
+              caption: { text: "" },
+              // 読み上げは、書き換えるまでテロップの文を読む
+              speech: {},
+            },
+          ],
+        };
+      } catch (e) {
+        setBanner({ kind: "error", text: (e as Error).message });
+      }
+    }
+    update(() => p);
+    setSelection({ kind: "step", step: p.steps.length - 1 });
+  }
 
   async function save(path: string | null) {
     const r = await api.saveProject(path, serializeProject(project), filePath);
@@ -290,7 +314,7 @@ export function App() {
 
   async function doExport() {
     if (issues.some((i) => !i.message.includes("M2"))) {
-      setBanner({ kind: "error", text: issues.map((e) => `${e.path}: ${e.message}`).join("\n") });
+      setBanner({ kind: "error", text: issues.map((e) => `${issuePath(e.path)}: ${e.message}`).join("\n") });
       return;
     }
     const outPath = await api.pickExportPath(
@@ -414,7 +438,7 @@ export function App() {
     else if (key === "ArrowDown") pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
     else if (key === "Home") pl.seek(0);
     else if (key === "End") pl.seek(total);
-    else if (key === "k" && (e.ctrlKey || e.metaKey)) {
+    else if (key === "s" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const l = locate(timeline, pl.time);
       if (l) update((p) => splitStep(p, l.entry.index, l.local, true));
     } else if (key === "Delete" || key === "Backspace") deleteSelection();
@@ -424,6 +448,18 @@ export function App() {
     else handled = false;
     if (handled) e.preventDefault();
   };
+  // サムネイル列の外にファイルを落としても、ウィンドウがそのファイルを開いて画面が入れ替わらないようにする
+  useEffect(() => {
+    const block = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
   // タイムライン・プレビューの操作を始めたら入力欄からフォーカスを外す。ドラッグは押下の既定動作を止めるので
   // フォーカスが入力欄に残り、Ctrl+Z が文字の取り消しに回って編集を戻せなくなるため
   useEffect(() => {
@@ -970,7 +1006,11 @@ export function App() {
           }}
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
-          onAddFirst={confirmAddRecording}
+          onDropFiles={(files) => {
+            const paths = files.filter((f) => /\.mp4$/i.test(f.name)).map((f) => api.pathForFile(f));
+            if (paths.length) void addSourcePaths(paths);
+            else setBanner({ kind: "error", text: t("dropMp4Only") });
+          }}
         />
         <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 400))} />
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
@@ -1352,93 +1392,115 @@ export function App() {
         </section>
         <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w - d))} />
         <aside className="panel">
-          {view === "project" || target === null || !tgtStep ? (
-            <>
-              <h3 className="panel-title">{t("panelProjectTitle")}</h3>
-              <ProjectPanel
-                project={project}
-                update={update}
-                voices={voices}
-                focusVideo={selection.kind === "video"}
-                focusShared={sharedFocus}
-                backgroundError={(() => {
-                  const bg = resolveLayout(project).background;
-                  return typeof bg !== "string" && "image" in bg
-                    ? backgrounds.error(bg.image, filePath)
-                    : null;
-                })()}
-              />
-            </>
-          ) : (
-            <>
-              <div className="panel-head">
-                <h3 className="panel-title">
-                  {t("step")} {target + 1}
-                  <span className="muted"> {tgtStep.id}</span>
-                </h3>
-                <div className="seg">
+          <FoldCommandContext.Provider value={foldCmd}>
+            {view === "project" || target === null || !tgtStep ? (
+              <>
+                <div className="panel-head">
+                  <h3 className="panel-title">{t("panelProjectTitle")}</h3>
                   <button
                     type="button"
-                    className="small"
-                    title={t("prevStep")}
-                    aria-label={t("prevStep")}
-                    disabled={target <= 0}
-                    onClick={() => selectStep(target - 1)}
+                    className="small fold-all"
+                    title={t("collapseAll")}
+                    aria-label={t("collapseAll")}
+                    onClick={() => foldOnly(null)}
                   >
-                    ◀
-                  </button>
-                  <button
-                    type="button"
-                    className="small"
-                    title={t("nextStep")}
-                    aria-label={t("nextStep")}
-                    disabled={target >= project.steps.length - 1}
-                    onClick={() => selectStep(target + 1)}
-                  >
-                    ▶
+                    <Icon name="collapseAll" />
                   </button>
                 </div>
-              </div>
-              <StepDetail
-                project={project}
-                index={target}
-                update={update}
-                voices={voices}
-                focus={selection}
-                playheadLocal={playheadLocal}
-                speechStatus={speechStatus}
-                speechPlaying={speechPlaying === target}
-                onPreviewSpeech={() => {
-                  if (speechPlaying === target) stopSpeech();
-                  else previewSpeech(target);
-                }}
-                onGoShared={() => {
-                  setView("project");
-                  setSharedFocus(true);
-                }}
-                drawing={drawingZoom}
-                onDrawZoom={editZoomRect}
-                syncSize={syncSize}
-                onAddZoom={() => addZoomAtPlayhead()}
-                onSelectZoom={(zoom) => {
-                  if (zoom === null) {
-                    select({ kind: "step", step: target });
-                    return;
-                  }
-                  const e = timeline[target];
-                  const z = tgtStep.zooms?.[zoom];
-                  // ズームの区間の外にいれば、区間の始まりへ移ってから選ぶ(再生位置にいちばん近い枠を編集する)
-                  if (e && z && !(time >= e.start + z.start && time <= e.start + z.end))
-                    playerRef.current?.seek(e.start + z.start);
-                  select({ kind: "zoom", step: target, index: zoom });
-                }}
-                srcSizeOf={(step) => {
-                  const m = media.get(project.steps[step]?.source ?? "");
-                  return m ? { w: m.width, h: m.height } : null;
-                }}
-              />
-            </>
-          )}
+                <ProjectPanel
+                  project={project}
+                  update={update}
+                  voices={voices}
+                  focusVideo={selection.kind === "video"}
+                  focusShared={sharedFocus}
+                  backgroundError={(() => {
+                    const bg = resolveLayout(project).background;
+                    return typeof bg !== "string" && "image" in bg
+                      ? backgrounds.error(bg.image, filePath)
+                      : null;
+                  })()}
+                />
+              </>
+            ) : (
+              <>
+                <div className="panel-head">
+                  <h3 className="panel-title">
+                    {t("step")} {target + 1}
+                  </h3>
+                  <button
+                    type="button"
+                    className="small fold-all"
+                    title={t("collapseAll")}
+                    aria-label={t("collapseAll")}
+                    onClick={() => foldOnly(null)}
+                  >
+                    <Icon name="collapseAll" />
+                  </button>
+                  <div className="seg">
+                    <button
+                      type="button"
+                      className="small"
+                      title={t("prevStep")}
+                      aria-label={t("prevStep")}
+                      disabled={target <= 0}
+                      onClick={() => selectStep(target - 1)}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      type="button"
+                      className="small"
+                      title={t("nextStep")}
+                      aria-label={t("nextStep")}
+                      disabled={target >= project.steps.length - 1}
+                      onClick={() => selectStep(target + 1)}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                </div>
+                <StepDetail
+                  project={project}
+                  index={target}
+                  update={update}
+                  voices={voices}
+                  focus={selection}
+                  playheadLocal={playheadLocal}
+                  speechStatus={speechStatus}
+                  speechPlaying={speechPlaying === target}
+                  onPreviewSpeech={() => {
+                    if (speechPlaying === target) stopSpeech();
+                    else previewSpeech(target);
+                  }}
+                  onGoShared={() => {
+                    setView("project");
+                    setSharedFocus(true);
+                    foldOnly("p.caption");
+                  }}
+                  drawing={drawingZoom}
+                  onDrawZoom={editZoomRect}
+                  syncSize={syncSize}
+                  onAddZoom={() => addZoomAtPlayhead()}
+                  onSelectZoom={(zoom) => {
+                    if (zoom === null) {
+                      select({ kind: "step", step: target });
+                      return;
+                    }
+                    const e = timeline[target];
+                    const z = tgtStep.zooms?.[zoom];
+                    // ズームの区間の外にいれば、区間の始まりへ移ってから選ぶ(再生位置にいちばん近い枠を編集する)
+                    if (e && z && !(time >= e.start + z.start && time <= e.start + z.end))
+                      playerRef.current?.seek(e.start + z.start);
+                    select({ kind: "zoom", step: target, index: zoom });
+                  }}
+                  srcSizeOf={(step) => {
+                    const m = media.get(project.steps[step]?.source ?? "");
+                    return m ? { w: m.width, h: m.height } : null;
+                  }}
+                />
+              </>
+            )}
+          </FoldCommandContext.Provider>
         </aside>
       </main>
 
@@ -1453,7 +1515,7 @@ export function App() {
             ))}
             {issues.map((i) => (
               <li key={`${i.path}:${i.message}`}>
-                {i.path}: {i.message}
+                {issuePath(i.path)}: {i.message}
               </li>
             ))}
           </ul>
