@@ -1,10 +1,11 @@
 import { appendFile, type FileHandle, mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
-import type { ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
+import type { AppSettings, ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
 import { type CliArgs, formatValidate, HELP, parseCli, validateFile } from "./cli";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
+import { loadSettings, saveSettings } from "./settings";
 import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 
@@ -50,6 +51,7 @@ function sendMenu(command: string) {
   return () => mainWindow?.webContents.send("menu", command);
 }
 
+/** アプリのメニュー。Windows ではメニューバーを隠し、キー操作(accelerator)とコピー・貼り付けの役割だけに使う */
 function buildMenu(): void {
   const isMac = process.platform === "darwin";
   const template: MenuItemConstructorOptions[] = [
@@ -102,8 +104,22 @@ const outputs = new Map<number, FileHandle>();
 let nextHandle = 1;
 
 function registerIpc(): void {
+  ipcMain.handle("settings:get", () => loadSettings());
+  ipcMain.handle("settings:set", (_e, patch: Partial<AppSettings>) => saveSettings(patch));
+  ipcMain.handle("dialog:pick-dir", async (_e, defaultPath: string | null) => {
+    const r = await dialog.showOpenDialog({
+      properties: ["openDirectory", "createDirectory"],
+      ...(defaultPath ? { defaultPath } : {}),
+    });
+    return r.filePaths[0] ?? null;
+  });
   ipcMain.handle("project:open-dialog", async () => {
-    const r = await dialog.showOpenDialog({ filters: [PROJECT_FILTER], properties: ["openFile"] });
+    const dir = (await loadSettings()).projectDir;
+    const r = await dialog.showOpenDialog({
+      filters: [PROJECT_FILTER],
+      properties: ["openFile"],
+      ...(dir ? { defaultPath: dir } : {}),
+    });
     const file = r.filePaths[0];
     return file ? readProject(file) : null;
   });
@@ -114,9 +130,11 @@ function registerIpc(): void {
     async (_e, filePath: string | null, text: string, prevPath: string | null) => {
       let target = filePath;
       if (!target) {
+        // 名前を付けて保存は今のファイルの場所、新しいプロジェクトはアプリの設定の保存先から始める
+        const dir = (await loadSettings()).projectDir;
         const r = await dialog.showSaveDialog({
           filters: [PROJECT_FILTER],
-          defaultPath: prevPath ?? "project.sanno.json",
+          defaultPath: prevPath ?? (dir ? path.join(dir, "project.sanno.json") : "project.sanno.json"),
         });
         if (r.canceled || !r.filePath) return null;
         target = r.filePath;
@@ -257,6 +275,8 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   mainWindow = createWindow({ show: true });
+  // メニューバーは出さない(操作は画面のヘッダーにある)。メニューは残し、Ctrl+S などのキーとコピー・貼り付けに使う
+  if (process.platform !== "darwin") mainWindow.setMenuBarVisibility(false);
   mainWindow.on("close", (e) => {
     if (!dirty || !mainWindow) return;
     const choice = dialog.showMessageBoxSync(mainWindow, {

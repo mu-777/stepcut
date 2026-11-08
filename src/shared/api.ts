@@ -21,6 +21,16 @@ export interface TtsResult {
   notice?: string;
 }
 
+/** アプリの設定(プロジェクトによらない) */
+export interface AppSettings {
+  /** 画面の言語。auto なら OS の言語 */
+  language: "auto" | "ja" | "en";
+  /** 新しいプロジェクトの保存先と、開くときに最初に出すフォルダー。null なら OS の既定 */
+  projectDir: string | null;
+}
+
+export const DEFAULT_APP_SETTINGS: AppSettings = { language: "auto", projectDir: null };
+
 export interface OpenedProject {
   filePath: string;
   text: string;
@@ -54,6 +64,11 @@ export interface Api {
   /** 保存。素材パスを保存先基準で書き換えた JSON を返す。filePath が null なら保存先を尋ねる */
   saveProject(filePath: string | null, text: string, prevPath: string | null): Promise<OpenedProject | null>;
   pickSources(): Promise<string[]>;
+  // アプリの設定
+  getSettings(): Promise<AppSettings>;
+  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** フォルダーを選ぶ(絶対パス) */
+  pickDirectory(defaultPath: string | null): Promise<string | null>;
   /** ドラッグ&ドロップされたファイルの絶対パス */
   pathForFile(file: File): string;
   /** 背景の画像を選ぶ(絶対パス) */

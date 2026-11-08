@@ -42,6 +42,7 @@ import {
 import { openMedia, type SourceMedia } from "./media";
 import { PLAYBACK_RATES, type Player, type PlayerState } from "./player";
 import { Preview } from "./preview";
+import { SettingsDialog } from "./settings-dialog";
 import { SpeechStore } from "./speech";
 import { StepRail } from "./step-rail";
 import { ThumbCache } from "./thumbs";
@@ -67,6 +68,13 @@ const isTyping = () => {
 };
 
 /** 検証の指摘の場所。ステップは画面と同じ「ステップ N」を添える(JSON の場所も残す) */
+/** ヘッダーのボタンの文字は「…」を付けない(押すとダイアログが開くことはアイコンで足りる) */
+const bare = (label: string) => label.replace(/…$/, "");
+/** フォルダーの部分(ヘッダーにプロジェクトの場所として出す) */
+const dirName = (p: string) => p.replace(/[\\/][^\\/]*$/, "");
+/** プロジェクトの名前(ファイル名から拡張子を除く) */
+const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.sanno)?\.json$/i, "");
+
 function issuePath(path: string): string {
   const m = /^steps\[(\d+)\]/.exec(path);
   return m ? `${t("step")} ${Number(m[1]) + 1} (${path})` : path;
@@ -91,6 +99,9 @@ export function App() {
   /** プレビュー上でテロップの文字を入力中のステップ */
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 言語を切り替えたら増やして描き直す */
+  const [, setLangVersion] = useState(0);
   /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
   const [anchor, setAnchor] = useState(() =>
     loadChoice("boxAnchor", ["center", "corner"] as const, "center"),
@@ -181,6 +192,11 @@ export function App() {
   useEffect(() => {
     api.setDirty(dirty);
   }, [dirty]);
+  const projectName = filePath ? baseName(filePath) : t("untitled");
+  // ウィンドウのタイトル(タスクバー)にもプロジェクトの名前を出す
+  useEffect(() => {
+    document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
+  }, [dirty, projectName]);
 
   useEffect(() => {
     api.ttsVoices("os").then(setVoices, () => setVoices([]));
@@ -938,44 +954,92 @@ export function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <button type="button" title="Ctrl+N" onClick={() => actions.current.new?.()}>
-          {t("new")}
-        </button>
-        <button type="button" title="Ctrl+O" onClick={() => actions.current.open?.()}>
-          {t("open")}
-        </button>
-        <button type="button" title="Ctrl+S" onClick={() => actions.current.save?.()}>
-          {t("save")}
-        </button>
-        <button type="button" onClick={() => actions.current.addSource?.()}>
-          {t("addRecording")}
-        </button>
+        {/* 左: ファイルと編集の操作、真ん中: プロジェクトの名前、右: アプリの設定と書き出し */}
+        <div className="tb-group">
+          {(
+            [
+              ["fileNew", "new", "Ctrl+N", () => actions.current.new?.()],
+              ["fileOpen", "open", "Ctrl+O", () => actions.current.open?.()],
+              ["fileSave", "save", "Ctrl+S", () => actions.current.save?.()],
+              ["fileSaveAs", "saveAs", "Ctrl+Shift+S", () => actions.current.saveAs?.()],
+            ] as const
+          ).map(([icon, label, key, fn]) => (
+            <button key={icon} type="button" className="tb-btn" title={`${t(label)} (${key})`} onClick={fn}>
+              <Icon name={icon} />
+              <span>{bare(t(label))}</span>
+            </button>
+          ))}
+        </div>
+        <span className="tb-sep" />
         <button
           type="button"
-          title="Ctrl+E"
-          onClick={() => doExport()}
-          disabled={exporting !== null || project.steps.length === 0}
+          className="tb-btn"
+          title={`${t("addRecording")} (${t("dropHint")})`}
+          onClick={() => actions.current.addSource?.()}
         >
-          {exporting
-            ? `${t("exporting")} ${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
-            : t("export")}
+          <Icon name="addRecording" />
+          <span>{bare(t("addRecording"))}</span>
         </button>
-        <span className="sep" />
-        <button type="button" title="Ctrl+Z" onClick={() => setHist(undo)} disabled={hist.past.length === 0}>
-          {t("undo")}
-        </button>
-        <button
-          type="button"
-          title="Ctrl+Shift+Z"
-          onClick={() => setHist(redo)}
-          disabled={hist.future.length === 0}
-        >
-          {t("redo")}
-        </button>
-        <span className="title">
-          {filePath ?? t("untitled")}
-          {dirty ? ` • ${t("unsaved")}` : ""}
-        </span>
+        <span className="tb-sep" />
+        <div className="tb-group">
+          <button
+            type="button"
+            className="tb-btn"
+            title={`${t("undo")} (Ctrl+Z)`}
+            onClick={() => setHist(undo)}
+            disabled={hist.past.length === 0}
+          >
+            <Icon name="undo" />
+            <span>{t("undo")}</span>
+          </button>
+          <button
+            type="button"
+            className="tb-btn"
+            title={`${t("redo")} (Ctrl+Shift+Z)`}
+            onClick={() => setHist(redo)}
+            disabled={hist.future.length === 0}
+          >
+            <Icon name="redo" />
+            <span>{t("redo")}</span>
+          </button>
+        </div>
+        <div className="tb-title" title={filePath ?? undefined}>
+          <span className="tb-name">
+            {projectName}
+            {dirty && (
+              <span className="tb-dirty" title={t("unsaved")}>
+                {" "}
+                ●
+              </span>
+            )}
+          </span>
+          <span className="tb-path">{filePath ? dirName(filePath) : t("notSavedYet")}</span>
+        </div>
+        <div className="tb-group">
+          <button
+            type="button"
+            className="tb-btn"
+            title={t("appSettings")}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Icon name="settings" />
+            <span>{t("settings")}</span>
+          </button>
+          <button
+            type="button"
+            className="tb-btn primary"
+            title={`${t("export")} (Ctrl+E)`}
+            onClick={() => doExport()}
+            disabled={exporting !== null || project.steps.length === 0}
+          >
+            <Icon name="exportVideo" />
+            <span>
+              {exporting
+                ? `${t("exporting")} ${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
+                : bare(t("export"))}
+            </span>
+          </button>
+        </div>
       </header>
 
       {banner && (
@@ -1523,6 +1587,12 @@ export function App() {
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onLanguage={() => setLangVersion((v) => v + 1)}
+        />
+      )}
     </div>
   );
 }

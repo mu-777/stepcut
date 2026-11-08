@@ -486,7 +486,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "点線の枠のクリックでその枠の編集に切り替える",
   );
   // プレビューの外(ツールバーの余白)のクリックでも編集を終える
-  await page.locator(".toolbar .title").click();
+  await page.locator(".toolbar .tb-title").click();
   await page.waitForTimeout(200);
   check((await page.locator(".draw-layer").count()) === 0, "プレビューの外のクリックで枠の編集を終える");
   // 再生を始めても編集を終える
@@ -777,6 +777,34 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.locator(".fold-all").click();
   await page.waitForTimeout(100);
   check((await page.locator(".fold.open").count()) === 0, "「すべての欄を閉じる」で全部の欄を閉じる");
+
+  // ヘッダー: アイコン付きのボタン、真ん中にプロジェクトの名前、右端に書き出し
+  const hdr = await page.locator(".toolbar").boundingBox();
+  const exportBtn = await page.locator(".tb-btn.primary").boundingBox();
+  const titleBox = await page.locator(".tb-title").boundingBox();
+  check(
+    (await page.locator(".tb-btn svg").count()) >= 9 &&
+      (await page.locator(".tb-name").textContent()).includes("ui") &&
+      exportBtn.x > titleBox.x + titleBox.width - 1 &&
+      hdr.x + hdr.width - (exportBtn.x + exportBtn.width) < 16 &&
+      hdr.height >= 50,
+    `ヘッダーはアイコン付きで、真ん中にプロジェクト名、書き出しは右端 (高さ ${hdr.height})`,
+  );
+  check(
+    /ui — Screen Annotator/.test(await page.title()),
+    `ウィンドウのタイトルにプロジェクト名 (${await page.title()})`,
+  );
+  // アプリの設定(言語・プロジェクトの保存先)
+  await page.getByRole("button", { name: /^(Settings|設定)$/ }).click();
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".settings-dialog select").count()) === 1 &&
+      (await page.locator(".settings-dialog .dir-row").count()) === 1,
+    "ヘッダーの「設定」でアプリの設定(言語・プロジェクトの保存先)を開く",
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
+  check((await page.locator(".settings-dialog").count()) === 0, "Esc でアプリの設定を閉じる");
 
   // 新規(録画なし): 録画の追加の案内はサムネイル列の「全体」の下、設定パネルは全体の設定
   page.once("dialog", (d) => d.accept());

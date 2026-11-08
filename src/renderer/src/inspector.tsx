@@ -5,6 +5,7 @@ import {
   CAPTION_BOX_COLOR,
   captionBoxColor,
   DEFAULT_BACKGROUND,
+  DEFAULT_CAPTION_STYLE,
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
   resolveCaptionStyle,
@@ -680,6 +681,7 @@ function TextDefaults(props: { project: Project; update: Update; voices: Voice[]
           <FontField
             label={t("font")}
             value={capStyle.font}
+            placeholder={`${t("defaultFont")} (${DEFAULT_CAPTION_STYLE.font})`}
             onChange={(v) =>
               set(
                 "styles",

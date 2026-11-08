@@ -1,4 +1,4 @@
-// UI の文言(NF-07: 英語が主、日本語にも対応)。OS の言語が日本語なら日本語にする。
+// UI の文言(NF-07: 英語が主、日本語にも対応)。既定は OS の言語(日本語なら日本語)、アプリの設定で変えられる。
 
 const en = {
   new: "New",
@@ -190,6 +190,16 @@ const en = {
   anchorTip: "Point that stays fixed when resizing a box",
   shortcuts: "Keyboard Shortcuts",
   close: "Close",
+  appSettings: "App settings",
+  settings: "Settings",
+  notSavedYet: "Not saved yet",
+  language: "Language",
+  languageAuto: "Same as the OS",
+  projectDir: "Project folder",
+  projectDirDefault: "(OS default)",
+  projectDirHint: "Where new projects are saved first, and where Open starts.",
+  chooseFolder: "Choose…",
+  resetDefault: "Reset",
   middleDrag: "Middle-button drag",
   scPlay: "Play / pause",
   scJkl: "Reverse / stop / forward (press again for faster)",
@@ -416,6 +426,16 @@ const ja: typeof en = {
   anchorTip: "枠を拡大縮小するときに固定する点",
   shortcuts: "キー操作の一覧",
   close: "閉じる",
+  appSettings: "アプリの設定",
+  settings: "設定",
+  notSavedYet: "まだ保存していません",
+  language: "言語",
+  languageAuto: "OS に合わせる",
+  projectDir: "プロジェクトの保存先",
+  projectDirDefault: "(OS の既定)",
+  projectDirHint: "新しいプロジェクトを保存するときと、プロジェクトを開くときに最初に出すフォルダー。",
+  chooseFolder: "選ぶ…",
+  resetDefault: "既定に戻す",
   middleDrag: "中ボタンのドラッグ",
   scPlay: "再生 / 停止",
   scJkl: "逆再生 / 停止 / 再生(重ねて押すと速く)",
@@ -453,7 +473,13 @@ const ja: typeof en = {
 
 export type MessageKey = keyof typeof en;
 
-const dict = navigator.language.toLowerCase().startsWith("ja") ? ja : en;
+const osJa = () => navigator.language.toLowerCase().startsWith("ja");
+let dict = osJa() ? ja : en;
+
+/** 言語を切り替える(アプリの設定)。auto なら OS の言語。切り替えた後の描画から効く */
+export function setLanguage(lang: "auto" | "ja" | "en"): void {
+  dict = lang === "ja" || (lang === "auto" && osJa()) ? ja : en;
+}
 
 export function t(key: MessageKey): string {
   return dict[key];
