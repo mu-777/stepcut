@@ -471,6 +471,8 @@ export function App() {
   // パネルで直すステップ。選んだ要素のステップ、なければ再生位置のステップ
   const target = selected ?? loc?.entry.index ?? null;
   const tgtStep = target !== null ? project.steps[target] : undefined;
+  /** 設定パネルに全体の設定を出す(ステップがなければ常に全体) */
+  const projectShown = view === "project" || !tgtStep;
   const playheadLocal = loc && target === loc.entry.index ? loc.local : 0;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で生成の進み具合を拾う
@@ -955,7 +957,7 @@ export function App() {
           media={media}
           thumbs={thumbs}
           thumbsVersion={thumbsVersion}
-          projectOpen={view === "project"}
+          projectOpen={projectShown}
           target={target}
           playhead={loc?.entry.index ?? null}
           onProject={() => {
@@ -968,6 +970,7 @@ export function App() {
           }}
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
+          onAddFirst={confirmAddRecording}
         />
         <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 400))} />
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
@@ -1349,7 +1352,7 @@ export function App() {
         </section>
         <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w - d))} />
         <aside className="panel">
-          {view === "project" ? (
+          {view === "project" || target === null || !tgtStep ? (
             <>
               <h3 className="panel-title">{t("panelProjectTitle")}</h3>
               <ProjectPanel
@@ -1366,7 +1369,7 @@ export function App() {
                 })()}
               />
             </>
-          ) : target !== null && tgtStep ? (
+          ) : (
             <>
               <div className="panel-head">
                 <h3 className="panel-title">
@@ -1435,10 +1438,6 @@ export function App() {
                 }}
               />
             </>
-          ) : (
-            <button type="button" className="link-button hint" onClick={confirmAddRecording}>
-              {t("noSources")}
-            </button>
           )}
         </aside>
       </main>

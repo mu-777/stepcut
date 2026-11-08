@@ -26,6 +26,8 @@ export function StepRail(props: {
   onStep: (i: number) => void;
   onStepMenu: (e: React.MouseEvent, i: number) => void;
   onAdd: () => void;
+  /** 録画がないときの案内を押した */
+  onAddFirst: () => void;
 }) {
   /** マウスを重ねたサムネイルと、その位置(テロップの文を横に出す) */
   const [tip, setTip] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -43,6 +45,13 @@ export function StepRail(props: {
         <span>{t("panelProject")}</span>
       </button>
       <ol className="rail-thumbs" onScroll={() => setTip(null)}>
+        {props.timeline.length === 0 && (
+          <li>
+            <button type="button" className="link-button hint rail-empty" onClick={props.onAddFirst}>
+              {t("noSources")}
+            </button>
+          </li>
+        )}
         {props.timeline.map((e) => {
           const m = props.media.get(e.step.source);
           // ステップの頭から少し進んだところ(フェードや操作前の静止を避ける)

@@ -310,6 +310,12 @@ textarea {
   color: #ff6b5b;
 }
 
+.rail-empty {
+  padding: 4px 2px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .rail-add {
   margin: 4px 6px 6px;
   border-style: dashed;

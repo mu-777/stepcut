@@ -681,6 +681,17 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   );
   await shot(page, "04-project");
 
+  // 新規(録画なし): 録画の追加の案内はサムネイル列の「全体」の下、設定パネルは全体の設定
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: /^(New|新規)$/ }).click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator(".step-rail .rail-empty").count()) === 1 &&
+      (await page.locator(".rail-project.on").count()) === 1 &&
+      /Project|全体/.test(await panelTitle()),
+    "録画がないときは案内をサムネイル列に出し、設定パネルは全体の設定",
+  );
+
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();
 })().catch(async (e) => {
