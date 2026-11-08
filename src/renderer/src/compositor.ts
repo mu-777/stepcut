@@ -10,6 +10,7 @@ import {
 import { computeLayout, marginArea, type Rect, videoBoxFor, viewRectAt } from "../../core/layout";
 import type { Project, Step } from "../../core/schema";
 import { wrapText } from "../../core/text";
+import { fadeLevel } from "../../core/timeline";
 import { drawSimpleBackground } from "./backgrounds";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -83,6 +84,16 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
   if (f.step && !f.hideCaption) {
     const w = captionWindow(f.step, f.stepDuration, f.captionPlaceholder !== undefined);
     if (w && f.local >= w.start && f.local < w.end) drawCaption(ctx, f, v);
+  }
+  if (f.step) {
+    // フェードイン・フェードアウト: 背景・録画・テロップをまとめて黒へ
+    const level = fadeLevel(f.step, f.local, f.stepDuration);
+    if (level < 1) {
+      ctx.globalAlpha = 1 - level;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, f.outW, f.outH);
+      ctx.globalAlpha = 1;
+    }
   }
   ctx.restore();
 }

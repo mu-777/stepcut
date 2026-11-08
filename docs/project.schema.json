@@ -297,6 +297,9 @@
               "type": "number",
               "minimum": 0,
               "maximum": 2
+            },
+            "keepPitch": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -380,6 +383,14 @@
           "speed": {
             "type": "number",
             "minimum": 1
+          },
+          "fadeIn": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "fadeOut": {
+            "type": "number",
+            "exclusiveMinimum": 0
           },
           "caption": {
             "type": "object",
@@ -559,6 +570,9 @@
                     "type": "number",
                     "minimum": 0,
                     "maximum": 2
+                  },
+                  "keepPitch": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false

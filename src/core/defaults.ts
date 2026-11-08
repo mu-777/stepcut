@@ -28,6 +28,8 @@ export interface ResolvedAudio {
   sourceEnabled: boolean;
   sourceVolume: number;
   speechVolume: number;
+  /** 早送りで音の高さを保つ */
+  keepPitch: boolean;
 }
 
 export interface ResolvedSpeech {
@@ -126,9 +128,12 @@ export function speechText(step: Step, k = 0): string | null {
 
 export function resolveAudio(p: Project, step: Step): ResolvedAudio {
   return {
-    sourceEnabled: step.audio?.source?.enabled ?? p.audio?.source?.enabled ?? true,
+    // 早送りステップの元の音声は、ステップで鳴らすと決めたときだけ鳴らす(U-09)
+    sourceEnabled:
+      step.audio?.source?.enabled ?? (stepSpeed(step) > 1 ? false : (p.audio?.source?.enabled ?? true)),
     sourceVolume: step.audio?.source?.volume ?? p.audio?.source?.volume ?? 1,
     speechVolume: step.audio?.speech?.volume ?? p.audio?.speech?.volume ?? 1,
+    keepPitch: step.audio?.source?.keepPitch ?? p.audio?.source?.keepPitch ?? true,
   };
 }
 

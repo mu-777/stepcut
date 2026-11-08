@@ -159,3 +159,11 @@ export function continuousRuns(
   }
   return runs;
 }
+
+/** フェードの明るさ(0〜1)。ステップ内の出力時刻 local での、始まりのフェードインと終わりのフェードアウトの掛け合わせ */
+export function fadeLevel(step: Step, local: number, duration: number): number {
+  let a = 1;
+  if (step.fadeIn) a = Math.min(a, local / step.fadeIn);
+  if (step.fadeOut) a = Math.min(a, (duration - local) / step.fadeOut);
+  return Math.min(1, Math.max(0, a));
+}

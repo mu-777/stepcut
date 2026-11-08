@@ -8,6 +8,7 @@ import {
   DEFAULT_CAPTION_STYLE,
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
+  resolveAudio,
   resolveCaptionStyle,
   resolveLayout,
   resolveOutput,
@@ -263,7 +264,7 @@ function StepRecording(props: {
       <div className="row">
         <CheckField
           label={t("enabled")}
-          value={audio.source?.enabled ?? project.audio?.source?.enabled ?? true}
+          value={resolveAudio(project, step).sourceEnabled}
           onChange={(v) =>
             set("audio.enabled")((s) => ({
               ...s,
@@ -285,6 +286,36 @@ function StepRecording(props: {
             }))
           }
         />
+      </div>
+      {(step.speed ?? 1) > 1 && (
+        <CheckField
+          label={t("keepPitch")}
+          value={resolveAudio(project, step).keepPitch}
+          onChange={(v) =>
+            set("audio.keepPitch")((s) => ({
+              ...s,
+              audio: prune({
+                ...s.audio,
+                source: prune({ ...s.audio?.source, keepPitch: v ? undefined : false }),
+              }),
+            }))
+          }
+        />
+      )}
+
+      <h4>{t("fade")}</h4>
+      <div className="row">
+        {(["fadeIn", "fadeOut"] as const).map((key) => (
+          <NumField
+            key={key}
+            label={t(key)}
+            value={step[key]}
+            min={0}
+            step={0.25}
+            placeholder={t("none")}
+            onChange={(v) => set(key)((s) => ({ ...s, [key]: v ? Math.min(v, 10) : undefined }))}
+          />
+        ))}
       </div>
 
       <h4>{t("holds")}</h4>

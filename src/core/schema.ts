@@ -42,7 +42,14 @@ export const highlighterStyleSchema = z.strictObject({
 });
 
 const audioSchema = z.strictObject({
-  source: z.strictObject({ enabled: z.boolean().optional(), volume: volume.optional() }).optional(),
+  source: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      volume: volume.optional(),
+      /** 早送りステップで音の高さを保つ(既定 true)。false なら速度に合わせて高くなる */
+      keepPitch: z.boolean().optional(),
+    })
+    .optional(),
   speech: z.strictObject({ volume: volume.optional() }).optional(),
 });
 
@@ -112,6 +119,10 @@ export const stepSchema = z.strictObject({
   in: time,
   out: time,
   speed: z.number().min(1).optional(),
+  /** ステップの始まりで黒から現れる長さ(秒)。映像・テロップ・音声をまとめて */
+  fadeIn: z.number().positive().optional(),
+  /** ステップの終わりで黒へ消える長さ(秒) */
+  fadeOut: z.number().positive().optional(),
   caption: z
     .strictObject({
       text: z.string(),

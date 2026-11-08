@@ -749,6 +749,32 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(150);
   check((await speechBox.inputValue()) === capText, "「テロップの文に戻す」でテロップの文を読む");
 
+  // フェードイン: ステップの頭は黒になる(プレビューの中央の明るさで見る)
+  await thumbs.first().click();
+  await page.waitForTimeout(200);
+  const recFold = page.locator(".fold").filter({ hasText: /Recording|録画・速度/ });
+  if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
+    await recFold.locator(".fold-head").click();
+  const brightness = () =>
+    page
+      .locator(".preview-stage canvas")
+      .first()
+      .evaluate((c) => {
+        const d = c
+          .getContext("2d")
+          .getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
+        return d[0] + d[1] + d[2];
+      });
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(400);
+  const lit = await brightness();
+  await page.getByLabel(/^(Fade in \(s\)|フェードイン\(秒\))$/).fill("1");
+  await page.waitForTimeout(400);
+  const faded = await brightness();
+  check(lit > 60 && faded < 10, `フェードインを入れるとステップの頭が黒になる (${lit} → ${faded})`);
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.waitForTimeout(100);
+
   // 全体の設定
   await openProject();
   await page.waitForTimeout(300);
