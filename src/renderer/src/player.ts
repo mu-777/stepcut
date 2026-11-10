@@ -44,6 +44,15 @@ type Img = CanvasImageSource & { width: number; height: number };
 
 const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
 
+/** フレームの写し(CanvasSink のキャンバスは使い回されて後のフレームで上書きされるため) */
+function copyCanvas(frame: Img): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = frame.width;
+  c.height = frame.height;
+  c.getContext("2d")?.drawImage(frame, 0, 0);
+  return c;
+}
+
 /** 本当に切った箇所の、何秒前から次の区間のデコードを始めるか */
 const PREROLL = 2;
 
@@ -74,13 +83,23 @@ function playbackRuns(
   }));
 }
 
+/**
+ * 再生の音声を作る区切り(秒)。最初は短くしてすぐ鳴らし、その後は長くして作る回数を減らす。
+ * 作るのにかかる時間は区切りの長さにほぼ比例する(録画の音のデコードが大半)
+ */
+const AUDIO_CHUNKS = [1, 3];
+const AUDIO_CHUNK_MAX = 8;
+/** 音声を先に作っておく長さ(再生の実時間で何秒先まで) */
+const AUDIO_LOOKAHEAD = 10;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 /** プレビューの再生速度。書き出しには影響しない */
 export const PLAYBACK_RATES = [0.5, 1, 1.5, 2, 3] as const;
 
 export class Player {
   time = 0;
   playing = false;
-  /** 再生速度。負の値は逆方向(音声なし) */
+  /** 再生速度(PLAYBACK_RATES のどれか) */
   rate = 1;
   private runId = 0;
   private stillWanted = false;
@@ -266,7 +285,6 @@ export class Player {
 
   async play(): Promise<void> {
     if (this.playing) return;
-    if (this.rate < 0) return this.playReverse();
     const st = this.getState();
     const total = totalDuration(st.timeline);
     if (total <= 0) return;
@@ -289,13 +307,17 @@ export class Player {
     }
     const alive = () => run === this.runId;
 
-    const audioFor = (entry: TimelineEntry) =>
+    // ステップ内の from〜to だけを作る。途中から再生するときに前の部分を待たず、
+    // 長いステップでも全体を作り終えるまで無音にならないよう、短い区切りから順に作って鳴らす
+    const audioFor = (entry: TimelineEntry, from: number, to: number) =>
       renderStepAudio(
         st.project,
         entry.step,
         entry.duration,
         st.media.get(entry.step.source) ?? null,
         st.speech.placed(st.project, entry.step),
+        from,
+        to,
       );
 
     // 音声を待たずに映像を動かし始める(シークのたびにステップ全体の音声の用意を待たないため)。
@@ -303,10 +325,11 @@ export class Player {
     const t0 = ac.currentTime + 0.05;
     const clock = () => startT + (ac.currentTime - t0) * rate;
 
-    const schedule = (entry: TimelineEntry, buf: AudioBuffer) => {
-      const playFrom = Math.max(entry.start, startT);
+    /** buf はステップ内の from 秒からの音声 */
+    const schedule = (entry: TimelineEntry, buf: AudioBuffer, from: number) => {
+      const playFrom = Math.max(entry.start + from, startT);
       let when = t0 + (playFrom - startT) / rate;
-      let offset = playFrom - entry.start;
+      let offset = playFrom - entry.start - from;
       if (when < ac.currentTime) {
         offset += (ac.currentTime - when) * rate;
         when = ac.currentTime;
@@ -320,13 +343,23 @@ export class Player {
       node.start(when, offset);
     };
     (async () => {
+      let k = 0;
       for (let i = first.entry.index; i < st.timeline.length && alive(); i++) {
         const entry = st.timeline[i] as TimelineEntry;
-        try {
-          const buf = await audioFor(entry);
-          if (alive()) schedule(entry, buf);
-        } catch {
-          // 次のステップへ
+        let from = i === first.entry.index ? Math.max(0, startT - entry.start) : 0;
+        while (from < entry.duration - 1e-6 && alive()) {
+          const to = Math.min(entry.duration, from + (AUDIO_CHUNKS[k] ?? AUDIO_CHUNK_MAX));
+          k++;
+          // 先回りしすぎない(止める・シークするたびに捨てる分を減らし、映像のデコードと取り合わない)
+          while (alive() && entry.start + from - clock() > AUDIO_LOOKAHEAD * rate) await sleep(250);
+          if (!alive()) break;
+          try {
+            const buf = await audioFor(entry, from, to);
+            if (alive()) schedule(entry, buf, from);
+          } catch {
+            // 次の区切りへ
+          }
+          from = to;
         }
       }
     })();
@@ -348,6 +381,20 @@ export class Player {
         const m = run.media;
         if (!m || !alive()) return;
         const sink = k % 2 === 0 ? m.video : m.prefetch;
+        // 始まりのフレームを先に 1 枚用意する。canvasesAtTimestamps はあるフレームを次のフレームを読むまで返さないので、
+        // 区間が保持で始まると保持が明けるまで何も描けない(フェードインと重ねると、その間ずっと真っ黒になる)
+        const l0 = locate(st.timeline, Math.min(Math.max(clock(), run.start), run.end - 1e-6));
+        if (l0) {
+          const src0 = sourceTimeAt(l0.entry.step, l0.local);
+          if (this.still?.m === m && this.still.t === src0) run.latest ??= this.still.canvas;
+          else
+            sink
+              .getCanvas(src0)
+              .then((wc) => {
+                if (wc && !run.latest && alive()) run.latest = copyCanvas(wc.canvas as Img);
+              })
+              .catch(() => {});
+        }
         // 区間の始まりより前(先読み中)は始まりの時刻を 1 回だけ求め、その後は時計に合わせて進める
         async function* times() {
           let last = Number.NaN;
@@ -402,24 +449,5 @@ export class Player {
       this.time = total;
       this.stop();
     }
-  }
-
-  /** 逆方向の再生。逆向きのデコードは重いので、停止中の表示を時計に合わせて更新する(音声なし) */
-  private async playReverse(): Promise<void> {
-    const run = ++this.runId;
-    this.playing = true;
-    this.onTime(this.time, true);
-    let last = performance.now();
-    while (run === this.runId && this.time > 0) {
-      const now = await nextFrame();
-      this.time = Math.max(0, this.time + ((now - last) / 1000) * this.rate);
-      last = now;
-      this.onTime(this.time, true);
-      this.playing = false;
-      await this.renderStill();
-      if (run !== this.runId) return;
-      this.playing = true;
-    }
-    if (run === this.runId) this.stop();
   }
 }

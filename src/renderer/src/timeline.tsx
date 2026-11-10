@@ -8,6 +8,7 @@ import {
   resolveOutput,
   speechPieces,
   speechText,
+  stepSourceEnabled,
   stepSpeed,
   withSpeechPieces,
   zoomHoldMode,
@@ -16,6 +17,7 @@ import {
 import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
 import { computeLayout, retimeZoom, sortedKeys, zoomScale } from "../../core/layout";
 import {
+  type AnyObject,
   isPath,
   type ObjectKind,
   type ObjectRef,
@@ -26,12 +28,20 @@ import {
   shapeOutsideVideo,
   stepObjects,
 } from "../../core/objects";
-import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
+import type { Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
 import { baseDuration, sourceTimeAt, speechTimes, stepHolds, type TimelineEntry } from "../../core/timeline";
 import { t } from "./i18n";
-import type { IconName } from "./icons";
+import { Icon, type IconName } from "./icons";
+import { keyLabel } from "./keymap";
 import type { SourceMedia } from "./media";
-import { objectLabel, objectLabels, objectMenu } from "./objects-ui";
+import {
+  NEW_OBJECT_KINDS,
+  type NewObjectKind,
+  newKindLabel,
+  objectLabel,
+  objectLabels,
+  objectMenu,
+} from "./objects-ui";
 import { quantize, type ThumbCache } from "./thumbs";
 
 export type Selection =
@@ -139,6 +149,24 @@ function resizeGroup(
   });
   return { ...project, steps };
 }
+
+/** ステップの録画の音を鳴らす・消す。既定(等速なら鳴らす・早送りなら消す)と同じなら書かない */
+function setStepSourceEnabled(s: Step, on: boolean): Step {
+  const { enabled: _old, ...rest } = s.audio?.source ?? {};
+  const source = on === stepSpeed(s) <= 1 ? rest : { ...rest, enabled: on };
+  const audio = { ...s.audio, source: Object.keys(source).length ? source : undefined };
+  if (!audio.source) delete audio.source;
+  return { ...s, audio: Object.keys(audio).length ? audio : undefined };
+}
+
+/** コピー・切り取りできる要素 */
+export type ClipItem = { kind: "zoom" | "speech" | ObjectKind; step: number; index: number };
+
+/** コピーしたもの(アプリ内だけで持つ) */
+export type Clip =
+  | { kind: "zoom"; zoom: Zoom; srcW: number; srcH: number }
+  | { kind: "speech"; piece: SpeechPiece }
+  | { kind: "object"; objKind: ObjectKind; object: AnyObject; srcW: number; srcH: number };
 
 /** Ctrl+クリックでまとめて選べる帯(読み上げ・ズーム・オブジェクト) */
 type MultiItem = { kind: "speech" | "zoom" | ObjectKind; step: number; index: number };
@@ -313,8 +341,15 @@ export function Timeline(props: {
   /** ステップ i と次のステップをまとめる */
   onMergeNext: (step: number) => void;
   /** ズームのコピーと貼り付け(貼り付けは全体の時刻 at に) */
-  onCopyZoom: (step: number, zoom: number) => void;
-  onPasteZoom: ((at: number) => void) | null;
+  /** 最後にコピーしたものの種類(貼り付けを出すか決める) */
+  clipKind: Clip["kind"] | null;
+  onCopy: (item: ClipItem) => void;
+  onCut: (item: ClipItem) => void;
+  /** コピーしたもの(kind の種類のときだけ)を全体の時刻 at に貼る */
+  onPaste: (at: number, kind: Clip["kind"]) => void;
+  onRemove: (item: Selection) => void;
+  /** その時刻(全体)にオブジェクトを足す */
+  onAddObjectAt: (kind: NewObjectKind, at: number) => void;
   /** 再生位置のステップに、時刻 local でズームを足して範囲の編集を始める */
   onAddZoomAt: (step: number, local: number) => void;
   /** オブジェクトを選ぶ(再生位置は動かさない) */
@@ -475,8 +510,8 @@ export function Timeline(props: {
     setMulti(cur.some((x) => multiKey(x) === k) ? cur.filter((x) => multiKey(x) !== k) : [...cur, m]);
   };
   /**
-   * 帯の押下。Ctrl なら選びに加え(ドラッグしない)、まとめて選んだ帯ならまとめてドラッグ、それ以外は 1 つを選んで
-   * 再生位置をその始まり(全体の時刻 at)へ移す
+   * 帯の押下。Ctrl なら選びに加え(ドラッグしない)、まとめて選んだ帯ならまとめてドラッグ、それ以外は 1 つを選ぶ。
+   * ダブルクリックで再生位置をその始まり(全体の時刻 at)へ移す(ズームのダブルクリックは枠を足す)
    */
   const barProps = (
     m: MultiItem,
@@ -486,13 +521,14 @@ export function Timeline(props: {
   ) => ({
     multi: inMulti(m),
     onCtrlClick: () => toggleMulti(m),
+    // 選んでも再生位置は動かさない(再生位置へ要素を動かす操作のため)。ダブルクリックで始まりへ移す
     onSelect: () => {
       if (!inMulti(m)) {
         setMulti([]);
         onSelect();
-        props.onSeek(at);
       }
     },
+    onDoubleClick: m.kind === "zoom" ? undefined : () => props.onSeek(at),
     onMove: inMulti(m)
       ? (dx: number, key: string) =>
           update(() => shiftGroup(project, timeline, multi, props.speechDurations, dx / scale), key)
@@ -544,6 +580,9 @@ export function Timeline(props: {
     selection.step === step &&
     (index === undefined || ("index" in selection && selection.index === index));
 
+  /** 録画の音を全体で鳴らすか(タイムラインの映像の段の切り替え) */
+  const projectSound = project.audio?.source?.enabled !== false;
+
   const clipMenu = (e: React.MouseEvent, entry: TimelineEntry) => {
     e.preventDefault();
     const at = xToTime(e.clientX);
@@ -552,7 +591,11 @@ export function Timeline(props: {
     props.onSelect({ kind: "step", step: i });
     props.onSeek(at);
     props.openMenu(e.clientX, e.clientY, [
-      { label: t("split"), shortcut: "S", action: () => update((p) => splitStep(p, i, local, true)) },
+      {
+        label: t("split"),
+        shortcut: keyLabel("split"),
+        action: () => update((p) => splitStep(p, i, local, true)),
+      },
       { label: t("splitDiscard"), action: () => update((p) => splitStep(p, i, local, false)) },
       { label: t("addHoldHere"), action: () => update((p) => addHold(p, i, local, 1)) },
       {
@@ -560,7 +603,14 @@ export function Timeline(props: {
         action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
       },
       { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => props.onMergeNext(i) },
-      { label: t("deleteStep"), shortcut: "Delete", action: () => update((p) => deleteStep(p, i)) },
+      {
+        // ステップの録画の音(全体で消しているときは、全体の切り替えが先)
+        label: t(stepSourceEnabled(entry.step) ? "muteStepAudio" : "unmuteStepAudio"),
+        disabled: !projectSound,
+        action: () =>
+          patchStep(update, i, (s) => setStepSourceEnabled(s, !stepSourceEnabled(s)), "step-audio"),
+      },
+      { label: t("deleteStep"), shortcut: keyLabel("delete"), action: () => update((p) => deleteStep(p, i)) },
     ]);
   };
 
@@ -593,7 +643,6 @@ export function Timeline(props: {
     if (!hit) return;
     const { entry, local } = hit;
     const i = entry.index;
-    const pieces = speechPieces(entry.step);
     const times = speechTimes(entry.step, props.speechDurations.get(entry.step.id) ?? []);
     const on = times.findIndex(
       (x, k) => local >= x.start && local <= Math.max(x.end, x.start + (speechText(entry.step, k) ? 0 : 1)),
@@ -602,12 +651,38 @@ export function Timeline(props: {
       props.onSelect({ kind: "speech", step: i, index: on });
       return;
     }
+    addSpeechAt(e.clientX);
+  };
+
+  /** 画面の x の時刻に読み上げを足す。1 つ目はテロップと同じ文を読む設定で作る。2 つ目からは文を書いてもらう */
+  const addSpeechAt = (clientX: number) => {
+    const hit = entryAt(clientX);
+    if (!hit) return;
+    const { entry, local } = hit;
+    const i = entry.index;
+    const pieces = speechPieces(entry.step);
     const at = Math.min(local, baseDuration(entry.step));
-    // 1 つ目はテロップと同じ文を読む設定で作る。2 つ目からは文を書いてもらう
     const piece = pieces.length === 0 ? (at > 0 ? { start: at } : {}) : { text: "", start: at };
     patchStep(update, i, (s) => withSpeechPieces(s, [...speechPieces(s), piece]), "speech-add");
     props.onSelect({ kind: "speech", step: i, index: pieces.length });
   };
+
+  /** 要素の右クリックのコピー・切り取り(と削除) */
+  const clipMenuItems = (item: ClipItem, withRemove = true): MenuItem[] => [
+    { label: t("copy"), shortcut: "Ctrl+C", action: () => props.onCopy(item) },
+    { label: t("cut"), shortcut: "Ctrl+X", action: () => props.onCut(item) },
+    ...(withRemove
+      ? [{ label: t("remove"), shortcut: keyLabel("delete"), action: () => props.onRemove(item) }]
+      : []),
+  ];
+
+  /** レーンの空いた所の右クリックの貼り付け(その種類をコピーしているときだけ) */
+  const pasteItem = (kind: Clip["kind"], at: number): MenuItem => ({
+    label: t("pasteHere"),
+    shortcut: "Ctrl+V",
+    disabled: props.clipKind !== kind,
+    action: () => props.onPaste(at, kind),
+  });
 
   /** ズームのラインをダブルクリック。空いているところならズームを作り、範囲の編集を始める */
   const zoomLaneDoubleClick = (e: React.MouseEvent) => {
@@ -665,8 +740,30 @@ export function Timeline(props: {
             </button>
           ))}
         </div>
-        <div className="tl-label" style={{ height: VIDEO_H }}>
-          {t("trackVideo")}
+        <div className="tl-label tl-video-label" style={{ height: VIDEO_H }}>
+          <span>{t("trackVideo")}</span>
+          {/* 録画の音を全体で鳴らす・消す(プレビューと書き出しの両方) */}
+          <button
+            type="button"
+            className={`tl-sound${projectSound ? "" : " off"}`}
+            title={t(projectSound ? "muteSourceAll" : "unmuteSourceAll")}
+            aria-label={t(projectSound ? "muteSourceAll" : "unmuteSourceAll")}
+            aria-pressed={!projectSound}
+            onClick={() =>
+              update(
+                (p) => ({
+                  ...p,
+                  audio: {
+                    ...p.audio,
+                    source: { ...p.audio?.source, enabled: projectSound ? false : undefined },
+                  },
+                }),
+                "project-audio",
+              )
+            }
+          >
+            <Icon name={projectSound ? "volume" : "muted"} />
+          </button>
         </div>
         <div className="tl-label">{t("caption")}</div>
         <div className="tl-label">{t("speech")}</div>
@@ -730,6 +827,11 @@ export function Timeline(props: {
                   onContextMenu={(e) => clipMenu(e, entry)}
                 >
                   <div className="tl-tiles">{tiles}</div>
+                  {(!projectSound || !stepSourceEnabled(step)) && (
+                    <span className="tl-clip-muted" title={t("sourceMuted")}>
+                      <Icon name="muted" />
+                    </span>
+                  )}
                   {/* ステップのフェードイン・フェードアウト(黒から現れる・黒へ消える区間) */}
                   {step.fadeIn ? (
                     <div
@@ -760,7 +862,6 @@ export function Timeline(props: {
                         onPointerDown={(e) => {
                           if (k < 0 || e.button !== 0) return;
                           props.onSelect({ kind: "hold", step: i, index: k });
-                          props.onSeek(entry.start + h.at);
                           // ドラッグで位置を動かす(再生ヘッド・ステップの切れ目に始まりか終わりを吸着)。
                           // 動かさずに離したら、そこへシークする
                           const holds = stepHolds(step);
@@ -897,8 +998,8 @@ export function Timeline(props: {
                   onSelect={() => {
                     setMulti([]);
                     props.onSelect({ kind: "caption", step: i });
-                    props.onSeek(entry.start + w.start);
                   }}
+                  onDoubleClick={() => props.onSeek(entry.start + w.start)}
                   onMove={(dx, key) => {
                     const len = w.end - w.start;
                     const s = clamp(
@@ -929,7 +1030,18 @@ export function Timeline(props: {
 
           {/* 読み上げ。1 ステップに複数置ける。ダブルクリックで作る・選ぶ */}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある */}
-          <div className="tl-lane" onDoubleClick={speechLaneDoubleClick}>
+          <div
+            className="tl-lane"
+            onDoubleClick={speechLaneDoubleClick}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              const at = xToTime(e.clientX);
+              props.openMenu(e.clientX, e.clientY, [
+                { label: t("addSpeechHere"), action: () => addSpeechAt(e.clientX) },
+                pasteItem("speech", at),
+              ]);
+            }}
+          >
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const pieces = speechPieces(step);
@@ -969,6 +1081,7 @@ export function Timeline(props: {
                       props.onSelect({ kind: "speech", step: i, index: k });
                       props.openMenu(e.clientX, e.clientY, [
                         { label: t("previewSpeech"), action: () => props.onPreviewSpeech(i) },
+                        ...clipMenuItems({ kind: "speech", step: i, index: k }),
                       ]);
                     }}
                   />
@@ -1082,33 +1195,13 @@ export function Timeline(props: {
                       hit >= 0
                         ? [
                             { label: t("drawRect"), action: () => props.onEditZoomRect(i, hit) },
-                            {
-                              label: t("copyZoom"),
-                              shortcut: "Ctrl+C",
-                              action: () => props.onCopyZoom(i, hit),
-                            },
-                            {
-                              label: t("remove"),
-                              shortcut: "Delete",
-                              action: () =>
-                                patchStep(
-                                  update,
-                                  i,
-                                  (s) => ({ ...s, zooms: s.zooms?.filter((_, j) => j !== hit) }),
-                                  "zoom-remove",
-                                ),
-                            },
+                            ...clipMenuItems({ kind: "zoom", step: i, index: hit }),
                           ]
                         : [
-                            {
-                              label: t("pasteZoom"),
-                              shortcut: "Ctrl+V",
-                              disabled: !props.onPasteZoom,
-                              action: () => props.onPasteZoom?.(entry.start + t0),
-                            },
+                            pasteItem("zoom", entry.start + t0),
                             {
                               label: t("addZoomHere"),
-                              shortcut: "Z",
+                              shortcut: keyLabel("addZoom"),
                               action: () => {
                                 const lo = Math.max(0, ...zooms.filter((z) => z.end <= t0).map((z) => z.end));
                                 const hi = Math.min(
@@ -1275,8 +1368,23 @@ export function Timeline(props: {
             })}
           </div>
 
-          {/* オブジェクト(ポインター・蛍光ペン・図形)。重なるものは行を分ける */}
-          <div className="tl-lane" style={{ height: objLaneH }}>
+          {/* オブジェクト(ポインター・蛍光ペン・図形)。重なるものは行を分ける。右クリックでその時刻に足す */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある */}
+          <div
+            className="tl-lane"
+            style={{ height: objLaneH }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              const at = xToTime(e.clientX);
+              props.openMenu(e.clientX, e.clientY, [
+                ...NEW_OBJECT_KINDS.map((kind) => ({
+                  label: `＋ ${newKindLabel(kind)}`,
+                  action: () => props.onAddObjectAt(kind, at),
+                })),
+                pasteItem("object", at),
+              ]);
+            }}
+          >
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const labels = objectLabels(step, entry.duration);
@@ -1344,7 +1452,10 @@ export function Timeline(props: {
                       e.preventDefault();
                       e.stopPropagation();
                       props.onSelectObject(i, ref);
-                      props.openMenu(e.clientX, e.clientY, objectMenu(update, i, ref, step));
+                      props.openMenu(e.clientX, e.clientY, [
+                        ...clipMenuItems({ kind: ref.kind, step: i, index: ref.index }, false),
+                        ...objectMenu(update, i, ref, step),
+                      ]);
                     }}
                     onLeft={groupEdge({ kind: ref.kind, step: i, index: ref.index }, "left", (dx, key) => {
                       // ポインターは動きごとずらすので、動きが終わりを越えないようにする
@@ -1366,6 +1477,7 @@ export function Timeline(props: {
                       );
                       // 末尾まで伸ばしたら「ステップの終わりまで」(end 省略)にする
                       setWin(w.start, (entry.duration - e) * scale < SNAP_PX ? null : e, key);
+                      props.onSeek(entry.start + e);
                     })}
                   />
                 );

@@ -19,7 +19,8 @@ paths:
 - 設定パネルの欄の開閉は覚えていて、要素を選ぶと選んだ欄以外が閉じる。欄の中身を確かめる前に、閉じている欄を開いておく
 - タイムラインの要素のドラッグは再生ヘッドに吸着する。動かした量を確かめるときは、先に再生ヘッドを離れた所(End など)へ動かしておく
 - 設定パネルのオブジェクトの項目はいくつも開いたままになる。欄を探すときは選んでいる項目(`li.open:has(> .item-head .item-button.selected)`)の中に絞る(絞らないと同じラベルが複数当たる)
-- コピー・貼り付け(Ctrl+C / Ctrl+V)は、`document.dispatchEvent(new ClipboardEvent("copy", { cancelable: true }))` で届ける
+- コピー・切り取り・貼り付け(Ctrl+C / Ctrl+X / Ctrl+V)は、`document.dispatchEvent(new ClipboardEvent("copy", { cancelable: true }))`(cut / paste も同じ)で届ける
+- タイムラインの下のレーン(オブジェクトなど)は画面の外にはみ出ていることがある。座標でクリックする前に `scrollIntoViewIfNeeded()` で見える所へ出す
 
 ## Windows のローカルで動かすとき
 

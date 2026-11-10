@@ -15,6 +15,11 @@ export async function loadSettings(): Promise<AppSettings> {
     cache = {
       language: raw.language === "ja" || raw.language === "en" ? raw.language : "auto",
       projectDir: typeof raw.projectDir === "string" && raw.projectDir ? raw.projectDir : null,
+      shortcuts: Object.fromEntries(
+        Object.entries(raw.shortcuts && typeof raw.shortcuts === "object" ? raw.shortcuts : {}).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      ),
     };
   } catch {
     // ない・読めないときは既定値(壊れたファイルは次の保存で書き直す)

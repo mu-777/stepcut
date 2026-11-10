@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { captionWindow } from "../../core/captions";
-import { resolveLayout, resolveOutput, speechPieces, withSpeechPieces } from "../../core/defaults";
+import {
+  resolveLayout,
+  resolveOutput,
+  speechPieces,
+  speechText,
+  withSpeechPieces,
+} from "../../core/defaults";
 import {
   canMergeSteps,
   deleteStep,
   duplicateStep,
+  followCaptions,
   mergeSteps,
   moveStep,
   newProject,
@@ -21,17 +28,17 @@ import {
   zoomRectAt,
 } from "../../core/layout";
 import {
-  type AnyObject,
   isScreenAnchored,
   type ObjectRef,
   objectOf,
   objectWindow,
   reanchorShape,
+  shapeOutsideVideo,
 } from "../../core/objects";
 import type { Project, Zoom, ZoomKey } from "../../core/schema";
-import { buildTimeline, locate, totalDuration } from "../../core/timeline";
+import { baseDuration, buildTimeline, locate, speechTimes, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
-import type { Voice } from "../../shared/api";
+import { CENTER_MIN_W, PANEL_MIN_W, RAIL_MIN_W, type Voice } from "../../shared/api";
 import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
@@ -49,6 +56,7 @@ import {
   StepDetail,
   viewOf,
 } from "./inspector";
+import { actionOf, keyLabel, withKey } from "./keymap";
 import { openMedia, type SourceMedia } from "./media";
 import { hitObject, ObjectEditor } from "./object-editor";
 import { objectTextInputId } from "./object-panel";
@@ -69,7 +77,16 @@ import { SettingsDialog } from "./settings-dialog";
 import { SpeechStore } from "./speech";
 import { StepRail } from "./step-rail";
 import { ThumbCache } from "./thumbs";
-import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
+import {
+  type Clip,
+  type ClipItem,
+  fmtTime,
+  insertZoom,
+  type MenuItem,
+  type Selection,
+  selectedStep,
+  Timeline,
+} from "./timeline";
 import {
   ContextMenu,
   loadChoice,
@@ -120,7 +137,8 @@ export function App() {
   /** プレビュー上でテロップの文字を入力中のステップ */
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** アプリの設定を開いているか("shortcuts" ならキー操作の欄まで送る) */
+  const [settingsOpen, setSettingsOpen] = useState<false | true | "shortcuts">(false);
   /** ヘッダーのプロジェクト名を入力中 */
   const [titleEdit, setTitleEdit] = useState(false);
   /** まだ保存していないプロジェクトに付けた名前(保存するときのファイル名) */
@@ -141,17 +159,12 @@ export function App() {
   useEffect(() => saveChoice("zoomSyncSize", syncSize ? "on" : "off"), [syncSize]);
   /** 読み上げの試聴中のステップ */
   const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
-  /** コピーしたズーム(アプリ内だけで持つ)。録画の大きさが違うステップへ貼るときに換算する */
-  const zoomClipboard = useRef<{ zoom: Zoom; srcW: number; srcH: number } | null>(null);
-  /** コピーしたオブジェクト。貼り付けは最後にコピーしたもの(ズームかオブジェクト)を貼る */
-  const objectClipboard = useRef<{
-    kind: ObjectRef["kind"];
-    object: AnyObject;
-    srcW: number;
-    srcH: number;
-  } | null>(null);
-  const lastCopied = useRef<"zoom" | "object" | null>(null);
-  const [hasZoomClip, setHasZoomClip] = useState(false);
+  /**
+   * コピー・切り取りしたもの(アプリ内だけで持つ。最後の 1 つ)。ズーム・オブジェクトは録画の大きさが違うステップへ
+   * 貼るときに座標を換算する
+   */
+  const clipboard = useRef<Clip | null>(null);
+  const [clipKind, setClipKind] = useState<Clip["kind"] | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   /** 画面上端の知らせ。reveal があれば、そのファイルのフォルダーを開くリンクを付ける */
   const [banner, setBanner] = useState<{ kind: "info" | "error"; text: string; reveal?: string } | null>(
@@ -169,6 +182,12 @@ export function App() {
   const foldOnly = (id: string | null) =>
     setFoldCmd((c) => ({ seq: (c?.seq ?? 0) + 1, open: (x) => x === id }));
   const [panelW, setPanelW] = useState(() => loadPref("panelWidth", 320));
+  const [winW, setWinW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   /** 左端のサムネイル列の幅 */
   const [railW, setRailW] = useState(() => loadPref("stepRailWidth", 220));
   const [timelineH, setTimelineH] = useState(() => loadPref("timelineHeight", 190));
@@ -195,6 +214,13 @@ export function App() {
     const r = parseProject(project);
     return [...(r.ok ? [] : r.errors), ...r.warnings];
   }, [project]);
+  /** 上端に出すプロジェクトの問題。閉じたときの中身(problemKey)を覚え、中身が変わるまで出さない */
+  const problemLines = [
+    ...mediaErrors.map((m) => ({ text: m, error: true })),
+    ...issues.map((i) => ({ text: `${issuePath(i.path)}: ${i.message}`, error: false })),
+  ];
+  const problemKey = problemLines.map((p) => p.text).join("\n");
+  const [dismissedProblems, setDismissedProblems] = useState<string | null>(null);
   const selected = selectedStep(selection);
   // 要素を選んだら、それを直す画面(全体の設定かステップの詳細)に切り替える
   useEffect(() => {
@@ -209,7 +235,8 @@ export function App() {
   }, [selection]);
 
   const update = useCallback((fn: (p: Project) => Project, key?: string) => {
-    setHist((h) => commit(h, fn(h.present), key ?? null));
+    // 録画の枠が変わったら、位置を書いたテロップも枠に合わせて動かす
+    setHist((h) => commit(h, followCaptions(h.present, fn(h.present)), key ?? null));
   }, []);
 
   // 状態は ref 経由でプレーヤーに渡す(再生中のループが古い値を見ないように)
@@ -465,8 +492,9 @@ export function App() {
   dirtyRef.current = dirty;
 
   /** 選んだ要素を消す(Delete キー) */
-  const deleteSelection = () => {
-    const s = selection;
+  const deleteSelection = () => removeItem(selection);
+  /** 要素を消す(Delete キー・切り取り・右クリックの削除) */
+  const removeItem = (s: Selection) => {
     if (!("step" in s)) return;
     const patch = (fn: (st: Project["steps"][number]) => Project["steps"][number]) =>
       update((p) => ({ ...p, steps: p.steps.map((st, i) => (i === s.step ? fn(st) : st)) }));
@@ -491,22 +519,23 @@ export function App() {
     setSelection({ kind: "step", step: s.step });
   };
 
+  /** 前(dir = -1)・次(1)のステップの切れ目へ */
+  const seekBoundary = (dir: -1 | 1) => {
+    const pl = playerRef.current;
+    if (!pl) return;
+    const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
+    if (dir < 0) pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
+    else pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+  };
+
   // キー操作は一般的な動画編集アプリに合わせる(docs/decisions/20261029-timeline-ui.md)
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyRef.current = (e: KeyboardEvent) => {
     if (isTyping()) return;
     const pl = playerRef.current;
     if (!pl) return;
-    const changeRate = (r: number) => {
-      setRate(r);
-      pl.setRate(r);
-      if (!pl.playing) pl.play();
-    };
-    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
-    let handled = true;
     // 録画の枠・ズームの枠を編集中は、矢印キーで 10px ずつ動かす(Shift で 1px。シークの Shift と同じく細かく)
-    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (
       arrow &&
       !e.ctrlKey &&
@@ -517,37 +546,37 @@ export function App() {
       e.preventDefault();
       return;
     }
-    if (key === "Escape") {
+    if (e.key === "Escape") {
       setDrawingZoom(null);
       stopSpeech();
       if (selection.kind === "video") setSelection({ kind: "project" });
       if (selObject) setSelection({ kind: "step", step: selObject.step });
-    } else if (key === " ") {
+      e.preventDefault();
+      return;
+    }
+    // 割り当ては アプリの設定 → キー操作 で変えられる(keymap.ts)
+    const action = actionOf(e);
+    const frame = 1 / resolveOutput(project).fps;
+    let handled = true;
+    if (action === "play") {
       if (pl.playing) pl.stop();
-      else {
-        if (pl.rate < 0) changeRate(1);
-        pl.play();
-      }
-    } else if (key === "k" && !e.ctrlKey && !e.metaKey) pl.stop();
-    else if (key === "l") changeRate(pl.playing && pl.rate >= 1 ? Math.min(3, Math.floor(pl.rate) + 1) : 1);
-    else if (key === "j") changeRate(pl.playing && pl.rate < 0 ? Math.max(-3, pl.rate - 1) : -1);
-    else if (key === "ArrowLeft" || key === "ArrowRight") {
-      // ←→ は 1 秒、Shift+←→ は 1 フレーム
-      const d = e.shiftKey ? 1 / resolveOutput(project).fps : 1;
-      pl.seek(pl.time + (key === "ArrowLeft" ? -d : d));
-    } else if (key === "ArrowUp") pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
-    else if (key === "ArrowDown") pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
-    else if (key === "Home") pl.seek(0);
-    else if (key === "End") pl.seek(total);
-    else if (key === "s" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      else pl.play();
+    } else if (action === "back1s") pl.seek(pl.time - 1);
+    else if (action === "forward1s") pl.seek(pl.time + 1);
+    else if (action === "backFrame") pl.seek(pl.time - frame);
+    else if (action === "forwardFrame") pl.seek(pl.time + frame);
+    else if (action === "prevBoundary") seekBoundary(-1);
+    else if (action === "nextBoundary") seekBoundary(1);
+    else if (action === "toStart") pl.seek(0);
+    else if (action === "toEnd") pl.seek(total);
+    else if (action === "split") {
       const l = locate(timeline, pl.time);
       if (l) update((p) => splitStep(p, l.entry.index, l.local, true));
-    } else if (key === "Delete" || key === "Backspace") deleteSelection();
-    else if (key === "z" && !e.ctrlKey && !e.metaKey) addZoomAtPlayhead();
-    else if (key === "f" && !e.ctrlKey && !e.metaKey) toggleFullscreen();
-    else if (key === "m" && !e.ctrlKey && !e.metaKey) setMuted((m) => !m);
-    else if (key === "c" && !e.ctrlKey && !e.metaKey && !e.altKey)
-      setAnchor((a) => (a === "center" ? "corner" : "center"));
+    } else if (action === "delete") deleteSelection();
+    else if (action === "addZoom") addZoomAtPlayhead();
+    else if (action === "fullscreen") toggleFullscreen();
+    else if (action === "mute") setMuted((m) => !m);
+    else if (action === "anchor") setAnchor((a) => (a === "center" ? "corner" : "center"));
     else handled = false;
     if (handled) e.preventDefault();
   };
@@ -741,7 +770,7 @@ export function App() {
         { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => mergeNext(i) },
         {
           label: t("delete"),
-          shortcut: "Delete",
+          shortcut: keyLabel("delete"),
           action: () => {
             update((p) => deleteStep(p, i));
             setSelection({ kind: "project" });
@@ -888,14 +917,24 @@ export function App() {
    * オブジェクトを足す。at(出力のピクセル)を渡すとそこを中心に置く。録画の外なら、図形は画面に固定して置き、
    * ポインター(録画の中にしか描けない)は録画の中央に置く
    */
-  const addObject = (kind: NewObjectKind, stepIndex?: number, at?: { x: number; y: number }) => {
-    const i = stepIndex ?? loc?.entry.index;
+  /**
+   * オブジェクトを足す。at はプレビュー上の点(出力のピクセル)、atTime を渡すとその時刻(全体)に作る
+   * (タイムラインの右クリック)。渡さなければ再生位置に作る
+   */
+  const addObject = (
+    kind: NewObjectKind,
+    stepIndex?: number,
+    at?: { x: number; y: number },
+    atTime?: number,
+  ) => {
+    const place = atTime === undefined ? loc : locate(timeline, atTime);
+    const i = stepIndex ?? place?.entry.index;
     if (i === undefined) return;
     const e = timeline[i];
     const st = project.steps[i];
     if (!e || !st) return;
     // ステップの終わりちょうどでは見えないので、少し手前に作る
-    const local = loc && loc.entry.index === i ? Math.min(loc.local, Math.max(0, e.duration - 0.5)) : 0;
+    const local = place && place.entry.index === i ? Math.min(place.local, Math.max(0, e.duration - 0.5)) : 0;
     const m = media.get(st.source);
     const g = frameGeometry(project, st, local, out.width, out.height, m?.width || 1920, m?.height || 1080);
     playerRef.current?.stop();
@@ -969,7 +1008,10 @@ export function App() {
         const hitRef = hitObject(project, step, local, entry.duration, g, sg, out.height, pt);
         if (hitRef) {
           setSelection({ kind: hitRef.kind, step: entry.index, index: hitRef.index });
+          const item = { kind: hitRef.kind, step: entry.index, index: hitRef.index };
           items.push(
+            { label: t("copy"), shortcut: "Ctrl+C", action: () => copyItem(item) },
+            { label: t("cut"), shortcut: "Ctrl+X", action: () => cutItem(item) },
             ...objectMenu(update, entry.index, hitRef, step, (r) =>
               setSelection(
                 r ? { kind: r.kind, step: entry.index, index: r.index } : { kind: "step", step: entry.index },
@@ -996,7 +1038,11 @@ export function App() {
         // 表示中の範囲(ズーム中ならその範囲)の中で、クリックした点をソースの座標にする
         const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop);
         const center = { x: view.x + fx * view.w, y: view.y + fy * view.h };
-        items.push({ label: t("addZoomHere"), shortcut: "Z", action: () => addZoomAtPlayhead(center) });
+        items.push({
+          label: `＋ ${t("zooms")}`,
+          shortcut: keyLabel("addZoom"),
+          action: () => addZoomAtPlayhead(center),
+        });
       }
     }
     // クリックした所を中心にオブジェクトを足す
@@ -1059,43 +1105,59 @@ export function App() {
     setSelection({ kind: "step", step: i });
   };
 
-  /** ズームをコピーする */
-  const copyZoom = (step: number, zoom: number) => {
-    const st = project.steps[step];
-    const z = st?.zooms?.[zoom];
-    if (!st || !z) return;
+  /** ズーム・読み上げ・オブジェクトをコピーする */
+  const copyItem = (item: ClipItem) => {
+    const st = project.steps[item.step];
+    if (!st) return;
     const m = media.get(st.source);
-    zoomClipboard.current = { zoom: structuredClone(z), srcW: m?.width ?? 1920, srcH: m?.height ?? 1080 };
-    lastCopied.current = "zoom";
-    setHasZoomClip(true);
+    const srcW = m?.width ?? 1920;
+    const srcH = m?.height ?? 1080;
+    let clip: Clip | null = null;
+    if (item.kind === "zoom") {
+      const z = st.zooms?.[item.index];
+      if (z) clip = { kind: "zoom", zoom: structuredClone(z), srcW, srcH };
+    } else if (item.kind === "speech") {
+      const piece = speechPieces(st)[item.index];
+      // テロップの文を読む読み上げは、今の文を書いた読み上げとして写す(貼った先のテロップの文に変わらないように)
+      if (piece)
+        clip = {
+          kind: "speech",
+          piece: { ...structuredClone(piece), text: speechText(st, item.index) ?? "" },
+        };
+    } else {
+      const o = objectOf(st, { kind: item.kind, index: item.index });
+      if (o) clip = { kind: "object", objKind: item.kind, object: structuredClone(o), srcW, srcH };
+    }
+    if (!clip) return;
+    clipboard.current = clip;
+    setClipKind(clip.kind);
   };
 
-  /** オブジェクトをコピーする */
-  const copyObject = (step: number, ref: ObjectRef) => {
-    const st = project.steps[step];
-    const o = st ? objectOf(st, ref) : undefined;
-    if (!st || !o) return;
-    const m = media.get(st.source);
-    objectClipboard.current = {
-      kind: ref.kind,
-      object: structuredClone(o),
-      srcW: m?.width ?? 1920,
-      srcH: m?.height ?? 1080,
-    };
-    lastCopied.current = "object";
+  /** 切り取り: コピーして消す */
+  const cutItem = (item: ClipItem) => {
+    copyItem(item);
+    removeItem(item);
+  };
+
+  /** コピーしたもの(kind を渡したらその種類のときだけ)を全体の時刻 at に貼る */
+  const pasteAt = (at: number, kind?: Clip["kind"]) => {
+    const clip = clipboard.current;
+    if (!clip || (kind && clip.kind !== kind)) return;
+    if (clip.kind === "zoom") pasteZoom(clip, at);
+    else if (clip.kind === "speech") pasteSpeech(clip, at);
+    else pasteObjectAt(clip, at);
   };
 
   /** コピーしたオブジェクトを、全体の時刻 at を始まりにして貼る */
-  const pasteObjectAt = (at: number) => {
-    const clip = objectClipboard.current;
+  const pasteObjectAt = (clip: Extract<Clip, { kind: "object" }>, at: number) => {
     const l = locate(timeline, at);
-    if (!clip || !l) return;
+    if (!l) return;
     const m = media.get(l.entry.step.source);
     const local = Math.min(l.local, Math.max(0, l.entry.duration - 0.1));
     const r = pasteObject(
       project,
       l.entry.index,
-      clip.kind,
+      clip.objKind,
       clip.object,
       local,
       l.entry.duration,
@@ -1106,11 +1168,35 @@ export function App() {
     setSelection({ kind: r.ref.kind, step: l.entry.index, index: r.ref.index });
   };
 
-  /** コピーしたズームを全体の時刻 at に貼る。録画の大きさが違えば枠を換算し、空いている長さに収める */
-  const pasteZoom = (at: number) => {
-    const clip = zoomClipboard.current;
+  /** コピーした読み上げを、全体の時刻 at から読むように貼る(読む順は始まりの時刻の順) */
+  const pasteSpeech = (clip: Extract<Clip, { kind: "speech" }>, at: number) => {
     const l = locate(timeline, at);
-    if (!clip || !l) return;
+    if (!l) return;
+    const st = l.entry.step;
+    const local = Math.round(Math.min(l.local, baseDuration(st)) * 1000) / 1000;
+    const pieces = speechPieces(st);
+    const times = speechTimes(st, speechDurations.get(st.id) ?? []);
+    const k = times.findIndex((x) => x.start > local);
+    const index = k < 0 ? pieces.length : k;
+    const piece = { ...clip.piece, start: local };
+    update(
+      (p) => ({
+        ...p,
+        steps: p.steps.map((x, j) =>
+          j === l.entry.index
+            ? withSpeechPieces(x, [...pieces.slice(0, index), piece, ...pieces.slice(index)])
+            : x,
+        ),
+      }),
+      "speech-paste",
+    );
+    setSelection({ kind: "speech", step: l.entry.index, index });
+  };
+
+  /** コピーしたズームを全体の時刻 at に貼る。録画の大きさが違えば枠を換算し、空いている長さに収める */
+  const pasteZoom = (clip: Extract<Clip, { kind: "zoom" }>, at: number) => {
+    const l = locate(timeline, at);
+    if (!l) return;
     const { entry, local } = l;
     const zooms = entry.step.zooms ?? [];
     if (zooms.some((z) => local >= z.start && local <= z.end)) return;
@@ -1140,43 +1226,44 @@ export function App() {
     setSelection({ kind: "zoom", step: entry.index, index: zooms.length });
   };
 
-  // Ctrl+C / Ctrl+V(メニューのコピー・貼り付け)。文字の入力中はそのまま。ズーム・オブジェクトを選んでいればコピーし、
-  // 最後にコピーしたものを再生位置に貼る(オブジェクトは再生位置を始まりにする)
-  const clipRef = useRef<{ copy: (e: ClipboardEvent) => void; paste: (e: ClipboardEvent) => void }>({
+  /** 選んでいる要素のうち、コピー・切り取りできるもの */
+  const clipItemOf = (s: Selection): ClipItem | null =>
+    s.kind === "zoom" || s.kind === "speech" || s.kind === "pointer" || s.kind === "shape"
+      ? { kind: s.kind, step: s.step, index: s.index }
+      : null;
+
+  // Ctrl+C / Ctrl+X / Ctrl+V(メニューのコピー・切り取り・貼り付け)。文字の入力中はそのまま。
+  // ズーム・読み上げ・オブジェクトを選んでいればコピー(切り取り)し、最後にコピーしたものを再生位置に貼る
+  const clipRef = useRef<Record<"copy" | "cut" | "paste", (e: ClipboardEvent) => void>>({
     copy: () => {},
+    cut: () => {},
     paste: () => {},
   });
   clipRef.current = {
     copy: (e) => {
-      if (isTyping()) return;
-      if (selection.kind === "zoom") {
-        e.preventDefault();
-        copyZoom(selection.step, selection.index);
-      } else if (selection.kind === "pointer" || selection.kind === "shape") {
-        e.preventDefault();
-        copyObject(selection.step, { kind: selection.kind, index: selection.index });
-      }
+      const item = clipItemOf(selection);
+      if (isTyping() || !item) return;
+      e.preventDefault();
+      copyItem(item);
+    },
+    cut: (e) => {
+      const item = clipItemOf(selection);
+      if (isTyping() || !item) return;
+      e.preventDefault();
+      cutItem(item);
     },
     paste: (e) => {
-      if (isTyping()) return;
-      const at = playerRef.current?.time ?? time;
-      if (lastCopied.current === "object" && objectClipboard.current) {
-        e.preventDefault();
-        pasteObjectAt(at);
-      } else if (zoomClipboard.current) {
-        e.preventDefault();
-        pasteZoom(at);
-      }
+      if (isTyping() || !clipboard.current) return;
+      e.preventDefault();
+      pasteAt(playerRef.current?.time ?? time);
     },
   };
   useEffect(() => {
-    const copy = (e: ClipboardEvent) => clipRef.current.copy(e);
-    const paste = (e: ClipboardEvent) => clipRef.current.paste(e);
-    document.addEventListener("copy", copy);
-    document.addEventListener("paste", paste);
+    const on = (name: "copy" | "cut" | "paste") => (e: ClipboardEvent) => clipRef.current[name](e);
+    const handlers = (["copy", "cut", "paste"] as const).map((n) => [n, on(n)] as const);
+    for (const [n, h] of handlers) document.addEventListener(n, h);
     return () => {
-      document.removeEventListener("copy", copy);
-      document.removeEventListener("paste", paste);
+      for (const [n, h] of handlers) document.removeEventListener(n, h);
     };
   }, []);
 
@@ -1233,7 +1320,14 @@ export function App() {
   const moveCaption = (pos: { x: number; y: number }, key: string) =>
     patchCaptionPlacement({ position: pos }, key);
 
-  const clampW = (v: number) => Math.min(Math.max(v, 160), 640);
+  const clampW = (v: number) => Math.min(Math.max(v, PANEL_MIN_W), 640);
+  // ウィンドウが狭いときは、プレビューの列(再生操作の帯)が重ならない幅を残すよう、右のパネル → 左の列の順に縮める
+  const over = Math.max(0, railW + panelW + 10 + CENTER_MIN_W - winW);
+  const panelShown = Math.max(PANEL_MIN_W, panelW - over);
+  const railShown = Math.max(RAIL_MIN_W, railW - Math.max(0, over - (panelW - panelShown)));
+  // つまみのドラッグは押したときの関数で続くので、今の表示幅は ref で渡す(縮めて表示している分から動かす)
+  const shownRef = useRef({ rail: railShown, panel: panelShown });
+  shownRef.current = { rail: railShown, panel: panelShown };
 
   return (
     <div className="app">
@@ -1261,6 +1355,7 @@ export function App() {
             }}
           >
             <Icon name="fileMenu" />
+            <span>{t("fileShort")}</span>
           </button>
           <span className="tb-sep" />
           <button
@@ -1346,7 +1441,11 @@ ${t("renameTip")}`}
             disabled={exporting !== null || project.steps.length === 0}
           >
             <Icon name="exportVideo" />
-            {exporting && <span>{Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%</span>}
+            <span>
+              {exporting
+                ? `${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
+                : bare(t("export"))}
+            </span>
           </button>
         </div>
       </header>
@@ -1368,8 +1467,35 @@ ${t("renameTip")}`}
           </button>
         </div>
       )}
+      {/* プロジェクトの問題(検証のエラー・警告、読めない録画)。閉じられる。閉じた後に問題が増えたら(中身が変わったら)また出す */}
+      {problemLines.length > 0 && problemKey !== dismissedProblems && (
+        <div className="banner issues">
+          <div className="issues-body">
+            <strong>{t("issues")}</strong>
+            <ul>
+              {problemLines.map((p) => (
+                <li key={p.text} className={p.error ? "error" : undefined}>
+                  {p.text}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button
+            type="button"
+            className="small"
+            title={t("dismissIssues")}
+            aria-label={t("dismissIssues")}
+            onClick={() => setDismissedProblems(problemKey)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
-      <main className="main" style={{ gridTemplateColumns: `${railW}px 5px minmax(0, 1fr) 5px ${panelW}px` }}>
+      <main
+        className="main"
+        style={{ gridTemplateColumns: `${railShown}px 5px minmax(0, 1fr) 5px ${panelShown}px` }}
+      >
         <StepRail
           timeline={timeline}
           media={media}
@@ -1394,7 +1520,12 @@ ${t("renameTip")}`}
             else setBanner({ kind: "error", text: t("dropMp4Only") });
           }}
         />
-        <Splitter dir="col" onDrag={(d) => setRailW((w) => Math.min(Math.max(w + d, 56), 400))} />
+        <Splitter
+          dir="col"
+          onDrag={(d) =>
+            setRailW((w) => Math.min(Math.max(Math.min(w, shownRef.current.rail) + d, RAIL_MIN_W), 400))
+          }
+        />
         <section className="center" style={{ gridTemplateRows: `minmax(0, 1fr) auto 5px ${timelineH}px` }}>
           <Preview
             outW={out.width}
@@ -1471,7 +1602,7 @@ ${t("renameTip")}`}
               <>
                 <div className="preview-tools-left">
                   {(drawingZoom || ((selection.kind === "video" || boxObjectSelected) && !playing)) && (
-                    <div className="seg" title={`${t("anchorTip")} (C)`}>
+                    <div className="seg" title={withKey(t("anchorTip"), "anchor")}>
                       {(["center", "corner"] as const).map((a) => (
                         <button
                           key={a}
@@ -1662,6 +1793,7 @@ ${t("renameTip")}`}
                     patchObject(update, selObject.step, selObject.ref, () => next, key)
                   }
                   onEditText={() => document.getElementById(objectTextInputId(selObject.ref.index))?.focus()}
+                  outside={shapeOutsideVideo(o, m?.width || 1920, m?.height || 1080)}
                 />
               );
             }}
@@ -1710,21 +1842,16 @@ ${t("renameTip")}`}
             <div className="transport-center">
               {(
                 [
-                  ["toStart", "toStart", "Home", () => playerRef.current?.seek(0)],
-                  [
-                    "prev",
-                    "prevBoundary",
-                    "↑",
-                    () => keyRef.current(new KeyboardEvent("keydown", { key: "ArrowUp" })),
-                  ],
-                  ["back", "back1s", "←", () => playerRef.current?.seek(time - 1)],
+                  ["toStart", "toStart", "toStart", () => playerRef.current?.seek(0)],
+                  ["prev", "prevBoundary", "prevBoundary", () => seekBoundary(-1)],
+                  ["back", "back1s", "back1s", () => playerRef.current?.seek(time - 1)],
                 ] as const
               ).map(([icon, label, key, fn]) => (
                 <button
                   key={icon}
                   type="button"
                   className="icon"
-                  title={`${t(label)} (${key})`}
+                  title={withKey(t(label), key)}
                   aria-label={t(label)}
                   onClick={fn}
                 >
@@ -1734,7 +1861,7 @@ ${t("renameTip")}`}
               <button
                 type="button"
                 className="icon play"
-                title={`${t(playing ? "pause" : "play")} (Space)`}
+                title={withKey(t(playing ? "pause" : "play"), "play")}
                 aria-label={t(playing ? "pause" : "play")}
                 onClick={() => (playing ? playerRef.current?.stop() : playerRef.current?.play())}
               >
@@ -1742,21 +1869,16 @@ ${t("renameTip")}`}
               </button>
               {(
                 [
-                  ["forward", "forward1s", "→", () => playerRef.current?.seek(time + 1)],
-                  [
-                    "next",
-                    "nextBoundary",
-                    "↓",
-                    () => keyRef.current(new KeyboardEvent("keydown", { key: "ArrowDown" })),
-                  ],
-                  ["toEnd", "toEnd", "End", () => playerRef.current?.seek(total)],
+                  ["forward", "forward1s", "forward1s", () => playerRef.current?.seek(time + 1)],
+                  ["next", "nextBoundary", "nextBoundary", () => seekBoundary(1)],
+                  ["toEnd", "toEnd", "toEnd", () => playerRef.current?.seek(total)],
                 ] as const
               ).map(([icon, label, key, fn]) => (
                 <button
                   key={icon}
                   type="button"
                   className="icon"
-                  title={`${t(label)} (${key})`}
+                  title={withKey(t(label), key)}
                   aria-label={t(label)}
                   onClick={fn}
                 >
@@ -1768,7 +1890,7 @@ ${t("renameTip")}`}
               <select
                 className="rate"
                 aria-label={t("playbackRate")}
-                title={`${t("playbackRate")} (J / K / L)`}
+                title={t("playbackRate")}
                 value={PLAYBACK_RATES.includes(rate as (typeof PLAYBACK_RATES)[number]) ? rate : ""}
                 onChange={(e) => {
                   const r = Number(e.target.value);
@@ -1776,7 +1898,6 @@ ${t("renameTip")}`}
                   playerRef.current?.setRate(r);
                 }}
               >
-                {rate < 0 && <option value="">◀ ×{-rate}</option>}
                 {PLAYBACK_RATES.map((r) => (
                   <option key={r} value={r}>
                     ×{r}
@@ -1786,7 +1907,7 @@ ${t("renameTip")}`}
               <button
                 type="button"
                 className="icon"
-                title={`${t(muted ? "unmute" : "mute")} (M)`}
+                title={withKey(t(muted ? "unmute" : "mute"), "mute")}
                 aria-label={t(muted ? "unmute" : "mute")}
                 onClick={() => setMuted((m) => !m)}
               >
@@ -1795,7 +1916,7 @@ ${t("renameTip")}`}
               <button
                 type="button"
                 className="icon"
-                title={`${t("fullscreen")} (F)`}
+                title={withKey(t("fullscreen"), "fullscreen")}
                 aria-label={t("fullscreen")}
                 onClick={toggleFullscreen}
               >
@@ -1824,14 +1945,21 @@ ${t("renameTip")}`}
             editingKey={drawingZoom}
             onPreviewSpeech={previewSpeech}
             onMergeNext={mergeNext}
-            onCopyZoom={copyZoom}
-            onPasteZoom={hasZoomClip ? pasteZoom : null}
+            clipKind={clipKind}
+            onCopy={copyItem}
+            onCut={cutItem}
+            onPaste={pasteAt}
+            onRemove={removeItem}
+            onAddObjectAt={(kind, at) => addObject(kind, undefined, undefined, at)}
             onAddZoomAt={addZoomAt}
             onAddZoomKey={addZoomKey}
             onSelectObject={(st, ref) => selectObject(st, ref, false)}
           />
         </section>
-        <Splitter dir="col" onDrag={(d) => setPanelW((w) => clampW(w - d))} />
+        <Splitter
+          dir="col"
+          onDrag={(d) => setPanelW((w) => clampW(Math.min(w, shownRef.current.panel) - d))}
+        />
         <aside className="panel">
           <FoldCommandContext.Provider value={foldCmd}>
             {view === "project" || target === null || !tgtStep ? (
@@ -1962,29 +2090,22 @@ ${t("renameTip")}`}
         </aside>
       </main>
 
-      {(issues.length > 0 || mediaErrors.length > 0) && (
-        <footer className="issues">
-          <strong>{t("issues")}</strong>
-          <ul>
-            {mediaErrors.map((m) => (
-              <li key={m} className="error">
-                {m}
-              </li>
-            ))}
-            {issues.map((i) => (
-              <li key={`${i.path}:${i.message}`}>
-                {issuePath(i.path)}: {i.message}
-              </li>
-            ))}
-          </ul>
-        </footer>
-      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      {shortcutsOpen && (
+        <ShortcutsDialog
+          onClose={() => setShortcutsOpen(false)}
+          onEdit={() => {
+            setShortcutsOpen(false);
+            setSettingsOpen("shortcuts");
+          }}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
+          focus={settingsOpen === "shortcuts" ? "shortcuts" : undefined}
           onClose={() => setSettingsOpen(false)}
           onLanguage={() => setLangVersion((v) => v + 1)}
+          onKeys={() => setLangVersion((v) => v + 1)}
         />
       )}
     </div>

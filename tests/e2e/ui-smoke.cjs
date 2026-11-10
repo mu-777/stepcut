@@ -120,6 +120,31 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.locator(".transport button.play").click();
   check(!t1.startsWith("0:00.00"), `再生で時刻が進む (${t1})`);
 
+  // 途中から再生しても、すぐ音を鳴らす(鳴らした AudioBufferSourceNode.start を記録して見る)。
+  // 音声はステップ全体を作り終えるまで待たず、再生位置から短い区切りで作る
+  await page.evaluate(() => {
+    window.__audioStarts = [];
+    const orig = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      if (!(this.context instanceof OfflineAudioContext)) window.__audioStarts.push(performance.now());
+      return orig.apply(this, args);
+    };
+  });
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  const playAt = await page.evaluate(() => performance.now());
+  await page.locator(".transport button.play").click();
+  await page.waitForTimeout(1200);
+  await page.locator(".transport button.play").click();
+  const audioStarts = await page.evaluate(() => window.__audioStarts);
+  check(
+    audioStarts.length > 0 && audioStarts[0] - playAt < 1000,
+    `途中から再生してもすぐ音を鳴らす (${audioStarts.length ? Math.round(audioStarts[0] - playAt) : "-"}ms)`,
+  );
+  await page.keyboard.press("Home");
+
   // 目盛りのクリックでシーク
   const ruler = await page.locator(".tl-ruler").boundingBox();
   const clip1 = await page.locator(".tl-clip").nth(0).boundingBox();
@@ -305,7 +330,25 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check((await tipOf(1)).includes("外部で変更したテロップ"), "外部変更を検知して再読み込みする");
   await shot(page, "03-external");
 
-  // キー操作: Home → → で 1 秒、Shift+→ で 1 フレーム、↓ で次のステップ境界、L 連打で ×2
+  // プロジェクトの問題(検証の警告)は上端の帯に出て、× で閉じられる。閉じたら出さない
+  {
+    const warned = structuredClone(saved);
+    warned.steps[1].speech = [{ text: "一つ目" }, { start: 1 }];
+    fs.writeFileSync(projectPath, `${JSON.stringify(warned, null, 2)}\n`);
+    await page.waitForTimeout(2000);
+    const issueBar = page.locator(".banner.issues");
+    check(
+      (await issueBar.count()) === 1 && (await page.locator("footer.issues").count()) === 0,
+      "プロジェクトの問題は上端の帯に出る",
+    );
+    await issueBar.getByRole("button").click();
+    await page.waitForTimeout(150);
+    check((await issueBar.count()) === 0, "問題の帯は × で閉じられる");
+    fs.writeFileSync(projectPath, `${JSON.stringify(saved, null, 2)}\n`);
+    await page.waitForTimeout(2000);
+  }
+
+  // キー操作: Home → → で 1 秒、Shift+→ で 1 フレーム、↓ で次のステップ境界(J/K/L はない)
   await page.locator("body").click({ position: { x: 5, y: 300 } });
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
@@ -315,11 +358,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("ArrowDown");
   check((await timeText()).startsWith("0:04.00"), `↓ で次のステップ境界へ (${await timeText()})`);
   await page.keyboard.press("l");
-  await page.keyboard.press("l");
   await page.waitForTimeout(300);
-  check((await page.locator(".transport select.rate").inputValue()) === "2", "L 2 回で ×2 再生");
-  await page.keyboard.press("k");
-  await page.locator(".transport select.rate").selectOption("1");
+  check(
+    (await page.locator(".transport select.rate").inputValue()) === "1" &&
+      (await page.getByRole("button", { name: /^(Play|再生)$/ }).count()) === 1,
+    "L キーでは再生しない(J/K/L はない)",
+  );
 
   // サムネイルの右クリックで並び替え
   await thumbs.first().click({ button: "right" });
@@ -412,7 +456,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const stage = await page.locator(".preview-stage").boundingBox();
   const zoomsBefore = await page.locator(".tl-bar.zoom").count();
   await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.4, { button: "right" });
-  await page.getByRole("menuitem", { name: /Add zoom here|ここにズームを追加/ }).click();
+  await page.getByRole("menuitem", { name: /^＋ (Zoom|ズーム)/ }).click();
   await page.waitForTimeout(400);
   check(
     (await page.locator(".tl-bar.zoom").count()) === zoomsBefore + 1,
@@ -504,7 +548,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".draw-layer").count()) === 1,
     "タイムラインのズームのクリックで枠の編集を始める",
   );
-  // 帯のクリックでは再生位置をズームの始まりへ移す。目盛りのクリック(シーク)では編集を続ける(プレビューはズームせずに枠を出す)
+  // 帯のクリックでは再生位置を動かさない。目盛りのクリック(シーク)では編集を続ける(プレビューはズームせずに枠を出す)
   const rulerBox = await page.locator(".tl-ruler").boundingBox();
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
@@ -513,10 +557,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.mouse.click(zb.x + zb.width * 0.3, zb.y + zb.height / 2);
   await page.waitForTimeout(300);
   const tStart = await page.locator(".time").first().textContent();
-  check(
-    tStart !== tBefore,
-    `タイムラインのズームの帯のクリックで再生位置をその始まりへ移す (${tBefore} → ${tStart})`,
-  );
+  check(tStart === tBefore, `タイムラインのズームの帯のクリックでは再生位置を動かさない (${tBefore})`);
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
@@ -1048,7 +1089,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "オブジェクトはステップの shapes・pointers に保存され、蛍光ペンはポインターの見た目になる",
   );
 
-  // タイムラインの帯をクリックで選ぶと、再生位置をその始まりへ移す
+  // タイムラインの帯をクリックで選んでも再生位置は動かさない。ダブルクリックで始まりへ移す
   {
     const tm = async () => page.locator(".time").first().textContent();
     await page.keyboard.press("End");
@@ -1057,10 +1098,15 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     const bars = page.locator(".tl-bar.object");
     await bars.nth(1).click();
     await page.waitForTimeout(150);
+    check((await tm()) === before, `タイムラインの帯を選んでも再生位置は動かない (${before})`);
+    await bars.nth(1).dblclick();
+    await page.waitForTimeout(150);
     check(
       (await tm()) !== before,
-      `タイムラインの帯を選ぶと再生位置がその始まりへ移る (${before} → ${await tm()})`,
+      `タイムラインの帯のダブルクリックで再生位置をその始まりへ移す (${before} → ${await tm()})`,
     );
+    await page.keyboard.press("End");
+    await page.waitForTimeout(150);
     // Ctrl+クリックでまとめて選び、まとめてドラッグで動かす
     await bars.nth(0).click({ modifiers: ["Control"] });
     await page.waitForTimeout(100);
@@ -1093,7 +1139,68 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     check((await bars.count()) === n0 + 1, "オブジェクトをコピーして再生位置に貼れる");
     await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
     await page.waitForTimeout(150);
+    // Ctrl+X(切り取り)で消え、貼り付けで戻る(まとめた選択はクリップのクリックで解く)
+    await page.locator(".tl-clip").nth(1).click();
+    await bars.nth(0).click();
+    await page.evaluate(() => document.dispatchEvent(new ClipboardEvent("cut", { cancelable: true })));
+    await page.waitForTimeout(150);
+    const afterCut = await bars.count();
+    await page.evaluate(() => document.dispatchEvent(new ClipboardEvent("paste", { cancelable: true })));
+    await page.waitForTimeout(150);
+    check(
+      afterCut === n0 - 1 && (await bars.count()) === n0,
+      `オブジェクトを切り取ると消え、貼り付けで戻る (${n0} → ${afterCut} → ${await bars.count()})`,
+    );
+    // オブジェクトのレーンの空いた所の右クリックで、その時刻にオブジェクトを足す
+    await page.locator(".tl-lane").nth(4).scrollIntoViewIfNeeded();
+    const lane = await page.locator(".tl-lane").nth(4).boundingBox();
+    const n1 = await bars.count();
+    await page.mouse.click(lane.x + 4, lane.y + lane.height - 3, { button: "right" });
+    await page.getByRole("menuitem", { name: /^＋ (Text|テキスト)$/ }).click();
+    await page.waitForTimeout(200);
+    check((await bars.count()) === n1 + 1, "オブジェクトのレーンの右クリックでオブジェクトを足す");
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.waitForTimeout(150);
   }
+
+  // 読み上げのレーンの右クリックで読み上げを足し、帯の右クリックでコピー → 別の時刻に貼る
+  {
+    const speechBars = page.locator(".tl-bar.speech");
+    const s0 = await speechBars.count();
+    const lane = await page.locator(".tl-lane").nth(2).boundingBox();
+    const clip1 = await page.locator(".tl-clip").nth(1).boundingBox();
+    await page.mouse.click(clip1.x + clip1.width - 6, lane.y + lane.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: /Speech here|ここに読み上げ/ }).click();
+    await page.waitForTimeout(200);
+    check((await speechBars.count()) === s0 + 1, "読み上げのレーンの右クリックで読み上げを足す");
+    await speechBars.nth(0).click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^(Copy|コピー)/ }).click();
+    await page.mouse.click(clip1.x + clip1.width / 2, lane.y + lane.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: /Paste here|ここに貼り付け/ }).click();
+    await page.waitForTimeout(200);
+    check((await speechBars.count()) === s0 + 2, "読み上げをコピーして、レーンの右クリックで貼る");
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.waitForTimeout(150);
+  }
+  await page.locator(".tl-sound").click();
+  await page.waitForTimeout(150);
+  check(
+    (await page.locator(".tl-clip-muted").count()) === (await page.locator(".tl-clip").count()) &&
+      (await page.locator(".tl-sound.off").count()) === 1,
+    "映像の段の見出しのボタンで録画の音を全体で消す(すべてのクリップに印)",
+  );
+  await page.locator(".tl-sound").click();
+  await page.waitForTimeout(150);
+  await page.locator(".tl-clip").nth(0).click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Mute this step|このステップの録画の音を消す/ }).click();
+  await page.waitForTimeout(150);
+  check(
+    (await page.locator(".tl-clip-muted").count()) === 1,
+    "クリップの右クリックで、そのステップの録画の音だけを消す",
+  );
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+  await page.waitForTimeout(150);
 
   // プレビューの右クリックから、クリックした所を中心に足す。録画の外なら図形は画面に固定する
   const bgPt = { x: stageBox.x + stageBox.width * 0.85, y: stageBox.y + stageBox.height * 0.3 };
@@ -1122,7 +1229,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(
     /Project|全体/.test(await panelTitle()) &&
       (await page.getByLabel(/No margins|余白なし/).count()) === 1 &&
-      (await page.getByLabel(/^(Pronunciation dictionary|読みの辞書)/).count()) === 1,
+      (await page.locator(".dict-field").count()) === 1,
     "「全体」で出力・レイアウト・テロップの見た目・声の共通の設定",
   );
   await shot(page, "04-project");
@@ -1199,11 +1306,12 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       (await page.locator(".tb-side.right .tb-btn").first().getAttribute("aria-label")).match(
         /Shortcuts|キー操作/,
       ) !== null &&
-      (await page.locator(".tb-btn span").count()) === 0 &&
+      /^(File|ファイル)$/.test((await page.locator(".tb-side .tb-btn span").first().textContent()) ?? "") &&
+      /^(Export|書き出し)$/.test((await page.locator(".tb-btn.primary span").textContent()) ?? "") &&
       (await page.locator(".tb-name").textContent()) === "ui" &&
       Math.abs(titleBox.x + titleBox.width / 2 - winW / 2) < 3 &&
       hdr.x + hdr.width - (exportBtn.x + exportBtn.width) < 16,
-    `ヘッダーは文字なしのアイコンで、プロジェクト名はウィンドウの中央、書き出しは右端 (中央のずれ ${Math.round(titleBox.x + titleBox.width / 2 - winW / 2)})`,
+    `ヘッダーはアイコン(ファイルと書き出しは文字付き)で、プロジェクト名はウィンドウの中央、書き出しは右端 (中央のずれ ${Math.round(titleBox.x + titleBox.width / 2 - winW / 2)})`,
   );
   // 新規・開く・保存は「ファイル」のメニューにまとめる
   await page.getByRole("button", { name: /^(File|ファイル)/ }).click();
@@ -1289,6 +1397,40 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "無題の「保存」でヘッダーの名前の入力が始まる",
   );
   await page.keyboard.press("Escape");
+
+  {
+    await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/ }).click();
+    await page.getByRole("button", { name: /Change keys|キー操作を変更/ }).click();
+    await page.waitForTimeout(200);
+    const splitKey = page.getByRole("button", {
+      name: /^(Split the step at the playhead|再生位置でステップを分割): /,
+    });
+    await splitKey.click();
+    await page.keyboard.press("q");
+    await page.waitForTimeout(200);
+    check(
+      ((await splitKey.textContent()) ?? "").trim() === "Q",
+      `アプリの設定でキーを割り当て直せる (${await splitKey.textContent()})`,
+    );
+    // メニューが使う Ctrl のキーは割り当てられない
+    await splitKey.click();
+    await page.keyboard.press("Control+s");
+    await page.waitForTimeout(150);
+    check(
+      (await page.locator(".keys-section .hint.warn").count()) === 1,
+      "Ctrl+S は割り当てられないと知らせる",
+    );
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /^(Reset all keys|すべてのキーを既定に戻す)$/ }).click();
+    await page.waitForTimeout(150);
+    check(((await splitKey.textContent()) ?? "").trim() === "S", "すべてのキーを既定に戻す");
+    await page.keyboard.press("Escape");
+    // ウィンドウの最小幅(左右のパネルの最小幅 + 再生操作の帯が重ならない幅)
+    const minW = await app.evaluate(
+      ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize()[0],
+    );
+    check(minW >= 700, `ウィンドウの最小幅を決めている (${minW}px)`);
+  }
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();

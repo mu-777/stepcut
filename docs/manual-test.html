@@ -1,0 +1,447 @@
+<meta charset="utf-8">
+<title>手動確認の手順書</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* レイアウト: 上に進み具合の帯、その下に節ごとの確認項目(操作 → 期待) */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2129;
+  --muted: #5d6877;
+  --line: #dde2e9;
+  --accent: #1f5d8c;
+  --accent-soft: #e3eef7;
+  --ok: #1d7a45;
+  --ok-soft: #e2f3e8;
+  --ng: #b8322a;
+  --ng-soft: #fbe6e4;
+  --kbd: #eef1f5;
+  --font-body: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161b; --surface: #1a2027; --fg: #e4e9ef; --muted: #98a3b1; --line: #2c343e;
+    --accent: #6fb1e3; --accent-soft: #1c2d3c; --ok: #5cc58a; --ok-soft: #173225;
+    --ng: #f07b72; --ng-soft: #3a1d1b; --kbd: #252d37; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161b; --surface: #1a2027; --fg: #e4e9ef; --muted: #98a3b1; --line: #2c343e;
+  --accent: #6fb1e3; --accent-soft: #1c2d3c; --ok: #5cc58a; --ok-soft: #173225;
+  --ng: #f07b72; --ng-soft: #3a1d1b; --kbd: #252d37; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.65; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px;
+}
+.bar-inner { max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.bar h1 { font-size: 17px; margin: 0; letter-spacing: 0.02em; }
+.progress { flex: 1 1 200px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.meter { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; display: flex; }
+.meter i { display: block; height: 100%; }
+.meter .m-ok { background: var(--ok); }
+.meter .m-ng { background: var(--ng); }
+.counts { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.counts b.ok { color: var(--ok); } .counts b.ng { color: var(--ng); }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+button, select { font: inherit; font-size: 13px; }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.confirm { font-size: 13px; color: var(--ng); display: flex; gap: 6px; align-items: center; }
+.toast { font-size: 13px; color: var(--ok); }
+
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 64px;
+}
+main { min-width: 0; display: grid; gap: 28px; }
+.intro { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.intro h2 { margin: 0 0 6px; font-size: 16px; }
+.intro p, .intro ul { margin: 6px 0; }
+.intro ul { padding-left: 1.2em; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+section h2 { font-size: 18px; margin: 0 0 4px; text-wrap: balance; display: flex; align-items: baseline; gap: 10px; }
+section h2 .sn { font-family: var(--font-mono); font-size: 13px; color: var(--accent); }
+section .note { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
+ul.items { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+ul.items > li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 11px 14px; border-top: 1px solid var(--line); }
+ul.items > li:first-child { border-top: 0; }
+ul.items > li.is-ok { background: var(--ok-soft); }
+ul.items > li.is-ng { background: var(--ng-soft); }
+.marks { display: flex; gap: 4px; padding-top: 1px; }
+.mark { width: 34px; height: 26px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; }
+.mark.ok[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.mark.ng[aria-pressed="true"] { background: var(--ng); border-color: var(--ng); color: var(--surface); }
+.body { min-width: 0; }
+.do { margin: 0; }
+.expect { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+.expect::before { content: "→ "; color: var(--accent); font-weight: 700; }
+.memo { grid-column: 2; width: 100%; font: inherit; font-size: 13.5px; padding: 5px 8px; border: 1px solid var(--ng); border-radius: 6px; background: var(--surface); color: var(--fg); }
+kbd { font-family: var(--font-mono); font-size: 12px; background: var(--kbd); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+code { font-family: var(--font-mono); font-size: 12.5px; background: var(--kbd); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.tag { display: inline-block; font-size: 11px; letter-spacing: 0.04em; border: 1px solid var(--accent); color: var(--accent); border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+li.hidden { display: none !important; }
+@media (prefers-reduced-motion: no-preference) { ul.items > li { transition: background-color 0.15s; } }
+</style>
+
+<header class="bar">
+  <div class="bar-inner">
+    <h1>手動確認の手順書</h1>
+    <div class="progress">
+      <div class="meter" aria-hidden="true"><i class="m-ok" id="m-ok"></i><i class="m-ng" id="m-ng"></i></div>
+      <span class="counts" id="counts"></span>
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="表示する項目">
+        <button type="button" id="f-all" aria-pressed="true">すべて</button>
+        <button type="button" id="f-todo" aria-pressed="false">未確認</button>
+        <button type="button" id="f-ng" aria-pressed="false">NG</button>
+      </div>
+      <button type="button" class="btn primary" id="copy-ng">NG をコピー</button>
+      <button type="button" class="btn" id="reset">記録を消す</button>
+      <span id="msg" aria-live="polite"></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <main id="main">
+    <div class="intro">
+      <h2>使い方</h2>
+      <p>上から順に、書いてある操作をして「→」の結果になるか見ます。結果どおりなら <b>OK</b>、違えば <b>NG</b> を押し、出てきた欄に何が起きたかを書きます。最後に「NG をコピー」で NG の一覧をまとめてコピーし、そのまま Claude に貼れば直す作業に入れます。</p>
+      <ul>
+        <li>記録はこのブラウザにだけ残ります(別の端末とは共有されません)。</li>
+        <li>前の節で作ったステップ・ズーム・オブジェクトを後の節でも使います。節の順に進めてください。</li>
+        <li>OS の読み上げ・フォント・書き出しのエンコーダーなど、開発環境(自動テスト)では確かめられないものには <span class="tag">実機</span> を付けています。</li>
+      </ul>
+      <div class="legend"><span>全 <b id="total"></b> 項目</span><span>画面の文言は日本語表示のときのもの</span></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// 確認項目。[[キー]] は <kbd>、`…` は <code>、{実機} はタグになる
+const SECTIONS = [
+  { id: "prep", title: "準備", note: "確認に使う録画を用意し、アプリを起動します。", items: [
+    ["30 秒以上の mp4 の画面録画を 2 本用意する(1 本は音声入り、もう 1 本は解像度が違うもの。例: 1920×1080 と 1280×720)", "あとで録画の追加・解像度の違う録画への貼り付けに使う"],
+    ["`npm run dev` で起動する(配布版を確かめるなら `npm run dist:win` で作った exe)", "ウィンドウが開き、左にサムネイル列、中央にプレビューとタイムライン、右に設定パネルが出る。メニューバーは出ない"],
+  ]},
+  { id: "header", title: "ヘッダー・アプリの設定", items: [
+    ["ヘッダーのアイコンにマウスを重ねる", "左に「ファイル」(文字付き)・元に戻す・やり直し、中央にプロジェクトの名前、右に ?・歯車・「書き出し」(文字付き)。それぞれツールチップが出る"],
+    ["? を押す(または [[Ctrl]]+[[/]])", "キー操作の一覧が開き、今の割り当て(変えられるキー)と、変えられない Ctrl のキー(Ctrl+C / Ctrl+X / Ctrl+V など)が載っている。J/K/L はない"],
+    ["キー操作の一覧の「キー操作を変更…」を押す", "アプリの設定が開き、キー操作の欄まで送られる"],
+    ["「再生位置でステップを分割」のボタンを押してから [[Q]] を押す。続けて別の操作に [[Q]] を割り当てる", "分割が Q になり、ツールチップ・右クリックメニューの表示も Q になる。別の操作に Q を割り当てると、分割の割り当てが外れた旨が出る"],
+    ["割り当てのボタンを押してから [[Ctrl]]+[[S]] を押す", "アプリが使っているため割り当てられない旨が出る。[[Esc]] でやめられる"],
+    ["「すべてのキーを既定に戻す」を押し、アプリを再起動する", "既定に戻る。変えた割り当ては再起動しても残る(戻す前に一度再起動して確かめる)"],
+    ["ウィンドウをできるだけ狭くする(左右のパネルを広げた状態でも試す)", "ある幅より狭くならない。再生操作の帯(時刻・ボタン・速度・消音・全画面)が重ならない。パネルを広げていた場合は、設定パネル → サムネイル列の順に縮む"],
+    ["歯車 → 言語を English にする", "画面の文字がその場で英語に変わる。日本語(または OS に合わせる)に戻す"],
+    ["歯車 → プロジェクトの保存先の「選ぶ…」でフォルダーを選び、「既定に戻す」も試す", "選んだフォルダーが表示され、既定に戻すと「(OS の既定)」になる。最後に確認用のフォルダーを選んでおく"],
+    ["プロジェクトの名前をクリックして名前を入れる", "名前が変わり、未保存の印 ● が付く"],
+  ]},
+  { id: "record", title: "録画の追加とステップ", items: [
+    ["新規プロジェクトで、サムネイル列いっぱいの「＋ 録画を追加」から 1 本目の録画を選ぶ", "ステップ 1 ができ、プレビューに録画、サムネイル列に「ステップ 1」・長さが出る。プレビューには空のテロップの仮の文が出る"],
+    ["2 本目の録画を、サムネイル列にエクスプローラーからドロップする", "ステップ 2 として末尾に足される"],
+    ["mp4 以外のファイル(画像など)をドロップする", "「追加できるのは mp4 のファイルだけです。」と出て、何も足されない"],
+    ["新規プロジェクトで、プレビューの録画を置く場所(黒い領域)をダブルクリックする", "「録画を追加しますか？」と確認が出て、追加できる。確認後、元のプロジェクトに戻る(または作り直す)"],
+    ["ステップ 1 の途中で [[S]] を押す", "再生位置でステップが 2 つに分かれる。後半には空のテロップが付く"],
+    ["映像クリップを右クリック →「分割して後半を捨てる」", "再生位置から後ろがなくなる(ステップは増えない)"],
+    ["サムネイルを右クリック → 上へ移動 / 下へ移動 / 複製 / ステップを削除", "それぞれ並び・数が変わる。複製したステップは同じ区間を再利用している"],
+    ["同じ録画の続いた 2 ステップで、前のクリップを右クリック →「次のステップとまとめる」", "1 つのステップに戻る。後ろの要素の時刻はずれない"],
+    ["サムネイル列とパネルの境界をドラッグして狭める", "サムネイルだけになり、文はマウスを重ねると出る。設定パネルの境界も同じく幅が変わる"],
+  ]},
+  { id: "play", title: "再生とシーク", items: [
+    ["[[Space]] で再生・停止する", "再生と停止が切り替わり、ステップの切れ目をまたいでも映像が止まらない {実機}"],
+    ["[[←]] / [[→]]、[[Shift]]+[[←]] / [[→]]、[[↑]] / [[↓]]、[[Home]] / [[End]] を押す", "1 秒・1 フレーム・ステップの切れ目・先頭/末尾へ動く"],
+    ["タイムラインの直上のバーで、先頭・前のステップ・1 秒戻る・再生・1 秒進む・次のステップ・末尾を押す", "キーと同じように動く"],
+    ["再生速度を ×0.5 と ×3 にして再生する", "プレビューの速さだけが変わる(書き出しには影響しない)"],
+    ["[[M]] を押す / 消音ボタンを押す", "消音と解除が切り替わる。録画の音が鳴るか {実機}"],
+    ["[[F]] を押す", "プレビューが全画面表示になる。もう一度でもとに戻る"],
+    ["シークバー(目盛り)を素早くドラッグする", "プレビューが遅れずについてくる {実機}"],
+  ]},
+  { id: "timeline", title: "タイムライン", items: [
+    ["目盛りとレーンの空いた所、レーンの下の空きをクリック・ドラッグする", "どこでもシークする。ステップの切れ目や要素の端に吸着し、[[Shift]] を押しながらだと吸着しない"],
+    ["[[Ctrl]]+ホイール、左上の角の +/−/全体ボタン", "タイムラインが拡大縮小する(カーソルの位置が基準)"],
+    ["横ホイール(またはタッチパッドの横スワイプ)", "その向きにタイムラインがスクロールする"],
+    ["映像クリップの左端・右端をドラッグする", "In / Out が変わり、ステップの長さが変わる"],
+    ["再生位置をステップ 2 に置き、ステップ 1 の映像クリップをクリックする", "ステップ 1 の始まりへ再生位置が移る。同じステップの中でクリックしたときは動かない"],
+    ["テロップ・読み上げ・ズームのレーンをダブルクリックする", "その時刻にテロップ・読み上げ・ズームができる(すでにあれば選ぶ)"],
+    ["再生位置を離れた所に置き、テロップ・読み上げ・ズーム・オブジェクトの帯をクリックで選ぶ", "選ばれるが、再生位置は動かない"],
+    ["テロップ・読み上げ・オブジェクトの帯をダブルクリックする", "再生位置がその始まりへ移る(ズームの帯のダブルクリックは枠の追加)"],
+    ["タイムラインの左の「映像」の横の音のボタンを押す", "ボタンが消音の表示になり、すべてのクリップに消音の印が出る。プレビューで録画の音が鳴らない {実機}。もう一度押すと戻る"],
+    ["映像クリップを右クリック →「このステップの録画の音を消す」", "そのクリップだけに消音の印が出て、そのステップだけ録画の音が鳴らない。メニューは「…鳴らす」に変わる"],
+    ["映像クリップを右クリック →「ここで静止(1 秒)」と「末尾で静止(1 秒)」", "保持(静止)の斜線が入り、ステップが 1 秒延びる"],
+    ["保持の帯をドラッグ、右端をドラッグする", "位置と長さが変わる。再生ヘッドとステップの切れ目に吸着する"],
+    ["ステップ 1 の設定でフェードイン・フェードアウトを 1 秒にする(「録画・速度」の欄)", "映像クリップの両端に黒の三角と斜めの線が出る。フェードインは右上がり、フェードアウトは右下がり"],
+    ["ステップの先頭に 1 秒の保持を入れ、フェードインも 1 秒にして頭から再生する", "保持の間は映像が止まったまま、背景ごと黒から現れる(前回の報告の不具合。真っ黒のまま急に出ない)"],
+  ]},
+  { id: "project", title: "全体の設定(出力・背景・録画の枠)", note: "サムネイル列のいちばん上の「全体」を選んで確かめます。", items: [
+    ["出力の「幅 × 高さ」の候補を開く", "1920×1080 (Full HD)・1280×720 (HD)・2560×1440 (WQHD)・3840×2160 (4K) のように通称が付いている"],
+    ["「縦横比を固定」にチェックを入れて幅を 1280 にする", "高さが 720 に合わせて変わる。チェックを外すと片方だけ変えられる"],
+    ["フレームレート(30 / 60)と画質(低 / 中 / 高)、「SRT も書き出す」を切り替える", "値が切り替わる(結果は書き出しの節で確かめる)"],
+    ["数値の欄を見る", "既定値も普通の(白い)文字で入っている。欄を空にして離れると既定値に戻る"],
+    ["出力の幅の欄の数字をすべて消し、続けて 1280 と打つ", "消したときに別の数字が入らず、打った 1280 がそのまま入る。打っている間もプレビューの大きさは直前の値のまま崩れない"],
+    ["背景を 単色 → グラデーション → 画像 と切り替える", "単色にした直後は青みの灰色(黒ではない)で、録画の影と白いテロップが見える。グラデーションは色の追加(2〜4 色)・角度、画像はプリセット(標準・夕焼け・ミント・海・グラファイト・紙)と「画像を選ぶ…」が使える"],
+    ["余白(上・右・下・左)の数値を変える、「余白なし(中央に置く)」を入れて外す", "録画の位置が変わる。外すと前の余白に戻る"],
+    ["ドロップシャドウ、「録画を枠に合わせて切り取る」を切り替える", "録画に影が付く / 余白の内側いっぱいに描いて端を切り取る"],
+    ["プレビューの録画をクリックし、枠の中をドラッグ・四隅をドラッグ・四辺の中央をドラッグする", "移動・縦横比を保った拡大縮小・縦横比の変更(切り取り)。中心線と画面の辺に吸着し、[[Alt]] で吸着しない"],
+    ["テロップをドラッグして位置を決めたあと、録画の枠を小さくしたり動かしたりする", "テロップも枠との位置関係を保って動く(録画の下の余白の真ん中にあれば、余白が変わっても真ん中)"],
+    ["枠の編集中に [[←]] / [[→]]([[Shift]] 付きも)と [[C]] を押す", "枠が 10px(1px)動く。C でプレビューの下の帯の「中心固定/隅固定」が切り替わる"],
+    ["[[Esc]] か枠の外をクリックする", "枠の編集が終わる"],
+    ["[[Ctrl]]+ホイール、プレビューの下の帯の −/%/+、中ボタンのドラッグ", "プレビューだけが拡大縮小・移動する。% で全体表示に戻る"],
+  ]},
+  { id: "caption", title: "テロップ", items: [
+    ["プレビューの下の帯の「テロップ」を押して文を入れる", "そのステップのテロップの入力が始まり、プレビューに文が出る"],
+    ["プレビューのテロップの文字をクリックして直接入力する([[Enter]] で改行、[[Esc]] で終える)", "PowerPoint のようにその場で直せ、設定パネルの入力欄と同じ値になる"],
+    ["テロップの文字の外側の縁をクリック → 左右の取っ手をドラッグ", "枠が選ばれ、幅が変わる(中心固定。録画と画面の左右の辺に吸着)"],
+    ["テロップをドラッグして動かす", "中央・余白の中央・録画の下辺・画面の下辺に吸着する。そのステップだけ「個別に設定中」になる"],
+    ["ステップの詳細の「この位置を共通にする」→ 別のステップで「共通の位置に戻す」", "全ステップ共通の位置になる / 共通の位置に戻る"],
+    ["テロップの開始・終了、文字サイズ、文字の背景(なし / 自動 / あり)を変える", "表示の時間と見た目が変わる。タイムラインの帯の長さも合う"],
+    ["全体の「テロップの見た目」でフォント欄に「游」「メイ」「Yu」と打つ", "日本語でも英語でも候補が出る。前方一致が先、途中に含むものが後。変換中の [[Enter]] では選ばれない {実機}"],
+    ["長い文と改行を入れる", "幅で自動で折り返し、入れた改行も効く"],
+  ]},
+  { id: "speech", title: "読み上げ・音声・辞書", note: "OS の音声合成を使うので、すべて実機での確認です。", items: [
+    ["テロップを入れたステップで、文の欄の「読み上げを試聴」を押す {実機}", "テロップの文が読まれ、ボタンが「読み上げを終了」になる。押すと止まる"],
+    ["読み上げ文を書き換える →「テロップの文に戻す」 {実機}", "書き換えた文を読む / テロップに合わせる状態に戻る"],
+    ["「読み上げを追加」で 2 つ目を足し、開始を空欄にする {実機}", "前の読み上げの直後から読む。タイムラインに 2 本並ぶ"],
+    ["読み上げが映像より長くなるようにする {実機}", "ステップの最後に「読み上げが終わるまで静止」が自動で入り、尺が延びる"],
+    ["声・速さ・読み上げの音量を変える(全体とステップ) {実機}", "試聴で違いが分かる"],
+    ["全体の読みの辞書の「＋ 語を追加」を押し、語に「手順」、読みに「てじゅん」と入れる {実機}", "読み上げだけが変わり、テロップの表示は変わらない。行の × で消せる"],
+    ["読み上げのレーンの空いた所を右クリック →「＋ ここに読み上げ」", "その時刻に読み上げができる"],
+    ["読み上げの帯を右クリック → コピー、別の時刻で空いた所を右クリック →「ここに貼り付け」", "同じ文の読み上げがその時刻に貼られる"],
+    ["タイムラインの読み上げを右クリック → 試聴 {実機}", "その読み上げだけが鳴る"],
+    ["録画の音声の「鳴らす」と音量を変える {実機}", "プレビューと書き出しで録画の音が変わる"],
+    ["音付きの録画で、ステップの途中へシークして再生する(何か所かで繰り返す) {実機}", "どこから再生してもすぐ録画の音と読み上げが鳴る(前回の報告の不具合)"],
+  ]},
+  { id: "speed", title: "速度・早送り", items: [
+    ["ステップの「速度」を 3 にする", "映像が 3 倍で進み、ステップが短くなる"],
+    ["早送りのステップで録画の音声を鳴らし、「音の高さを保つ」を切り替える {実機}", "オンなら声の高さはそのまま、オフなら速度に合わせて高くなる"],
+  ]},
+  { id: "zoom", title: "ズーム", items: [
+    ["[[Z]]、プレビューの下の帯の「＋ ズーム」、プレビューの右クリック「＋ ズーム」、ズームのレーンを空いた所からドラッグ", "どれでもズームができる。右クリックではクリックした点が中心になる"],
+    ["ズームの帯をクリックし、プレビューで範囲を動かす・拡大縮小する", "録画の内側だけを動く。[[C]] で中心固定/隅固定が切り替わる"],
+    ["編集中に目盛りをクリックしてシークする", "編集が続き、プレビューはズームせずに枠を出す"],
+    ["そのまま [[Space]] で再生する", "編集が終わり、ズームが反映されて再生される。何度か繰り返しても毎回反映される(前回の報告の不具合)"],
+    ["「ズーム中の映像」を 止める / 拡縮時のみ / 止めない(流す) と切り替えて再生する", "止める: ズーム中は映像が止まる。拡縮時のみ: 拡大・縮小の動きの間だけ止まる。止めない: 流れ続ける"],
+    ["ズームの帯の始まり・終わりをドラッグ、設定パネルで開始・終了を変える", "再生位置がついてくる(止めるズームは常に開始、それ以外は動かした側)"],
+    ["倍率、ズームにかかる時間、「動きなしで切り替え」、「録画の縦横比を保つ」を変える", "動きの速さ・有無と、拡大したときの表示範囲が変わる"],
+    ["ズームの帯をダブルクリック、または「再生位置に枠を追加」で枠を 2 つにする", "帯に ◆ が 2 つ並び、再生すると枠と枠の間を一定の速さで移る"],
+    ["◆ をクリック・ドラッグ・右クリック、プレビューの下の「◀ 枠 i/n ▶」と点線の枠のクリック", "編集する枠の切り替え・時刻の変更・削除ができる"],
+    ["「サイズを全枠でそろえる」を入れて 1 つの枠の大きさを変える", "ほかの枠も同じ大きさになる"],
+    ["ズームの帯を右クリック →「コピー」→ ズームのレーンの空いた所を右クリック →「ここに貼り付け」", "同じ範囲のズームが貼られる。「切り取り」ではもとのズームが消える"],
+    ["間が 1.5 秒未満のズームを 2 つ並べて再生する", "間で縮小せずに次のズームへ移る"],
+  ]},
+  { id: "objects", title: "オブジェクト(共通)", items: [
+    ["プレビューの下の帯の「＋ オブジェクト」でポインター・四角・矢印・テキストを 1 つずつ足す", "再生位置から 3 秒出るオブジェクトができ、シークバーを動かさなくてもプレビューに見える"],
+    ["プレビューの録画の上と、録画の外(背景)で右クリックして四角を足す", "録画の外で作った四角は「画面に固定」になる"],
+    ["オブジェクトの上で右クリック → コピー / 切り取り / 複製 / 前面へ / 背面へ / 削除", "それぞれ効く。設定パネルの見出しのアイコンでも複製・前面へ・背面へ・削除ができる"],
+    ["タイムラインのオブジェクトの段の空いた所を右クリック →「＋ テキスト」など", "右クリックした時刻にオブジェクトができる"],
+    ["タイムラインのオブジェクトの段で、帯をドラッグ・左端をドラッグ・右端をドラッグ・右端を末尾まで伸ばす", "時刻と出ている間が変わる。帯と左端では再生位置が始まりに、右端では終わりについてくる。右端を末尾まで伸ばすと「ステップの終わり」になる"],
+    ["タイムラインでオブジェクトの帯をクリックする", "再生位置は動かず、設定パネルではその項目だけが開いてほかは閉じる"],
+    ["設定パネルで別の項目の見出しを押して開く", "先に開いていた項目も開いたまま、追加で開く"],
+    ["現れ方を フェード(秒 1)、消え方を 点滅(秒 1・回数 2)にして再生する", "1 秒かけて現れ、最後の 1 秒で 2 回点滅して消える"],
+    ["0〜3 秒の四角で、現れ方を 点滅・秒 3・回数 3 にして再生する", "出ている 3 秒の間に均等に 3 回点滅する(前回の要望)"],
+    ["点滅で見えない時刻に止めて、そのオブジェクトを選ぶ", "停止中は選んでいるオブジェクトが表示される。再生中と書き出しでは効果どおり"],
+    ["「位置の基準」を 録画に追従 ↔ 画面に固定 と切り替える", "見えている位置と大きさは変わらない。ズームすると、追従は一緒に動き、固定は動かない"],
+    ["録画に追従の四角を録画の外にはみ出させる", "はみ出た所は描かれず、項目の見出しに「⚠ 録画外にはみ出し」、タイムラインの帯が赤い縞になり、プレビューの選択の枠が赤になる。項目を畳んでも ⚠ が見える"],
+    ["ズーム中にオブジェクトを選んで動かす", "見えている位置のまま直せる"],
+    ["全体の「オブジェクトの見た目(共通)」でポインターの形と大きさを変える", "個別に設定していないポインターがすべて変わる"],
+    ["オブジェクトを分割点をまたぐ位置に置いて [[S]] で分割する", "オブジェクトは前半のステップの終わりまでになる"],
+  ]},
+  { id: "pointer", title: "ポインター・蛍光ペン", items: [
+    ["ポインターを新しく足す", "左から水平に動いてきて、真ん中(右クリックで足したならクリックした点)に着く"],
+    ["ポインターを選び、プレビューで 1 と 2 の取っ手をドラッグする", "1 が動き始め、2 が着く所。水平に吸着し、[[Alt]] で吸着しない"],
+    ["線の部分をドラッグする", "ポインター全体が動く"],
+    ["見た目のアイコン(矢印のカーソル・丸・輪・蛍光ペン・画像)を順に押す", "その下の行が見た目ごとの設定(大きさ・色・太さ・不透明度・画像)に変わる"],
+    ["蛍光ペンにして再生する", "動きに沿って線が引かれる。色・太さ・不透明度が効く"],
+    ["画像にして png を選ぶ", "画像の左上が指す点になる"],
+    ["動き始め・着く時刻を変え、「着いたらクリックの波紋を出す」を入れる", "動く区間がタイムラインの帯の明るい部分に出て、着いた所で波紋が出る"],
+  ]},
+  { id: "rect", title: "四角・画像", items: [
+    ["四角を選び、取っ手で移動・拡大縮小する([[C]] で中心固定/隅固定)", "録画の枠と同じ操作で直せる"],
+    ["線・塗りのチェックを外したり入れたりする", "外すと線・塗りが消えて色などの欄が隠れる。塗りを入れると不透明度 1 で塗られる"],
+    ["線の色・太さ、塗りの色・不透明度、角の丸みを変える", "見た目が変わる"],
+    ["「画像を入れる…」で透明部分のある png を入れる", "四角が画像の縦横比になり、線は画像の枠、透明な所には塗りが見える"],
+    ["四角の大きさを変えてから「画像の縦横比に戻す」、「画像を外す」", "縦横比が戻る / ただの四角に戻る"],
+  ]},
+  { id: "arrow", title: "矢印", items: [
+    ["矢印の両端の取っ手と線をドラッグする", "端と全体が動く。45 度ごとに吸着し、[[Alt]] で吸着しない"],
+    ["太さ・色・矢じりを変える", "見た目が変わる"],
+  ]},
+  { id: "text", title: "テキスト", items: [
+    ["テキストを足して、すぐ設定パネルの文の欄に文字を打つ", "シークバーを動かさなくてもプレビューに文字が出る(前回の報告の不具合)"],
+    ["プレビューのテキストをダブルクリックする", "設定パネルの文の入力欄へ移る"],
+    ["フォント・大きさ・色・揃え(左 / 中央 / 右)を変え、「背景の塗り」のチェックを外したり入れたりし、取っ手で幅を変える", "見た目が変わり、背景の塗りは消えたり付いたりする(付けると背景の色の欄が出る)。幅で折り返す"],
+  ]},
+  { id: "edit", title: "選択・コピー・削除・元に戻す", items: [
+    ["オブジェクト・読み上げ・ズームを選んで [[Ctrl]]+[[C]]、再生位置を動かして [[Ctrl]]+[[V]]", "再生位置を始まりにして貼られる"],
+    ["オブジェクト・読み上げ・ズームを選んで [[Ctrl]]+[[X]]、再生位置を動かして [[Ctrl]]+[[V]]", "切り取ったものが消え、再生位置に貼られる"],
+    ["解像度の違う録画のステップへ貼る", "録画の大きさに合わせて座標が換算される"],
+    ["読み上げ・ズーム・オブジェクトを [[Ctrl]]+クリックで 3 つ選んでドラッグする", "まとめて同じだけ動く(ステップの中に収まる範囲)"],
+    ["まとめて選んだ状態で、どれかの帯の端をドラッグする", "選んだものすべての同じ側の端が同じだけ動く。読み上げの長さは変わらない"],
+    ["要素を選んで [[Delete]](ステップ・ズーム・保持・テロップ・読み上げ・オブジェクト)", "選んだものが消える"],
+    ["[[Ctrl]]+[[Z]] / [[Ctrl]]+[[Shift]]+[[Z]]、ヘッダーの元に戻す・やり直し", "操作が戻る・やり直せる。入力欄で打っている間は文字の取り消しになる"],
+    ["設定パネルの見出しの右の山形のボタン", "欄がすべて閉じる"],
+  ]},
+  { id: "file", title: "保存・開く・外部の変更", items: [
+    ["まだ保存していないプロジェクトで保存する", "名前を入れたうえで、アプリの設定の保存先に `.sanno.json` が保存される"],
+    ["保存したあとで名前をクリックして変える", "ファイル名も変わる"],
+    ["未保存の状態で新規・開くを押す", "「保存していない変更を破棄しますか?」と確認が出る"],
+    ["アプリを閉じ、`npx electron . <保存したファイル>` で起動する", "そのプロジェクトが開く"],
+    ["アプリで開いたまま、保存したファイルをエディターで書き換えて保存する(例: テロップの文) {実機}", "アプリが外部の変更を検知して読み込み直す"],
+    ["アプリ側にも未保存の変更がある状態で同じことをする {実機}", "どちらを採用するか確認が出る"],
+    ["外部でファイルを壊れた JSON にする {実機}", "エラーがあるため読み込めない旨が出て、アプリの内容は残る"],
+    ["録画のファイルをプロジェクトと同じフォルダーに置いて保存し、JSON を開く", "録画のパスが相対パスになっている"],
+    ["2026-11 以前に作った、蛍光ペン(highlights)の入ったプロジェクトを開く(あれば)", "蛍光ペンがポインターの見た目「蛍光ペン」として出る"],
+  ]},
+  { id: "export", title: "書き出し", items: [
+    ["ヘッダーの書き出しから mp4 を書き出す {実機}", "進み具合が出て、終わると上端に「書き出しが終わりました」と「フォルダーを開く」が出る"],
+    ["「フォルダーを開く」を押す", "エクスプローラーで書き出したファイルが選ばれた状態で開く"],
+    ["書き出した mp4 を再生し、プレビューと見比べる {実機}", "テロップ・ズーム・オブジェクト・フェード・点滅・背景がプレビューと同じに見える。読み上げと録画の音が入っている"],
+    ["「SRT も書き出す」を入れて書き出す", "mp4 と同じ場所に .srt ができ、テロップの文と時刻が入っている"],
+    ["4K・60fps・画質 高で書き出す {実機}", "書き出せる。ハードウェアエンコーダーがなければ、ソフトウェアで書き出した旨の警告が出る"],
+  ]},
+  { id: "cli", title: "CLI", note: "`npm run build` のあと、リポジトリ直下で実行します。", items: [
+    ["`npx electron . validate <project.sanno.json> --json`", "問題がなければ終了コード 0 と JSON が出る。わざと壊したファイルでは 1 とエラーの一覧"],
+    ["`npx electron . export <project.sanno.json> --out test.mp4 --json` {実機}", "ウィンドウを出さずに書き出し、結果が JSON で出る。終了コード 0"],
+    ["`--result result.json` を付けて実行する", "同じ JSON がファイルにも書かれる"],
+    ["引数を間違える(例: `npx electron . export`)", "終了コード 2"],
+  ]},
+  { id: "json", title: "ファイルでだけ触れる機能", note: "画面の操作はまだないので、プロジェクトファイルを直接書いて確かめます(docs/project-format.md 参照)。", items: [
+    ["ポインターに `mode: \"freehand\"` と 3 点以上の `path` を書いて開く", "書いた軌跡どおりに動く(蛍光ペンなら線を引く)"],
+    ["ステップの `holds` や `zooms` の時刻を書き換えて保存する", "アプリが読み込み直し、タイムラインに反映される"],
+  ]},
+];
+
+const KEY = "screen-annotator-manual-test-v1";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = (s) => esc(s)
+  .replace(/\[\[(.+?)\]\]/g, "<kbd>$1</kbd>")
+  .replace(/`(.+?)`/g, "<code>$1</code>")
+  .replace(/\{実機\}/g, '<span class="tag">実機</span>');
+const plain = (s) => s.replace(/\[\[(.+?)\]\]/g, "$1").replace(/`(.+?)`/g, "$1").replace(/\s*\{実機\}/g, "");
+
+const main = document.getElementById("main");
+let filter = "all";
+let total = 0;
+
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  el.id = sec.id;
+  el.innerHTML = `<h2><span class="sn">${String(si + 1).padStart(2, "0")}</span>${esc(sec.title)}</h2>` +
+    (sec.note ? `<p class="note">${fmt(sec.note)}</p>` : "");
+  const ul = document.createElement("ul");
+  ul.className = "items";
+  sec.items.forEach(([doText, expect], i) => {
+    total++;
+    const id = `${sec.id}-${i + 1}`;
+    const li = document.createElement("li");
+    li.dataset.id = id;
+    li.innerHTML = `<div class="marks">
+        <button type="button" class="mark ok" aria-pressed="false" aria-label="OK">OK</button>
+        <button type="button" class="mark ng" aria-pressed="false" aria-label="NG">NG</button>
+      </div>
+      <div class="body"><p class="do">${fmt(doText)}</p><p class="expect">${fmt(expect)}</p></div>`;
+    const memo = document.createElement("input");
+    memo.className = "memo";
+    memo.id = `memo-${id}`;
+    memo.placeholder = "何が起きたか(例: ズームが反映されず等倍のまま)";
+    memo.setAttribute("aria-label", "NG のメモ");
+    li.appendChild(memo);
+    li.querySelector(".ok").onclick = () => mark(id, "ok");
+    li.querySelector(".ng").onclick = () => { mark(id, "ng"); if (state[id]?.r === "ng") memo.focus(); };
+    memo.oninput = () => { state[id] = { ...(state[id] || { r: "ng" }), m: memo.value }; save(); };
+    li._sec = si; li._text = [doText, expect];
+    ul.appendChild(li);
+  });
+  el.appendChild(ul);
+  main.appendChild(el);
+});
+document.getElementById("total").textContent = total;
+
+function mark(id, r) {
+  const cur = state[id];
+  if (cur?.r === r) { if (r === "ng" && cur.m) state[id] = { r: null, m: cur.m }; else delete state[id]; }
+  else state[id] = { ...(cur || {}), r };
+  save();
+  render();
+}
+
+function render() {
+  let ok = 0, ng = 0;
+  document.querySelectorAll("ul.items > li").forEach((li) => {
+    const s = state[li.dataset.id];
+    const r = s?.r || null;
+    li.classList.toggle("is-ok", r === "ok");
+    li.classList.toggle("is-ng", r === "ng");
+    li.querySelector(".ok").setAttribute("aria-pressed", String(r === "ok"));
+    li.querySelector(".ng").setAttribute("aria-pressed", String(r === "ng"));
+    const memo = li.querySelector(".memo");
+    memo.hidden = r !== "ng";
+    if (document.activeElement !== memo) memo.value = s?.m || "";
+    if (r === "ok") ok++; else if (r === "ng") ng++;
+    li.classList.toggle("hidden", (filter === "todo" && r) || (filter === "ng" && r !== "ng"));
+  });
+  document.querySelectorAll("main section").forEach((sec) => {
+    sec.hidden = !sec.querySelector("ul.items > li:not(.hidden)");
+  });
+  document.getElementById("m-ok").style.width = `${(ok / total) * 100}%`;
+  document.getElementById("m-ng").style.width = `${(ng / total) * 100}%`;
+  document.getElementById("counts").innerHTML = `<b class="ok">OK ${ok}</b> ・ <b class="ng">NG ${ng}</b> ・ 残り ${total - ok - ng}`;
+}
+
+for (const [btn, f] of [["f-all", "all"], ["f-todo", "todo"], ["f-ng", "ng"]]) {
+  document.getElementById(btn).onclick = () => {
+    filter = f;
+    for (const b of ["f-all", "f-todo", "f-ng"]) document.getElementById(b).setAttribute("aria-pressed", String(b === btn));
+    render();
+  };
+}
+
+const msg = document.getElementById("msg");
+const say = (html, cls = "toast") => { msg.className = cls; msg.innerHTML = html; };
+
+document.getElementById("copy-ng").onclick = () => {
+  const lines = [];
+  document.querySelectorAll("ul.items > li").forEach((li) => {
+    const s = state[li.dataset.id];
+    if (s?.r !== "ng") return;
+    const [d, e] = li._text;
+    lines.push(`- [${SECTIONS[li._sec].title}] ${plain(d)}\n  期待: ${plain(e)}\n  実際: ${s.m || "(メモなし)"}`);
+  });
+  if (!lines.length) { say("NG の項目はありません"); return; }
+  const text = `手動確認で NG だった項目(${lines.length} 件)\n\n${lines.join("\n")}`;
+  const fallback = () => {
+    say('<textarea id="ng-text" rows="1" style="width:14em" aria-label="NG の一覧"></textarea> 選んでコピーしてください', "toast");
+    const ta = document.getElementById("ng-text"); ta.value = text; ta.select();
+  };
+  try {
+    navigator.clipboard.writeText(text).then(() => say(`${lines.length} 件をコピーしました`), fallback);
+  } catch { fallback(); }
+};
+
+document.getElementById("reset").onclick = () => {
+  say('すべての記録を消しますか? <button type="button" class="btn" id="yes">消す</button> <button type="button" class="btn" id="no">やめる</button>', "confirm");
+  document.getElementById("yes").onclick = () => { state = {}; save(); render(); say("記録を消しました"); };
+  document.getElementById("no").onclick = () => say("");
+};
+
+render();
+</script>

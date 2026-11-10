@@ -853,17 +853,11 @@ function KindFields(props: {
         />
       </div>
       <div className="row">
-        <SelectField
+        <CheckField
           label={t("textBox")}
-          value={boxOn ? "on" : "none"}
-          options={[
-            { value: "none", label: t("bgNone") },
-            { value: "on", label: t("bgOn") },
-          ]}
+          value={boxOn}
           onChange={(v) =>
-            setStyle("background", {
-              background: v === "none" ? "#00000000" : DEFAULT_TEXT_STYLE.background,
-            })
+            setStyle("background", { background: v ? DEFAULT_TEXT_STYLE.background : "#00000000" })
           }
         />
         {boxOn && (

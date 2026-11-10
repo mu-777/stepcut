@@ -12,6 +12,7 @@ import {
 } from "../../core/objects";
 import type { Pointer, Project, Shape, Step } from "../../core/schema";
 import { t } from "./i18n";
+import { keyLabel } from "./keymap";
 import type { MenuItem } from "./timeline";
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
@@ -172,7 +173,7 @@ export function objectMenu(
   items.push({
     label: t("remove"),
     icon: "trash",
-    shortcut: "Delete",
+    shortcut: keyLabel("delete"),
     action: () => {
       patchStep((s) => patchStepObject(s, ref, () => null), "object-remove");
       onSelect?.(null);
@@ -222,7 +223,8 @@ export function newObject(
     const p: Pointer = {
       mode: "line",
       path: [
-        { t: start, x: r(cx - vw * 0.15), y: r(cy + vh * 0.12) },
+        // 左から水平に動いてきて、クリックした点(真ん中)に着く
+        { t: start, x: r(cx - vw * 0.15), y: r(cy) },
         { t: r3(start + move), x: r(cx), y: r(cy) },
       ],
       ...end,

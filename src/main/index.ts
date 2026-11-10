@@ -11,7 +11,14 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
-import type { AppSettings, ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
+import {
+  type AppSettings,
+  type ExportJob,
+  type ExportResult,
+  MIN_WINDOW_W,
+  type OpenedProject,
+  type TtsRequest,
+} from "../shared/api";
 import { type CliArgs, formatValidate, HELP, parseCli, validateFile } from "./cli";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
@@ -44,6 +51,8 @@ function createWindow(opts: { show: boolean; query?: Record<string, string> }): 
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
+    minWidth: MIN_WINDOW_W,
+    minHeight: 560,
     show: opts.show,
     title: "Screen Annotator",
     webPreferences: {
