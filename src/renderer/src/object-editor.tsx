@@ -105,6 +105,8 @@ export function ObjectEditor(props: {
   onChange: (o: AnyObject, key: string) => void;
   /** 文字をダブルクリックした(文の入力欄へ) */
   onEditText: () => void;
+  /** 録画に追従する図形が録画の外にはみ出している(枠を赤で示す) */
+  outside?: boolean;
 }) {
   const { g, object: o } = props;
   const out = (q: Pt) => toOutput(g, q.x, q.y);
@@ -147,6 +149,7 @@ export function ObjectEditor(props: {
         b={out(s.to)}
         labels={null}
         snap="angle"
+        warn={props.outside}
         onChange={(a, b, key) => props.onChange({ ...s, from: src(a), to: src(b) }, key)}
       />
     );
@@ -155,7 +158,11 @@ export function ObjectEditor(props: {
   const box = { x: a.x, y: a.y, w: s.rect.w * g.k, h: s.rect.h * g.k };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。文は設定パネルでも直せる
-    <div className="object-layer" onDoubleClick={s.type === "text" ? props.onEditText : undefined}>
+    <div
+      className={`object-layer${props.outside ? " warn" : ""}`}
+      title={props.outside ? t("outsideVideoTip") : undefined}
+      onDoubleClick={s.type === "text" ? props.onEditText : undefined}
+    >
       <BoxEditor
         box={box}
         anchor={props.anchor}
@@ -201,6 +208,7 @@ function LineEditor(props: {
   labels: [string, string] | null;
   snap: "horizontal" | "angle" | "none";
   onChange: (a: Pt, b: Pt, key: string, move: boolean) => void;
+  warn?: boolean;
 }) {
   const [dragging, setDragging] = useState(false);
   const begin = (e: React.PointerEvent, mode: "a" | "b" | "move") => {
@@ -240,7 +248,7 @@ function LineEditor(props: {
   };
   const { a, b } = props;
   return (
-    <div className={`line-layer ${dragging ? "dragging" : ""}`}>
+    <div className={`line-layer ${dragging ? "dragging" : ""} ${props.warn ? "warn" : ""}`}>
       <svg className="line-svg" aria-hidden="true">
         <line className="line-guide" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
         <line

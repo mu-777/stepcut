@@ -3,6 +3,7 @@ paths:
   - "src/renderer/src/player.ts"
   - "src/renderer/src/thumbs.ts"
   - "src/renderer/src/media.ts"
+  - "src/renderer/src/audio.ts"
 ---
 
 # プレビューの再生とデコード(mediabunny)
@@ -13,3 +14,6 @@ paths:
 - 停止中の表示は、同じ時刻のフレームの写し(`Player.still`)があればデコードを待たずに描く。配置やズーム枠を編集するたびにデコードし直すと、編集中の枠と映像がずれる
 - キャッシュするキャンバス(背景・サムネイル)は上限を決める。大きさごとに作り溜めるとメモリが増え、GPU プロセスが落ちると中身が空のまま残る(`contextlost` で捨てる)
 - 再生のデコーダーはステップごとに作り直さない。続いた区間(`playbackRuns`)で 1 本、切った箇所は `SourceMedia.prefetch` で先読みする。作り直すと切れ目でキーフレームからの読み直しが起き、映像が止まって飛ぶ
+- `OfflineAudioContext` の合成時間は「置いた AudioBufferSourceNode の数 × 長さ」に比例する(始まる前のノードも毎回処理される)。デコードした細かい断片(60 秒で約 2600 個)をそれぞれノードにすると 60 秒のステップで 15 秒以上かかり、プレビューの音が鳴らない・遅れて鳴る。断片は先に 1 本の AudioBuffer につなげる(`audio.ts` の `readSource`)
+- 再生の音声はステップ全体を作り終えるまで待たない。再生位置から短い区切り(1 秒・3 秒・以後 8 秒)で作って順に鳴らし、先回りは 10 秒までにする(`player.ts` の `AUDIO_CHUNKS`)
+- `canvasesAtTimestamps` は、ある時刻のフレームを「次のフレームを読んだとき」に初めて返す。区間が保持で始まると保持が明けるまで 1 枚も届かない(フェードインと重ねると黒いまま)。区間を読み始めるときは最初のフレームを `still` か `getCanvas` で先に 1 枚用意する(`startRun`)

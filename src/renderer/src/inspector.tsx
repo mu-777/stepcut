@@ -8,6 +8,7 @@ import {
   DEFAULT_CAPTION_STYLE,
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
+  DEFAULT_SOLID_BACKGROUND,
   resolveAudio,
   resolveCaptionStyle,
   resolveLayout,
@@ -47,6 +48,7 @@ import {
   withParam,
 } from "./fields";
 import { t } from "./i18n";
+import { withKey } from "./keymap";
 import { ObjectDefaults, ObjectsList } from "./object-panel";
 import type { NewObjectKind } from "./objects-ui";
 import type { Selection } from "./timeline";
@@ -228,7 +230,7 @@ export function StepDetail(props: {
           ))}
         </ol>
         <button type="button" onClick={props.onAddZoom}>
-          ＋ {t("addZoom")} (Z)
+          ＋ {withKey(t("addZoom"), "addZoom")}
         </button>
       </Fold>
       <Fold
@@ -1230,6 +1232,8 @@ export function ProjectPanel(props: {
   };
   const setSize = (w: number | undefined, h: number | undefined, key: string) =>
     set("output", prune({ ...project.output, width: even(w), height: even(h) }), key);
+  /** 幅・高さの入力。空や小さすぎる値(打ちかけ)は直前の大きさのまま(欄は打ったまま残る) */
+  const typedSize = (v: number | undefined) => (v !== undefined && v >= 16 ? v : null);
 
   return (
     <div className="inspector">
@@ -1260,17 +1264,19 @@ export function ProjectPanel(props: {
             label={t("width")}
             value={out.width}
             step={2}
-            onChange={(v) =>
-              setSize(v, aspect !== null && v !== undefined ? v / aspect : project.output?.height, "output.w")
-            }
+            onChange={(raw) => {
+              const v = typedSize(raw);
+              if (v !== null) setSize(v, aspect !== null ? v / aspect : project.output?.height, "output.w");
+            }}
           />
           <NumField
             label={t("height")}
             value={out.height}
             step={2}
-            onChange={(v) =>
-              setSize(aspect !== null && v !== undefined ? v * aspect : project.output?.width, v, "output.h")
-            }
+            onChange={(raw) => {
+              const v = typedSize(raw);
+              if (v !== null) setSize(aspect !== null ? v * aspect : project.output?.width, v, "output.h");
+            }}
           />
           <CheckField
             label={t("lockAspect")}
@@ -1360,34 +1366,66 @@ export function ProjectPanel(props: {
 
 type Dict = { from: string; to: string }[];
 
-const parseDict = (text: string): Dict =>
-  text
-    .split("\n")
-    .map((line) => line.split("="))
-    .filter((parts) => (parts[0] ?? "").trim() !== "")
-    .map(([from = "", ...rest]) => ({ from: from.trim(), to: rest.join("=").trim() }));
+/** 保存する形: 語が空の行は除き、前後の空白を落とす */
+const cleanDict = (rows: Dict): Dict =>
+  rows.map((r) => ({ from: r.from.trim(), to: r.to.trim() })).filter((r) => r.from !== "");
 
-const formatDict = (d: Dict) => d.map((x) => `${x.from}=${x.to}`).join("\n");
-
-/** 入力中の空行などを消さないよう、文字列は手元に持ち、外から内容が変わったときだけ置き換える */
+/**
+ * 読みの辞書。語と読みを行ごとの 2 つの欄で入れる(書き方の決まりを利用者に守らせない)。
+ * 書きかけの行(語がまだ空)は手元にだけ持ち、外から内容が変わったときだけ置き換える
+ */
 function DictionaryField(props: { value: Dict; onChange: (d: Dict) => void }) {
-  const [text, setText] = useState(formatDict(props.value));
+  const [rows, setRows] = useState<Dict>(props.value);
   useEffect(() => {
-    setText((prev) =>
-      formatDict(parseDict(prev)) === formatDict(props.value) ? prev : formatDict(props.value),
-    );
+    setRows((prev) => (JSON.stringify(cleanDict(prev)) === JSON.stringify(props.value) ? prev : props.value));
   }, [props.value]);
+  const change = (next: Dict) => {
+    setRows(next);
+    props.onChange(cleanDict(next));
+  };
   return (
-    <Field label={t("dictionary")}>
-      <textarea
-        rows={4}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          props.onChange(parseDict(e.target.value));
-        }}
-      />
-    </Field>
+    <div className="field dict-field">
+      <span>{t("dictionary")}</span>
+      {rows.length > 0 && (
+        <div className="dict-grid">
+          <span className="dict-head">{t("dictWord")}</span>
+          <span className="dict-head">{t("dictReading")}</span>
+          <span />
+          {rows.map((r, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 行は並びの位置で直す(語が同じ行もありうる)
+            <div className="dict-row" key={i}>
+              <input
+                type="text"
+                value={r.from}
+                aria-label={`${t("dictWord")} ${i + 1}`}
+                placeholder={t("dictWordPlaceholder")}
+                onChange={(e) => change(rows.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))}
+              />
+              <input
+                type="text"
+                value={r.to}
+                aria-label={`${t("dictReading")} ${i + 1}`}
+                placeholder={t("dictReadingPlaceholder")}
+                onChange={(e) => change(rows.map((x, j) => (j === i ? { ...x, to: e.target.value } : x)))}
+              />
+              <button
+                type="button"
+                className="icon-btn"
+                title={t("remove")}
+                aria-label={`${t("remove")} ${i + 1}`}
+                onClick={() => change(rows.filter((_, j) => j !== i))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" className="small" onClick={() => setRows([...rows, { from: "", to: "" }])}>
+        ＋ {t("dictAdd")}
+      </button>
+      <p className="hint">{t("dictHint")}</p>
+    </div>
   );
 }
 
@@ -1442,7 +1480,7 @@ function BackgroundField(props: {
         onChange={(v) =>
           props.onChange(
             v === "color"
-              ? "#000000"
+              ? DEFAULT_SOLID_BACKGROUND
               : v === "gradient"
                 ? { gradient: { angle: 135, colors: ["#1E2A5A", "#6A3093"] } }
                 : DEFAULT_BACKGROUND,

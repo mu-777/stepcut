@@ -10,7 +10,16 @@ import {
   speechText,
   zoomTransition,
 } from "./defaults";
-import { addHold, canMergeSteps, duplicateStep, mergeSteps, splitStep, trimStep, uniqueStepId } from "./edit";
+import {
+  addHold,
+  canMergeSteps,
+  duplicateStep,
+  followCaptions,
+  mergeSteps,
+  splitStep,
+  trimStep,
+  uniqueStepId,
+} from "./edit";
 import {
   computeLayout,
   marginOf,
@@ -562,5 +571,40 @@ describe("再生で読み続ける区間", () => {
       { from: 3, to: 3, start: 7, end: 8 },
     ]);
     expect(continuousRuns(tl, 1)[0]).toEqual({ from: 1, to: 1, start: 4, end: 6 });
+  });
+});
+
+describe("録画の枠に合わせてテロップを動かす(followCaptions)", () => {
+  const base = (margin: { top: number; right: number; bottom: number; left: number }) =>
+    ({
+      format: "screen-annotator.project",
+      version: 1,
+      sources: [{ id: "r", path: "a.mp4" }],
+      layout: { margin },
+      styles: { caption: { position: { x: 0.5, y: 0.9 } } },
+      steps: [
+        { id: "a", source: "r", in: 0, out: 1, caption: { text: "x", position: { x: 0.25, y: 0.5 } } },
+        { id: "b", source: "r", in: 1, out: 2, caption: { text: "y" } },
+      ],
+    }) as unknown as Project;
+
+  it("下の余白にあるテロップは、余白の中の同じ割合の位置へ", () => {
+    const prev = base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 });
+    const next = followCaptions(prev, base({ top: 0.1, right: 0.1, bottom: 0.4, left: 0.1 }));
+    // 下の余白 0.8〜1 の真ん中(0.9) → 0.6〜1 の真ん中(0.8)
+    expect(next.styles?.caption?.position).toEqual({ x: 0.5, y: 0.8 });
+  });
+
+  it("録画の中にあるテロップは、録画の中の同じ割合の位置へ。位置を書いていないステップは変えない", () => {
+    const prev = base({ top: 0, right: 0, bottom: 0, left: 0 });
+    const next = followCaptions(prev, base({ top: 0, right: 0.5, bottom: 0, left: 0 }));
+    expect(next.steps[0]?.caption?.position).toEqual({ x: 0.125, y: 0.5 });
+    expect(next.steps[1]?.caption?.position).toBeUndefined();
+  });
+
+  it("枠が変わらなければそのまま", () => {
+    const p = base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 });
+    const q = { ...p, steps: [...p.steps] };
+    expect(followCaptions(p, q)).toBe(q);
   });
 });

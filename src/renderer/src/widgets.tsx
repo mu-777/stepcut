@@ -1,6 +1,7 @@
 // 画面の部品: 右クリックメニュー、カラムの境界(ドラッグで幅を変える)、キー操作の一覧。
 import { useEffect, useRef } from "react";
 import { type MessageKey, t } from "./i18n";
+import { KEY_ACTION_LABEL, KEY_ACTIONS, keyLabel } from "./keymap";
 import type { MenuItem } from "./timeline";
 
 export function ContextMenu(props: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
@@ -108,7 +109,8 @@ export function saveChoice(key: string, value: string): void {
 }
 
 /** キー操作の一覧(ヘッダーの ? ・Ctrl+/ から開く)。外のクリックか Esc で閉じる */
-export function ShortcutsDialog(props: { onClose: () => void }) {
+/** キー操作の一覧。変えられるキーは今の割り当てを出し、「キー操作を変更…」でアプリの設定のキー操作の欄を開く */
+export function ShortcutsDialog(props: { onClose: () => void; onEdit: () => void }) {
   const { onClose } = props;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -119,20 +121,14 @@ export function ShortcutsDialog(props: { onClose: () => void }) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
+  const editable: [string, string][] = KEY_ACTIONS.map((a) => [
+    keyLabel(a) || t("keyNone"),
+    t(KEY_ACTION_LABEL[a]),
+  ]);
   const rows: [string, MessageKey][] = [
-    ["Space", "scPlay"],
-    ["J / K / L", "scJkl"],
-    ["← / →", "scSeek"],
-    ["↑ / ↓", "scBoundary"],
-    ["Home / End", "scHomeEnd"],
-    ["S", "scSplit"],
-    ["Z", "scZoom"],
-    ["M", "scMute"],
-    ["C", "scAnchor"],
-    ["F", "scFullscreen"],
-    ["Delete", "scDelete"],
     ["Ctrl+Z / Ctrl+Shift+Z", "scUndo"],
-    ["Ctrl+C / Ctrl+V", "scCopy"],
+    ["Ctrl+C / Ctrl+X / Ctrl+V", "scCopy"],
+    ["Ctrl+S / Ctrl+O / Ctrl+N / Ctrl+E", "scFile"],
     ["← ↑ → ↓", "scNudge"],
     ["Alt", "scAlt"],
     ["Shift", "scShiftSeek"],
@@ -148,6 +144,19 @@ export function ShortcutsDialog(props: { onClose: () => void }) {
         <h3>{t("shortcuts")}</h3>
         <table className="shortcut-table">
           <tbody>
+            {editable.map(([keys, label]) => (
+              <tr key={label}>
+                <td>
+                  <kbd>{keys}</kbd>
+                </td>
+                <td>{label}</td>
+              </tr>
+            ))}
+            <tr>
+              <td colSpan={2} className="shortcut-sep">
+                {t("keyFixed")}
+              </td>
+            </tr>
             {rows.map(([keys, label]) => (
               <tr key={label}>
                 <td>
@@ -159,6 +168,9 @@ export function ShortcutsDialog(props: { onClose: () => void }) {
           </tbody>
         </table>
         <div className="dialog-actions">
+          <button type="button" onClick={props.onEdit}>
+            {t("keyEdit")}
+          </button>
           <button type="button" onClick={onClose}>
             {t("close")}
           </button>

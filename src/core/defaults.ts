@@ -21,6 +21,11 @@ export const DEFAULT_MARGIN: Margin = { top: 0.04, right: 0.0225, bottom: 0.2, l
 
 /** 背景の既定値。黒ではドロップシャドウが見えないため、同梱のプリセット画像にする */
 export const DEFAULT_BACKGROUND: Background = { image: "preset:default" };
+/**
+ * 背景を「単色」に切り替えたときの色。黒だと録画の影が見えないため、影が分かり、白いテロップが読める
+ * 中くらいの暗さの青みの灰色(白い文字とのコントラスト比 約 7.6)
+ */
+export const DEFAULT_SOLID_BACKGROUND = "#475569";
 
 export type ResolvedCaptionStyle = Required<CaptionStyle>;
 
@@ -128,13 +133,18 @@ export function speechText(step: Step, k = 0): string | null {
 
 export function resolveAudio(p: Project, step: Step): ResolvedAudio {
   return {
-    // 早送りステップの元の音声は、ステップで鳴らすと決めたときだけ鳴らす(U-09)
-    sourceEnabled:
-      step.audio?.source?.enabled ?? (stepSpeed(step) > 1 ? false : (p.audio?.source?.enabled ?? true)),
+    // 全体で消すと、どのステップも鳴らさない(タイムラインの映像の段の切り替え)。
+    // 全体で消していなければステップの設定に従う。早送りステップは、ステップで鳴らすと決めたときだけ鳴らす(U-09)
+    sourceEnabled: p.audio?.source?.enabled !== false && stepSourceEnabled(step),
     sourceVolume: step.audio?.source?.volume ?? p.audio?.source?.volume ?? 1,
     speechVolume: step.audio?.speech?.volume ?? p.audio?.speech?.volume ?? 1,
     keepPitch: step.audio?.source?.keepPitch ?? p.audio?.source?.keepPitch ?? true,
   };
+}
+
+/** ステップの録画の音を鳴らすか(全体の切り替えは見ない) */
+export function stepSourceEnabled(step: Step): boolean {
+  return step.audio?.source?.enabled ?? stepSpeed(step) <= 1;
 }
 
 /** k 番目の読み上げの声。2 つ目以降は書いていなければ最初の読み上げに合わせる */

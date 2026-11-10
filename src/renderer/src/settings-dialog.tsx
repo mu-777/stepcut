@@ -1,25 +1,87 @@
-// アプリの設定(プロジェクトによらない): 画面の言語、プロジェクトの保存先。変えたらすぐ保存する。
-import { useEffect, useState } from "react";
+// アプリの設定(プロジェクトによらない): 画面の言語、プロジェクトの保存先、キー操作。変えたらすぐ保存する。
+import { useEffect, useRef, useState } from "react";
 import type { AppSettings } from "../../shared/api";
 import { api } from "./api";
 import { Field } from "./fields";
 import { setLanguage, t } from "./i18n";
+import {
+  comboLabel,
+  comboOf,
+  DEFAULT_KEYS,
+  KEY_ACTION_LABEL,
+  KEY_ACTIONS,
+  type KeyAction,
+  keyFor,
+  RESERVED_KEYS,
+  setKeyOverrides,
+} from "./keymap";
 
-export function SettingsDialog(props: { onClose: () => void; onLanguage: () => void }) {
+/**
+ * focus に "shortcuts" を渡すと、キー操作の欄まで送って開く(キー操作の一覧から来たとき)
+ */
+export function SettingsDialog(props: {
+  onClose: () => void;
+  onLanguage: () => void;
+  onKeys?: () => void;
+  focus?: "shortcuts";
+}) {
   const { onClose } = props;
+  const keysRef = useRef<HTMLDivElement>(null);
+  /** キーを待っている操作 */
+  const [capturing, setCapturing] = useState<KeyAction | null>(null);
+  const [keyNote, setKeyNote] = useState("");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   useEffect(() => {
     void api.getSettings().then(setSettings);
   }, []);
   useEffect(() => {
+    if (settings && props.focus === "shortcuts") keysRef.current?.scrollIntoView({ block: "start" });
+  }, [settings, props.focus]);
+  const setKey = async (action: KeyAction, combo: string) => {
+    const cur = settings?.shortcuts ?? {};
+    const next: Record<string, string> = { ...cur, [action]: combo };
+    // ほかの操作に同じキーがあれば、そちらの割り当てを外す
+    let moved: KeyAction | null = null;
+    for (const a of KEY_ACTIONS) {
+      if (a !== action && combo && keyFor(a) === combo) {
+        next[a] = "";
+        moved = a;
+      }
+    }
+    for (const a of KEY_ACTIONS) if (next[a] === DEFAULT_KEYS[a]) delete next[a];
+    const saved = await api.setSettings({ shortcuts: next });
+    setSettings(saved);
+    setKeyOverrides(saved.shortcuts);
+    setKeyNote(moved ? `${t("keyMovedFrom")}: ${t(KEY_ACTION_LABEL[moved])}` : "");
+    props.onKeys?.();
+  };
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (capturing) {
+        // キーの割り当てを待っている間は、押したキーを割り当てる(Esc でやめる)
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          setCapturing(null);
+          return;
+        }
+        const combo = comboOf(e);
+        if (!combo) return;
+        if (RESERVED_KEYS.includes(combo)) {
+          setKeyNote(`${comboLabel(combo)}: ${t("keyReserved")}`);
+          return;
+        }
+        setCapturing(null);
+        void setKey(capturing, combo);
+        return;
+      }
       if (e.key !== "Escape") return;
       e.stopPropagation();
       onClose();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  });
   const change = async (patch: Partial<AppSettings>) => {
     const next = await api.setSettings(patch);
     setSettings(next);
@@ -68,6 +130,69 @@ export function SettingsDialog(props: { onClose: () => void; onLanguage: () => v
               )}
             </div>
             <p className="hint">{t("projectDirHint")}</p>
+            <div ref={keysRef} className="keys-section">
+              <p className="field-label">{t("keyBindings")}</p>
+              <table className="shortcut-table keys-table">
+                <tbody>
+                  {KEY_ACTIONS.map((a) => {
+                    const combo = keyFor(a);
+                    return (
+                      <tr key={a}>
+                        <td>{t(KEY_ACTION_LABEL[a])}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className={`key-capture${capturing === a ? " capturing" : ""}`}
+                            aria-label={`${t(KEY_ACTION_LABEL[a])}: ${combo ? comboLabel(combo) : t("keyNone")}`}
+                            onClick={() => {
+                              setKeyNote("");
+                              setCapturing(capturing === a ? null : a);
+                            }}
+                          >
+                            {capturing === a ? (
+                              t("keyPress")
+                            ) : combo ? (
+                              <kbd>{comboLabel(combo)}</kbd>
+                            ) : (
+                              t("keyNone")
+                            )}
+                          </button>
+                        </td>
+                        <td>
+                          {combo !== DEFAULT_KEYS[a] && (
+                            <button
+                              type="button"
+                              className="small"
+                              title={`${t("resetDefault")} (${comboLabel(DEFAULT_KEYS[a])})`}
+                              onClick={() => void setKey(a, DEFAULT_KEYS[a])}
+                            >
+                              {t("resetDefault")}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {keyNote && <p className="hint warn">{keyNote}</p>}
+              <p className="hint">{t("keyHint")}</p>
+              {Object.keys(settings.shortcuts).length > 0 && (
+                <button
+                  type="button"
+                  className="small"
+                  onClick={async () => {
+                    const saved = await api.setSettings({ shortcuts: {} });
+                    setSettings(saved);
+                    setKeyOverrides(saved.shortcuts);
+                    setKeyNote("");
+                    props.onKeys?.();
+                  }}
+                >
+                  {t("keyResetAll")}
+                </button>
+              )}
+            </div>
           </div>
         )}
         <div className="dialog-actions">

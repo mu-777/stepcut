@@ -1,5 +1,5 @@
 // フォームの部品。数値は入力途中(空・"1." など)を許し、数として読めたときだけ反映する。
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 /** title は見出しにマウスを重ねたときの説明(単位など、見出しに入れると長くなるもの) */
 export function Field({ label, children, title }: { label: string; children: ReactNode; title?: string }) {
@@ -32,12 +32,12 @@ export function NumField(props: {
       : "";
   const shown = value == null ? fallback : String(value);
   const [text, setText] = useState(shown);
+  // 入力中(フォーカスがある間)は打った文字を書き換えない。消して空にしたところや、丸めた値(偶数・最小値)で
+  // 打ちかけの数字が置き換わると、続けて打った数字がずれるため。欄を離れたら実際の値を出す
+  const focused = useRef(false);
   useEffect(() => {
-    // 入力途中("1." や、消して空にしたところ)はそのまま残す
-    setText((prev) =>
-      (prev !== "" && Number(prev) === value) || (prev === "" && value == null) ? prev : shown,
-    );
-  }, [value, shown]);
+    if (!focused.current) setText(shown);
+  }, [shown]);
   return (
     <Field label={props.label} title={props.title}>
       <input
@@ -47,8 +47,12 @@ export function NumField(props: {
         min={props.min}
         max={props.max}
         placeholder={fallback ? undefined : props.placeholder}
+        onFocus={() => {
+          focused.current = true;
+        }}
         onBlur={() => {
-          if (text.trim() === "") setText(fallback);
+          focused.current = false;
+          setText(shown);
         }}
         onChange={(e) => {
           setText(e.target.value);

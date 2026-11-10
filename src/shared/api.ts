@@ -21,15 +21,27 @@ export interface TtsResult {
   notice?: string;
 }
 
+/**
+ * ウィンドウの最小幅の内訳(px)。左のサムネイル列と右の設定パネルの最小幅と、プレビューの列の最小幅
+ * (再生操作の帯: 真ん中のボタン 244 を中央に置いたまま、左の時刻 94・右の速度と消音 136 が重ならない幅 + 余白)
+ */
+export const RAIL_MIN_W = 56;
+export const PANEL_MIN_W = 160;
+export const CENTER_MIN_W = 560;
+/** 境目のつまみ 2 本 */
+export const MIN_WINDOW_W = RAIL_MIN_W + PANEL_MIN_W + CENTER_MIN_W + 10;
+
 /** アプリの設定(プロジェクトによらない) */
 export interface AppSettings {
   /** 画面の言語。auto なら OS の言語 */
   language: "auto" | "ja" | "en";
   /** 新しいプロジェクトの保存先と、開くときに最初に出すフォルダー。null なら OS の既定 */
   projectDir: string | null;
+  /** キー操作の割り当てのうち、既定から変えたもの(操作の名前 → "Ctrl+Shift+S" の形。空文字は割り当てなし) */
+  shortcuts: Record<string, string>;
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { language: "auto", projectDir: null };
+export const DEFAULT_APP_SETTINGS: AppSettings = { language: "auto", projectDir: null, shortcuts: {} };
 
 export interface OpenedProject {
   filePath: string;

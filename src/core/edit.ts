@@ -1,6 +1,6 @@
 // ステップの編集操作(STP-05, STP-06)。プロジェクトは書き換えず、新しいオブジェクトを返す。
 
-import { speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
+import { resolveLayout, speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
 import { cutObjectAt, objectGone, objectWindow, shiftObject } from "./objects";
 import type { Project, SpeechPiece, Step } from "./schema";
 import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
@@ -272,4 +272,47 @@ export function updateStep(project: Project, index: number, patch: (s: Step) => 
 
 export function newProject(): Project {
   return { format: "screen-annotator.project", version: 1, sources: [], steps: [] };
+}
+
+/**
+ * 1 つの軸で、枠(lo〜hi)が a から b へ変わったときに点 p を移す。枠の中なら枠の中の同じ割合の位置、
+ * 枠の外(余白)なら余白の中の同じ割合の位置にする(下の余白の真ん中にあれば、余白が変わっても真ん中)
+ */
+function followAxis(p: number, a: { lo: number; hi: number }, b: { lo: number; hi: number }): number {
+  const map = (v: number, s0: number, s1: number, d0: number, d1: number) =>
+    s1 - s0 > 1e-9 ? d0 + ((v - s0) / (s1 - s0)) * (d1 - d0) : d0 + (d1 - d0) / 2;
+  if (p < a.lo) return map(p, 0, a.lo, 0, b.lo);
+  if (p > a.hi) return map(p, a.hi, 1, b.hi, 1);
+  return map(p, a.lo, a.hi, b.lo, b.hi);
+}
+
+/**
+ * 録画の枠(余白)が変わったら、位置を書いたテロップ(全体の設定とステップの上書き)を枠に合わせて動かす。
+ * 位置を書いていないテロップは描画のときに録画の下の余白へ置くので、もとから枠についていく
+ */
+export function followCaptions(prev: Project, next: Project): Project {
+  const m0 = prev.layout?.margin;
+  const m1 = next.layout?.margin;
+  if (m0 === m1) return next;
+  const a = resolveLayout(prev).margin;
+  const b = resolveLayout(next).margin;
+  if (a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left) return next;
+  const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 1e4) / 1e4;
+  const move = (pos: { x: number; y: number }) => ({
+    x: r4(followAxis(pos.x, { lo: a.left, hi: 1 - a.right }, { lo: b.left, hi: 1 - b.right })),
+    y: r4(followAxis(pos.y, { lo: a.top, hi: 1 - a.bottom }, { lo: b.top, hi: 1 - b.bottom })),
+  });
+  const shared = next.styles?.caption?.position;
+  const steps = next.steps.map((s) =>
+    s.caption?.position ? { ...s, caption: { ...s.caption, position: move(s.caption.position) } } : s,
+  );
+  const changed = shared || steps.some((s, i) => s !== next.steps[i]);
+  if (!changed) return next;
+  return {
+    ...next,
+    styles: shared
+      ? { ...next.styles, caption: { ...next.styles?.caption, position: move(shared) } }
+      : next.styles,
+    steps,
+  };
 }
