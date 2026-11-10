@@ -1006,15 +1006,24 @@ button.icon.play {
   background: transparent;
 }
 
+.context-menu button.sep {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+
 .context-menu button:hover:not(:disabled) {
   background: var(--accent);
 }
 
 /* タイムライン */
+/* オブジェクトの行が増えて段が高さに収まらないときは、見出しと段をまとめて縦にスクロールする */
 .timeline {
   display: flex;
+  align-items: flex-start;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   margin: 0 -8px;
   background: var(--bg);
   user-select: none;
@@ -1022,6 +1031,7 @@ button.icon.play {
 
 .tl-labels {
   flex: 0 0 72px;
+  min-height: 100%;
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
@@ -1057,6 +1067,7 @@ button.icon.play {
 
 .tl-scroll {
   flex: 1;
+  min-height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   min-width: 0;
@@ -1601,4 +1612,321 @@ button.icon.play {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* オブジェクト(ポインター・蛍光ペン・図形) */
+.object-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 図形の枠は中身(塗り・文字)が見えるよう、枠だけを出す */
+.object-layer .box-outline {
+  background: transparent;
+}
+
+.line-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.line-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.line-guide {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.line-hit {
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: move;
+}
+
+.line-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  pointer-events: auto;
+  cursor: grab;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent);
+  user-select: none;
+}
+
+.line-layer.dragging .line-handle {
+  cursor: grabbing;
+}
+
+.tl-bar.object {
+  background: #8a5a2b;
+  font-size: 11px;
+}
+
+.tl-bar.object.pointer {
+  background: #a0522d;
+}
+
+/* 録画の外にはみ出した図形(はみ出た所は描かれない) */
+.tl-bar.object.warn {
+  background: repeating-linear-gradient(135deg, #b3261e 0 6px, #7a1712 6px 12px);
+  box-shadow: inset 0 0 0 2px #ff9f0a;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Ctrl+クリックでまとめて選んだ帯 */
+.tl-bar.multi {
+  outline: 2px dashed #fff;
+  outline-offset: -2px;
+}
+
+/* ポインターの動き・蛍光ペンを引く区間 */
+.tl-motion {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgb(255 255 255 / 0.18);
+  pointer-events: none;
+}
+
+.object-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.object-actions {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hint.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* オブジェクトの一覧の見出し。開いているものは右端に操作のアイコンを並べる */
+.item-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.item-head .item-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-head .item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.item-actions .icon-btn {
+  padding: 2px;
+}
+
+.item-actions .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.badge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  background: #3a4a6b;
+  color: #c9d6f2;
+}
+
+/* 開いたオブジェクトの中の小見出し(見た目・時間・位置) */
+.obj-group {
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.obj-group-title {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+button.obj-group-title.toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.obj-group-summary {
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.object-text {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+
+/* 色: 小さな見本と色の値を 1 行に */
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+
+.color-field input[type="color"] {
+  flex: none;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+}
+
+.color-value {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 横に並べたボタンで選ぶ欄。見出しの下に左詰めで並べる */
+.seg.seg-field {
+  margin-left: 0;
+  align-self: flex-start;
+}
+
+.seg-field button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+}
+
+/* 打ち込めるフォントの選択。候補は入力欄の下に重ねる */
+.combo {
+  position: relative;
+  display: block;
+}
+
+.combo input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.combo-list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
+}
+
+.combo-list > div {
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo-list > div.active,
+.combo-list > div:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 録画の外へのはみ出し */
+.badge.warn {
+  background: #5a2a1c;
+  color: #ffb27a;
+}
+
+.warn-mark {
+  margin-left: 6px;
+  color: #ffb27a;
+}
+
+.hint.warn {
+  color: #ffb27a;
+}
+
+/* 数値の欄と並べても、ボタンは縮めない(文字を折り返さない) */
+.row > .field:has(> .seg-field) {
+  flex: none;
+}
+
+.seg-field button {
+  white-space: nowrap;
+}
+
+/* ステップのフェードイン・フェードアウト。中の SVG で黒の三角と斜めの線を描く(一般的な編集ソフトと同じ形) */
+.tl-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.tl-fade.in {
+  left: 0;
+}
+
+.tl-fade.out {
+  right: 0;
+}
+
+.tl-fade svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

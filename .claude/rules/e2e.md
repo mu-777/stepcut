@@ -18,6 +18,8 @@ paths:
 - 選択欄(select)を `getByLabel(/^…$/)` で探さない。`<label>` の中の select は選択肢の文字までラベルの名前に入り、完全一致しない。`.field` を見出しの `span` で絞ってから select を取る
 - 設定パネルの欄の開閉は覚えていて、要素を選ぶと選んだ欄以外が閉じる。欄の中身を確かめる前に、閉じている欄を開いておく
 - タイムラインの要素のドラッグは再生ヘッドに吸着する。動かした量を確かめるときは、先に再生ヘッドを離れた所(End など)へ動かしておく
+- 設定パネルのオブジェクトの項目はいくつも開いたままになる。欄を探すときは選んでいる項目(`li.open:has(> .item-head .item-button.selected)`)の中に絞る(絞らないと同じラベルが複数当たる)
+- コピー・貼り付け(Ctrl+C / Ctrl+V)は、`document.dispatchEvent(new ClipboardEvent("copy", { cancelable: true }))` で届ける
 
 ## Windows のローカルで動かすとき
 

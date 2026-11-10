@@ -15,6 +15,7 @@ const api: Api = {
   pickDirectory: (defaultPath) => ipcRenderer.invoke("dialog:pick-dir", defaultPath),
   pathForFile: (file) => webUtils.getPathForFile(file),
   pickImage: () => ipcRenderer.invoke("image:pick"),
+  revealFile: (absPath: string) => ipcRenderer.invoke("file:reveal", absPath),
   pickExportPath: (defaultPath) => ipcRenderer.invoke("export:pick", defaultPath),
   resolveSource: (projectPath, stored) => ipcRenderer.invoke("sources:resolve", projectPath, stored),
   setDirty: (dirty) => ipcRenderer.send("project:dirty", dirty),

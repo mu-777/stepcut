@@ -33,4 +33,24 @@ describe("rebaseSourcePaths", () => {
     const preset = JSON.stringify({ sources: [], layout: { background: { image: "preset:mint" } } });
     expect(JSON.parse(rebaseSourcePaths(preset, "/p", "/q")).layout.background.image).toBe("preset:mint");
   });
+
+  it("図形の画像とポインターの画像も保存先基準にする", () => {
+    const text = JSON.stringify({
+      sources: [],
+      styles: { pointer: { image: "/p/img/cur.png" } },
+      steps: [
+        {
+          pointers: [{ style: { image: "/p/img/hand.png" } }],
+          shapes: [
+            { type: "rect", rect: {}, image: "/p/img/logo.png" },
+            { type: "rect", rect: {} },
+          ],
+        },
+      ],
+    });
+    const out = JSON.parse(rebaseSourcePaths(text, null, "/p"));
+    expect(out.styles.pointer.image).toBe("img/cur.png");
+    expect(out.steps[0].pointers[0].style.image).toBe("img/hand.png");
+    expect(out.steps[0].shapes[0].image).toBe("img/logo.png");
+  });
 });

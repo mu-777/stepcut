@@ -27,6 +27,18 @@ export function rebaseSourcePaths(text: string, fromDir: string | null, toDir: s
   if (bg && typeof bg === "object" && typeof bg.image === "string" && !bg.image.startsWith("preset:")) {
     bg.image = rebase(bg.image);
   }
+  // 図形の画像とポインターの画像も同じ規則
+  const styles = (data as { styles?: { pointer?: { image?: unknown } } }).styles;
+  if (typeof styles?.pointer?.image === "string") styles.pointer.image = rebase(styles.pointer.image);
+  const steps = (data as { steps?: { pointers?: unknown[]; shapes?: unknown[] }[] }).steps ?? [];
+  for (const st of steps) {
+    for (const a of (st.pointers ?? []) as { style?: { image?: unknown } }[]) {
+      if (typeof a?.style?.image === "string") a.style.image = rebase(a.style.image);
+    }
+    for (const sh of (st.shapes ?? []) as { image?: unknown }[]) {
+      if (typeof sh?.image === "string") sh.image = rebase(sh.image);
+    }
+  }
   return `${JSON.stringify(data, null, 2)}\n`;
 }
 

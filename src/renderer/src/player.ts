@@ -4,11 +4,13 @@
 // (要求ごとにデコードを積むと、キーフレームからのデコード待ちが溜まってシークが追従しなくなる)。
 
 import { resolveLayout } from "../../core/defaults";
+import type { ObjectRef } from "../../core/objects";
 import type { Project } from "../../core/schema";
 import { continuousRuns, locate, sourceTimeAt, type TimelineEntry, totalDuration } from "../../core/timeline";
 import { renderStepAudio } from "./audio";
 import type { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
+import type { ImageStore } from "./images";
 import type { SourceMedia } from "./media";
 import { SAMPLE_RATE, type SpeechStore } from "./speech";
 import type { ThumbCache } from "./thumbs";
@@ -20,12 +22,16 @@ export interface PlayerState {
   speech: SpeechStore;
   /** 録画そのものを表示する(In/Out の指定用)。ステップの番号とソースの時刻 */
   sourceView: { stepIndex: number; time: number } | null;
-  /** ズーム範囲の指定中はズームを外して表示する */
+  /** ズーム範囲の指定中はズームを外して表示する(再生中は常にズームする) */
   ignoreZoom: boolean;
+  /** 選んでいるオブジェクト。停止中は、フェード・点滅で見えない時刻でも出す */
+  selectedObject?: { step: number; ref: ObjectRef } | null;
   /** シーク中の仮表示に使う縮小フレーム */
   thumbs: ThumbCache | null;
   /** 画像の背景 */
   backgrounds: BackgroundStore | null;
+  /** 図形・ポインターの画像 */
+  images: ImageStore | null;
   /** 背景画像のパスの基準 */
   projectPath: string | null;
   /** テロップの文が空のときにプレビューにだけ出す文 */
@@ -116,8 +122,11 @@ export class Player {
       srcH: m?.height ?? 0,
       outW: this.canvas.width,
       outH: this.canvas.height,
-      ignoreZoom: st.ignoreZoom,
+      ignoreZoom: st.ignoreZoom && !this.playing,
+      showObject:
+        !this.playing && entry && st.selectedObject?.step === entry.index ? st.selectedObject.ref : undefined,
       backgroundImage: this.backgroundImage(st),
+      images: st.images ? (p) => st.images?.get(p, st.projectPath) ?? null : undefined,
       captionPlaceholder: st.captionPlaceholder,
       hideCaption: entry !== null && st.hideCaptionStep === entry.index,
     });

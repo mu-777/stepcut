@@ -133,14 +133,14 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await thumbs.first().click();
   check(
     /^(Step|ステップ) 1$/.test((await panelTitle()).trim()) &&
-      (await page.locator(".fold").count()) === 3 &&
+      (await page.locator(".fold").count()) === 4 &&
       (await page.locator(".rail-thumb.on").count()) === 1,
-    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 文 / ズーム)",
+    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 文 / ズーム / オブジェクト)",
   );
   check(
-    (await page.locator(".fold.open").count()) === 2 &&
+    (await page.locator(".fold.open").count()) === 3 &&
       (await page.locator(".fold-summary").first().textContent()).startsWith("4.0"),
-    "録画・速度は閉じて長さだけを出し、文とズームは開いている",
+    "録画・速度は閉じて長さだけを出し、文・ズーム・オブジェクトは開いている",
   );
   {
     const nav = page.locator(".panel-nav button");
@@ -171,13 +171,14 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await shot(page, "02-zoom");
   check((await page.locator(".tl-bar.zoom").count()) === 1, "ズームがタイムラインに出る");
   check((await page.locator(".tl-hold.zoom-hold").count()) === 1, "ズーム中は既定で映像を止める");
-  // ズーム中の映像: 止める / 動きの間だけ止める / 流す
-  const holdSel = page
-    .locator(".field")
-    .filter({ has: page.locator("> span", { hasText: /^(Video while zoomed|ズーム中の映像)$/ }) })
-    .locator("select")
-    .first();
-  await holdSel.selectOption("transition");
+  // ズーム中の映像: 止める / 拡縮時のみ / 止めない(流す) を並べたボタンで選ぶ
+  const holdBtn = (name) => page.getByRole("button", { name });
+  check(
+    (await holdBtn(/^(Freeze|止める)$/).getAttribute("aria-pressed")) === "true" &&
+      (await holdBtn(/^(Keep playing|止めない\(流す\))$/).count()) === 1,
+    "「ズーム中の映像」は 止める・拡縮時のみ・止めない(流す) のボタンで、既定は「止める」",
+  );
+  await holdBtn(/^(Only while scaling|拡縮時のみ)$/).click();
   await page.waitForTimeout(200);
   {
     // ズームが頭から始まるときは拡大の前に止める区間がなく、縮小の後だけになる
@@ -190,9 +191,26 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       `「拡大・縮小の動きの間だけ止める」で、動きの前後だけが保持になる (${hw.map(Math.round).join(", ")} < ${Math.round(zw)})`,
     );
   }
-  await holdSel.selectOption("none");
+  await holdBtn(/^(Keep playing|止めない\(流す\))$/).click();
   await page.waitForTimeout(200);
   check((await page.locator(".tl-hold.zoom-hold").count()) === 0, "映像を止める設定を外せる");
+
+  // ズームの帯のダブルクリックで、その時刻に枠を足す(元に戻しておく)
+  {
+    const zb = await page.locator(".tl-bar.zoom").first().boundingBox();
+    await page.mouse.dblclick(zb.x + zb.width * 0.6, zb.y + zb.height / 2);
+    await page.waitForTimeout(300);
+    check((await page.locator(".tl-key").count()) === 2, "ズームの帯のダブルクリックでその時刻に枠を足す");
+    // タイムラインでシークしても枠の編集は続く(プレビューはズームせずに枠を出す)
+    await page.locator(".tl-ruler").click({ position: { x: 5, y: 5 } });
+    await page.waitForTimeout(200);
+    check(
+      (await page.locator(".preview-stage .box-outline").count()) >= 1,
+      "ズームの枠の編集中にタイムラインでシークしても、枠の編集は続く",
+    );
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.waitForTimeout(200);
+  }
 
   // S で分割、Undo で戻す(ズーム範囲の編集中は矢印キーで枠が動くので、Esc で編集を終えてから)
   await page.locator("body").click({ position: { x: 5, y: 300 } });
@@ -486,12 +504,20 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     (await page.locator(".draw-layer").count()) === 1,
     "タイムラインのズームのクリックで枠の編集を始める",
   );
-  // 目盛りのクリック(シーク)で編集を終える。シークした位置で帯をクリックし直して枠を足す
+  // 帯のクリックでは再生位置をズームの始まりへ移す。目盛りのクリック(シーク)では編集を続ける(プレビューはズームせずに枠を出す)
   const rulerBox = await page.locator(".tl-ruler").boundingBox();
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
-  check((await page.locator(".draw-layer").count()) === 0, "目盛りのクリックで枠の編集を終える");
-  await page.mouse.click(zb.x + zb.width * 0.9, zb.y + zb.height / 2);
+  check((await page.locator(".draw-layer").count()) === 1, "目盛りのクリック(シーク)では枠の編集を続ける");
+  const tBefore = await page.locator(".time").first().textContent();
+  await page.mouse.click(zb.x + zb.width * 0.3, zb.y + zb.height / 2);
+  await page.waitForTimeout(300);
+  const tStart = await page.locator(".time").first().textContent();
+  check(
+    tStart !== tBefore,
+    `タイムラインのズームの帯のクリックで再生位置をその始まりへ移す (${tBefore} → ${tStart})`,
+  );
+  await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
   await page.waitForTimeout(300);
@@ -753,6 +779,13 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // テロップを選ぶと左右の端に取っ手が出て、ドラッグで幅を変えられる
   await thumbs.first().click();
   await page.waitForTimeout(300);
+  // テロップが出ている時刻へ(目盛りの、テロップの帯の中ほど)
+  {
+    const cb = await page.locator(".tl-bar.caption").first().boundingBox();
+    const rb = await page.locator(".tl-ruler").boundingBox();
+    await page.mouse.click(cb.x + cb.width / 2, rb.y + rb.height / 2);
+    await page.waitForTimeout(300);
+  }
   // 枠(文字の外側の縁)のクリックで枠を選ぶ
   const ch3 = await page.locator(".caption-box").boundingBox();
   await page.mouse.click(ch3.x + 3, center(ch3).y);
@@ -806,8 +839,279 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(400);
   const faded = await brightness();
   check(lit > 60 && faded < 10, `フェードインを入れるとステップの頭が黒になる (${lit} → ${faded})`);
+  // フェードイン・フェードアウトはタイムラインの映像のクリップに示す
+  await page.getByLabel(/^(Fade out \(s\)|フェードアウト\(秒\))$/).fill("0.5");
+  await page.waitForTimeout(200);
+  {
+    const fin = await page.locator(".tl-fade.in").boundingBox();
+    const fout = await page.locator(".tl-fade.out").boundingBox();
+    check(
+      fin !== null && fout !== null && Math.abs(fin.width - 2 * fout.width) < 3,
+      `ステップのフェードイン・フェードアウトをタイムラインに示す (${fin && Math.round(fin.width)} / ${fout && Math.round(fout.width)}px)`,
+    );
+    await shot(page, "05a-fade");
+  }
+  await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   await page.waitForTimeout(100);
+
+  // オブジェクト: プレビューの下の「＋ オブジェクト」から足し、プレビュー上の取っ手で直す
+  await thumbs.nth(1).click();
+  await page.waitForTimeout(200);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(300);
+  const addObject = async (name) => {
+    await page.getByRole("button", { name: /^＋ (Object|オブジェクト)$/ }).click();
+    await page.getByRole("menuitem", { name }).click();
+    await page.waitForTimeout(300);
+  };
+  const pixelAt = (pt) =>
+    page
+      .locator(".preview-stage canvas")
+      .first()
+      .evaluate((c, p) => {
+        const r = c.getBoundingClientRect();
+        const k = c.width / r.width;
+        const d = c
+          .getContext("2d")
+          .getImageData(Math.floor((p.x - r.left) * k), Math.floor((p.y - r.top) * k), 1, 1).data;
+        return [d[0], d[1], d[2]];
+      }, pt);
+  // 項目はいくつも開けるので、選んでいる項目の中を見る
+  const selSection = () => page.locator("li.open:has(> .item-head .item-button.selected) .section.object");
+  const objField = (label) => selSection().getByLabel(label);
+  await addObject(/^(Box|四角)$/);
+  const boxOutline = page.locator(".object-layer .box-outline");
+  check(
+    (await boxOutline.count()) === 1 &&
+      (await page.locator(".tl-bar.object.selected").count()) === 1 &&
+      (await page.locator(".fold.open .fold-title").first().textContent()).match(/Objects|オブジェクト/) !==
+        null,
+    "「＋ オブジェクト」→「四角」で再生位置に四角を作り、プレビューに枠、タイムラインに帯、設定パネルにオブジェクトの欄",
+  );
+  // 開いたオブジェクトは 見た目・時間・位置 の小見出しに分け、位置の数値は畳んでおく
+  const posToggle = selSection().locator(".obj-group-title.toggle");
+  check(
+    (await selSection().locator(".obj-group-title").allTextContents())
+      .join(",")
+      .match(/(Look|見た目).*(Timing|時間).*(Position|位置)/) !== null &&
+      (await posToggle.getAttribute("aria-expanded")) === "false" &&
+      (await page.locator(".item-actions button").count()) >= 3,
+    "開いたオブジェクトは「見た目・時間・位置」に分かれ、位置は畳まれ、見出しの右に操作のアイコンが並ぶ",
+  );
+  await posToggle.click();
+  await page.waitForTimeout(150);
+  const rectC = center(await boxOutline.boundingBox());
+  const unfilled = await pixelAt(rectC);
+  // 塗りはチェックで出す(出すと不透明度 1 になる)
+  check(
+    (await objField(/^(Opacity|不透明度)$/).count()) === 0,
+    "四角の塗りは既定で消えていて、不透明度の欄も出ない",
+  );
+  await selSection()
+    .getByRole("checkbox", { name: /^(Fill|塗り)$/ })
+    .check();
+  await page.waitForTimeout(300);
+  const filled = await pixelAt(rectC);
+  check(
+    filled[0] > 200 && filled[1] < 120 && filled[2] < 120,
+    `塗りのチェックを入れると四角の中が塗りの色(赤)になる (${unfilled} → ${filled})`,
+  );
+  const xBefore = Number(await objField(/^X$/).inputValue());
+  await drag(page, rectC, { x: rectC.x + 40, y: rectC.y + 3 });
+  const xAfter = Number(await objField(/^X$/).inputValue());
+  check(xAfter > xBefore + 20, `四角の枠のドラッグで位置が動く (X ${xBefore} → ${xAfter})`);
+
+  // 空いた所のクリックで選択を外し、四角の上のクリックで選び直す
+  const stageBox = await page.locator(".preview-stage").boundingBox();
+  await page.mouse.click(stageBox.x + 30, stageBox.y + 30);
+  await page.waitForTimeout(200);
+  check((await boxOutline.count()) === 0, "プレビューの空いた所のクリックでオブジェクトの選択を外す");
+  await page.mouse.click(rectC.x + 40, rectC.y + 3);
+  await page.waitForTimeout(200);
+  check((await boxOutline.count()) === 1, "プレビュー上の四角のクリックで四角を選ぶ");
+
+  // 位置の基準を「画面に固定」にしても見えている位置は変わらず、録画の外(背景)へ動かせる
+  const anchorBefore = await boxOutline.boundingBox();
+  await selSection()
+    .getByRole("button", { name: /^(Fixed on screen|画面に固定)$/ })
+    .click();
+  await page.waitForTimeout(300);
+  const anchorAfter = await boxOutline.boundingBox();
+  check(
+    Math.abs(anchorAfter.x - anchorBefore.x) < 2 && Math.abs(anchorAfter.width - anchorBefore.width) < 2,
+    `「画面に固定」に切り替えても見えている位置と大きさは変わらない (x ${anchorBefore.x} → ${anchorAfter.x})`,
+  );
+  const ac = center(anchorAfter);
+  await drag(page, ac, { x: ac.x - (anchorAfter.x - stageBox.x) + 8, y: ac.y });
+  const movedBox = await boxOutline.boundingBox();
+  const bg = await pixelAt({ x: stageBox.x + 14, y: movedBox.y + movedBox.height / 2 });
+  check(
+    movedBox.x < stageBox.x + 30 && bg[0] > 200 && bg[1] < 120,
+    `画面に固定した四角は録画の外(背景)にも描かれる (${bg})`,
+  );
+
+  // 矢印: 両端の取っ手。終点をドラッグすると終点が動く
+  await addObject(/^(Arrow|矢印)$/);
+  const handles = page.locator(".line-handle");
+  check((await handles.count()) === 2, "矢印は両端に取っ手を出す");
+  const toXBefore = Number(await objField(/^(End X|終点 X)$/).inputValue());
+  const hb = center(await handles.nth(1).boundingBox());
+  await drag(page, hb, { x: hb.x + 50, y: hb.y - 37 });
+  const toXAfter = Number(await objField(/^(End X|終点 X)$/).inputValue());
+  check(toXAfter > toXBefore + 20, `矢印の終点の取っ手で終点が動く (${toXBefore} → ${toXAfter})`);
+
+  // 蛍光ペン: ポインターの見た目の 1 つ。見た目のボタンで選ぶと、下の行が蛍光ペンの設定(色・太さ・不透明度)になる
+  await addObject(/^(Pointer|ポインター)$/);
+  await selSection()
+    .getByRole("button", { name: /^(Highlighter|蛍光ペン)$/ })
+    .click();
+  await page.waitForTimeout(200);
+  check(
+    (await objField(/^(Opacity|不透明度)$/).count()) === 1 &&
+      (await page.locator(".item-name", { hasText: /(Highlighter|蛍光ペン)/ }).count()) === 1,
+    "ポインターの見た目で蛍光ペンを選ぶと、蛍光ペンの設定が出て名前が「ポインター(蛍光ペン)」になる",
+  );
+  // 現れ方を点滅にすると、長さと回数の欄が出る
+  await selSection()
+    .getByRole("button", { name: /^(Flash|点滅)$/ })
+    .first()
+    .click();
+  await page.waitForTimeout(150);
+  check((await objField(/^(Blinks|回数)$/).count()) === 1, "現れ方を点滅にすると、長さと回数を直せる");
+  await selSection().locator(".seg-field").first().scrollIntoViewIfNeeded();
+  await shot(page, "05b-pointer");
+  // ポインターの端は水平に吸着する
+  const hh = center(await handles.nth(1).boundingBox());
+  await drag(page, hh, { x: hh.x + 30, y: hh.y + 8 });
+  check(
+    (await objField(/^(Start Y|始点 Y)$/).inputValue()) === (await objField(/^(End Y|終点 Y)$/).inputValue()),
+    "ポインター(蛍光ペン)の端は水平に吸着する",
+  );
+
+  // ポインター: 取っ手に 1(動き始め)と 2(着く所)の番号
+  await addObject(/^(Pointer|ポインター)$/);
+  check(
+    (await handles.nth(0).textContent()) === "1" && (await handles.nth(1).textContent()) === "2",
+    "ポインターは動き始めと着く所に 1・2 の取っ手を出す",
+  );
+
+  // テキスト: 作るとすぐ文を打てる
+  await addObject(/^(Text|テキスト)$/);
+  await page.keyboard.type("ここを押す");
+  await page.waitForTimeout(200);
+  check(
+    (await page.locator(".tl-bar.object", { hasText: "ここを押す" }).count()) === 1,
+    "テキストを作るとすぐ文を打て、タイムラインの帯に文が出る",
+  );
+  const textTitle = await page.locator(".item-button .item-name", { hasText: "ここを押す" }).textContent();
+  check(
+    ["テキスト(ここを押す)", "Text (ここを押す)"].includes(textTitle),
+    `右パネルのテキストの見出しは「テキスト(文)」 (${textTitle})`,
+  );
+  check(
+    (await page.locator(".tl-bar.object").count()) === 5,
+    "重なる時刻のオブジェクトはタイムラインで行を分けて並ぶ",
+  );
+  // 行が増えて段が高さに収まらなければ、タイムラインを縦にスクロールして最後の行まで見られる
+  const lastRowVisible = await page.locator(".timeline").evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+    const bars = [...el.querySelectorAll(".tl-bar.object")];
+    const bottom = Math.max(...bars.map((b) => b.getBoundingClientRect().bottom));
+    const ok = bottom <= el.getBoundingClientRect().bottom + 1;
+    el.scrollTop = 0;
+    return ok;
+  });
+  check(lastRowVisible, "オブジェクトの行が増えても、タイムラインを縦にスクロールして最後の行まで見られる");
+  await shot(page, "05-objects");
+
+  // Delete で選んだオブジェクトを消す(文の入力欄からフォーカスを外してから)
+  await page.locator(".preview-stage").click({ position: { x: 30, y: 30 } });
+  await page.locator(".tl-bar.object", { hasText: "ここを押す" }).click();
+  await page.keyboard.press("Delete");
+  await page.waitForTimeout(200);
+  check((await page.locator(".tl-bar.object").count()) === 4, "Delete で選んだオブジェクトを消す");
+
+  // 保存すると JSON に書かれる
+  await saveProject();
+  await page.waitForTimeout(500);
+  const savedObj = JSON.parse(fs.readFileSync(projectPath, "utf8")).steps[1];
+  check(
+    savedObj.shapes?.map((x) => x.type).join(",") === "rect,arrow" &&
+      savedObj.shapes[0].style?.fillOpacity === 1 &&
+      savedObj.shapes[0].anchor === "screen" &&
+      savedObj.pointers?.length === 2 &&
+      savedObj.pointers.filter((p) => p.style?.preset === "highlighter").length === 1 &&
+      savedObj.highlights === undefined,
+    "オブジェクトはステップの shapes・pointers に保存され、蛍光ペンはポインターの見た目になる",
+  );
+
+  // タイムラインの帯をクリックで選ぶと、再生位置をその始まりへ移す
+  {
+    const tm = async () => page.locator(".time").first().textContent();
+    await page.keyboard.press("End");
+    await page.waitForTimeout(150);
+    const before = await tm();
+    const bars = page.locator(".tl-bar.object");
+    await bars.nth(1).click();
+    await page.waitForTimeout(150);
+    check(
+      (await tm()) !== before,
+      `タイムラインの帯を選ぶと再生位置がその始まりへ移る (${before} → ${await tm()})`,
+    );
+    // Ctrl+クリックでまとめて選び、まとめてドラッグで動かす
+    await bars.nth(0).click({ modifiers: ["Control"] });
+    await page.waitForTimeout(100);
+    check((await page.locator(".tl-bar.multi").count()) === 2, "Ctrl+クリックで帯をまとめて選べる");
+    const x0 = await page
+      .locator(".tl-bar.multi")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().x));
+    const b1 = await page.locator(".tl-bar.multi").first().boundingBox();
+    await drag(
+      page,
+      { x: b1.x + b1.width / 2, y: b1.y + b1.height / 2 },
+      { x: b1.x + b1.width / 2 + 30, y: b1.y + b1.height / 2 },
+    );
+    await page.waitForTimeout(150);
+    const x1 = await page
+      .locator(".tl-bar.multi")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().x));
+    check(
+      x1.length === 2 && x1.every((x, i) => x - x0[i] > 10) && Math.abs(x1[0] - x0[0] - (x1[1] - x0[1])) < 2,
+      `まとめて選んだ帯はまとめてドラッグで動く (${x0.map(Math.round)} → ${x1.map(Math.round)})`,
+    );
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.waitForTimeout(150);
+    // Ctrl+C・Ctrl+V(メニューのコピー・貼り付け)でオブジェクトを再生位置に貼る
+    await bars.nth(0).click();
+    const n0 = await bars.count();
+    await page.evaluate(() => document.dispatchEvent(new ClipboardEvent("copy", { cancelable: true })));
+    await page.evaluate(() => document.dispatchEvent(new ClipboardEvent("paste", { cancelable: true })));
+    await page.waitForTimeout(200);
+    check((await bars.count()) === n0 + 1, "オブジェクトをコピーして再生位置に貼れる");
+    await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
+    await page.waitForTimeout(150);
+  }
+
+  // プレビューの右クリックから、クリックした所を中心に足す。録画の外なら図形は画面に固定する
+  const bgPt = { x: stageBox.x + stageBox.width * 0.85, y: stageBox.y + stageBox.height * 0.3 };
+  await page.mouse.click(bgPt.x, bgPt.y, { button: "right" });
+  await page.getByRole("menuitem", { name: /^＋ (Box|四角)$/ }).click();
+  await page.waitForTimeout(300);
+  const ctxBox = center(await boxOutline.boundingBox());
+  check(
+    Math.abs(ctxBox.x - bgPt.x) < 4 &&
+      Math.abs(ctxBox.y - bgPt.y) < 4 &&
+      (await page.locator(".item-head:has(.item-button.selected) .badge").count()) === 1,
+    `プレビューの右クリックで、録画の外のクリックした所に画面に固定した四角を足す (${ctxBox.x}, ${ctxBox.y})`,
+  );
+  // オブジェクトの上の右クリックでは、そのオブジェクトの操作も出る
+  await page.mouse.click(ctxBox.x, ctxBox.y - 1, { button: "right" });
+  await page.getByRole("menuitem", { name: /^(Remove|削除)/ }).click();
+  await page.waitForTimeout(200);
+  check((await page.locator(".tl-bar.object").count()) === 4, "オブジェクトの上の右クリックから消せる");
 
   // 全体の設定
   await openProject();
@@ -822,17 +1126,64 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "「全体」で出力・レイアウト・テロップの見た目・声の共通の設定",
   );
   await shot(page, "04-project");
+  // 解像度の候補には通称を付ける。縦横比を固定すると、幅を変えたとき高さも合わせる
+  {
+    const opts = await page
+      .locator(".field", { hasText: /^(Width × Height|幅 × 高さ)/ })
+      .locator("option")
+      .allTextContents();
+    check(
+      opts.some((o) => o.includes("3840×2160 (4K)")),
+      `解像度の候補に通称が付く (${opts.join(", ")})`,
+    );
+    await page.getByRole("checkbox", { name: /^(Keep aspect ratio|縦横比を固定)$/ }).check();
+    const wField = page.getByLabel(/^(Width|幅)$/).first();
+    const hField = page.getByLabel(/^(Height|高さ)$/).first();
+    const h0 = await hField.inputValue();
+    await wField.fill("1280");
+    await page.waitForTimeout(150);
+    const h1 = await hField.inputValue();
+    await wField.fill("1920");
+    await page.waitForTimeout(150);
+    check(
+      h1 === "720" && (await hField.inputValue()) === h0,
+      `縦横比を固定すると幅に合わせて高さも変わる (${h0} → ${h1})`,
+    );
+    await page.getByRole("checkbox", { name: /^(Keep aspect ratio|縦横比を固定)$/ }).uncheck();
+  }
   // 選択欄のラベルには選択肢の文字も入るので、ラベルの見出しで探す
   const fontSel = page
     .locator(".field")
     .filter({ has: page.locator("> span", { hasText: /^(Font|フォント)$/ }) })
-    .locator("select, input")
+    .locator("input")
     .first();
-  const fontOpts = await fontSel.evaluate((el) => (el.tagName === "SELECT" ? el.options.length : 0));
-  check(fontOpts > 5, `テロップのフォントを OS のフォントから選べる (${fontOpts} 件)`);
+  await fontSel.click();
+  await page.waitForTimeout(300);
+  const fontOpts = await page.locator(".combo-list > div").count();
+  const firstFont = (await page.locator(".combo-list > div").first().textContent()) ?? "";
+  await fontSel.fill(firstFont.slice(0, 2));
+  await page.waitForTimeout(150);
+  const filtered = await page.locator(".combo-list > div").allTextContents();
   check(
-    (await page.locator(".fold").count()) === 4,
-    "全体の設定も欄(出力・レイアウト・テロップの見た目・読み上げ)ごとに畳める",
+    fontOpts > 5 &&
+      filtered.length >= 1 &&
+      filtered.length < fontOpts &&
+      (filtered[0] ?? "").toLowerCase().startsWith(firstFont.slice(0, 2).toLowerCase()),
+    `テロップのフォントは打ち込め、OS のフォントを絞り込む(前方一致が先) (${fontOpts} → ${filtered.length} 件)`,
+  );
+  // 日本語の名前でも探せる(Windows の游ゴシック・メイリオ)
+  await fontSel.fill("游ゴ");
+  await page.waitForTimeout(150);
+  const jaFonts = await page.locator(".combo-list > div").allTextContents();
+  check(
+    process.platform !== "win32" || jaFonts.some((x) => x.includes("Yu Gothic")),
+    `フォントを日本語の名前で探せる (${jaFonts.slice(0, 3).join(" / ")})`,
+  );
+  await fontSel.fill("");
+  await page.keyboard.press("Escape");
+  check(
+    (await page.locator(".fold").count()) === 5,
+    "全体の設定も欄(出力・レイアウト・テロップの見た目・読み上げ・オブジェクトの見た目)ごとに畳める",
   );
   await page.locator(".fold-all").click();
   await page.waitForTimeout(100);
@@ -844,7 +1195,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const titleBox = await page.locator(".tb-title").boundingBox();
   const winW = await page.evaluate(() => window.innerWidth);
   check(
-    (await page.locator(".tb-btn svg").count()) === 5 &&
+    (await page.locator(".tb-btn svg").count()) === 6 &&
+      (await page.locator(".tb-side.right .tb-btn").first().getAttribute("aria-label")).match(
+        /Shortcuts|キー操作/,
+      ) !== null &&
       (await page.locator(".tb-btn span").count()) === 0 &&
       (await page.locator(".tb-name").textContent()) === "ui" &&
       Math.abs(titleBox.x + titleBox.width / 2 - winW / 2) < 3 &&
