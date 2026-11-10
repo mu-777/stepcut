@@ -81,6 +81,10 @@ export function Preview(props: {
   onEmptyDoubleClick: () => void;
   /** 描画の GPU コンテキストが失われた(用意した画像を作り直す) */
   onContextLost: () => void;
+  /** 選んだオブジェクトの取っ手(ステージの大きさを渡して作る) */
+  objects?: (stage: { w: number; h: number }) => React.ReactNode;
+  /** プレビューをクリックした点(ステージのピクセル)でオブジェクトを選ぶ。選んだら true */
+  onPickObject?: (p: { x: number; y: number }, stage: { w: number; h: number }) => boolean;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -471,6 +475,7 @@ export function Preview(props: {
           onPointerDown={(e) => {
             if (e.button !== 0 || d) return;
             const p = toStage(e, e.currentTarget);
+            if (props.onPickObject?.(p, size)) return;
             const v = videoBox;
             props.onVideoClick(p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h);
           }}
@@ -488,6 +493,7 @@ export function Preview(props: {
         >
           <canvas ref={canvasRef} width={pxW} height={pxH} style={{ width: size.w, height: size.h }} />
           {captionHandle}
+          {!d && !props.videoEdit && props.objects?.(size)}
           {editor}
           {captionGuides.x !== null && <div className="guide v" style={{ left: captionGuides.x }} />}
           {captionGuides.y !== null && <div className="guide h" style={{ top: captionGuides.y }} />}
@@ -578,7 +584,7 @@ function nearest(v: number, targets: number[]): number | null {
  * snapX / snapY は枠の中心、edgeX / edgeY は枠の辺を吸着させる線。吸着中はガイド線を出す。Alt で吸着しない。
  * 枠の外をクリック(ドラッグなし)すると onCommit を呼ぶ。
  */
-function BoxEditor(props: {
+export function BoxEditor(props: {
   box: Box | null;
   /** 実際に見える範囲(ズーム)。薄い線で示す */
   visible?: Box | null;

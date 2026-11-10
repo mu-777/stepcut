@@ -13,6 +13,7 @@ import {
 } from "mediabunny";
 import { captionCues } from "../../core/captions";
 import { resolveLayout, resolveOutput } from "../../core/defaults";
+import { objectImages } from "../../core/objects";
 import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
 import { buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
@@ -21,6 +22,7 @@ import { api } from "./api";
 import { renderStepAudio } from "./audio";
 import { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
+import { ImageStore } from "./images";
 import { openExclusive, type SourceMedia } from "./media";
 import { SAMPLE_RATE, SpeechStore } from "./speech";
 
@@ -62,6 +64,15 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
     if (!backgroundImage)
       throw new Error(
         `背景の画像を読めません / Cannot load background: ${bg.image} (${store.error(bg.image, opts.projectPath)})`,
+      );
+  }
+
+  // 図形・ポインターの画像も先に読む。読めなければ書き出しを止める
+  const images = new ImageStore();
+  for (const path of objectImages(project)) {
+    if (!(await images.load(path, opts.projectPath)))
+      throw new Error(
+        `画像を読めません / Cannot load image: ${path} (${images.error(path, opts.projectPath)})`,
       );
   }
 
@@ -137,6 +148,7 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
           outW: out.width,
           outH: out.height,
           backgroundImage,
+          images: (p) => images.get(p, opts.projectPath),
         });
         await videoSource.add(k / out.fps, 1 / out.fps);
         opts.onProgress?.(k + 1, totalFrames);

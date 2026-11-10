@@ -129,12 +129,28 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
         }
       });
     }
-    if (step.pointers?.length) {
-      warnings.push({ path: at(".pointers"), message: "ポインターはこの版では描画しません(M2 で対応)" });
+    for (const key of ["pointers"] as const) {
+      (step[key] ?? []).forEach((a, k) => {
+        a.path.forEach((pt, j) => {
+          const prev = a.path[j - 1];
+          if (prev && pt.t < prev.t) {
+            errors.push({
+              path: at(`.${key}[${k}].path[${j}].t`),
+              message: "点は時刻の早い順に並べてください",
+            });
+          }
+        });
+        const start = a.path[0]?.t ?? 0;
+        if (a.end !== undefined && a.end <= start) {
+          errors.push({ path: at(`.${key}[${k}].end`), message: "end は最初の点の時刻より後にしてください" });
+        }
+      });
     }
-    if (step.highlights?.length) {
-      warnings.push({ path: at(".highlights"), message: "蛍光ペンはこの版では描画しません(M2 で対応)" });
-    }
+    (step.shapes ?? []).forEach((sh, k) => {
+      if (sh.end !== undefined && sh.end <= sh.start) {
+        errors.push({ path: at(`.shapes[${k}].end`), message: "end は start より後にしてください" });
+      }
+    });
   });
   return { errors, warnings };
 }

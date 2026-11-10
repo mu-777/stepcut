@@ -15,10 +15,23 @@ import {
 } from "../../core/defaults";
 import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
 import { computeLayout, retimeZoom, sortedKeys, zoomScale } from "../../core/layout";
+import {
+  isPath,
+  type ObjectKind,
+  type ObjectRef,
+  objectOf,
+  objectWindow,
+  pathSpan,
+  retimeObject,
+  shapeOutsideVideo,
+  stepObjects,
+} from "../../core/objects";
 import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
 import { baseDuration, sourceTimeAt, speechTimes, stepHolds, type TimelineEntry } from "../../core/timeline";
 import { t } from "./i18n";
+import type { IconName } from "./icons";
 import type { SourceMedia } from "./media";
+import { objectLabel, objectLabels, objectMenu } from "./objects-ui";
 import { quantize, type ThumbCache } from "./thumbs";
 
 export type Selection =
@@ -26,7 +39,9 @@ export type Selection =
   /** プレビュー上の録画を選んだ(位置と大きさの編集) */
   | { kind: "video" }
   | { kind: "step" | "caption"; step: number }
-  | { kind: "zoom" | "hold" | "speech"; step: number; index: number };
+  | { kind: "zoom" | "hold" | "speech"; step: number; index: number }
+  /** ポインター・図形(index は種類ごとの配列の番号) */
+  | { kind: ObjectKind; step: number; index: number };
 
 export const selectedStep = (s: Selection): number | null => ("step" in s ? s.step : null);
 
@@ -36,11 +51,179 @@ export interface MenuItem {
   disabled?: boolean;
   /** 同じ操作のキー(メニューの右に表示する) */
   shortcut?: string;
+  /** ボタンとして並べるときのアイコン(設定パネルの見出しの右) */
+  icon?: IconName;
+  /** メニューで、この項目の上に区切り線を引く */
+  separator?: boolean;
 }
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
 
 const VIDEO_H = 52;
+/** オブジェクトのレーンの 1 行の高さ */
+const OBJ_ROW_H = 20;
+/** オブジェクトの種類ごとの、ステップの配列の名前 */
+const OBJECT_FIELD = { pointer: "pointers", shape: "shapes" } as const;
+
+/**
+ * まとめて選んだ帯の端を dt 秒動かす(edge が left なら始まり、right なら終わり)。読み上げは長さが決まっているので変えない。
+ * どれもステップの中・0.1 秒以上の長さ(ズームは選んでいないズームと重ならない範囲)に収まるよう dt を詰める
+ */
+function resizeGroup(
+  project: Project,
+  timeline: TimelineEntry[],
+  items: MultiItem[],
+  edge: "left" | "right",
+  dtRaw: number,
+): Project {
+  let lo = Number.NEGATIVE_INFINITY;
+  let hi = Number.POSITIVE_INFINITY;
+  const picked = new Set(items.map(multiKey));
+  const limit = (min: number, max: number) => {
+    lo = Math.max(lo, min);
+    hi = Math.min(hi, max);
+  };
+  for (const it of items) {
+    const entry = timeline[it.step];
+    const st = project.steps[it.step];
+    if (!entry || !st || it.kind === "speech") continue;
+    if (it.kind === "zoom") {
+      const z = st.zooms?.[it.index];
+      if (!z) continue;
+      const others = (st.zooms ?? []).filter(
+        (_, j) => !picked.has(multiKey({ kind: "zoom", step: it.step, index: j })),
+      );
+      const a = Math.max(0, ...others.filter((o) => o.end <= z.start + 1e-6).map((o) => o.end));
+      const b = Math.min(
+        entry.duration,
+        ...others.filter((o) => o.start >= z.end - 1e-6).map((o) => o.start),
+      );
+      if (edge === "left") limit(a - z.start, z.end - 0.1 - z.start);
+      else limit(z.start + 0.1 - z.end, b - z.end);
+    } else {
+      const o = objectOf(st, { kind: it.kind, index: it.index });
+      if (!o) continue;
+      const w = objectWindow(o, entry.duration);
+      const span = isPath(o) ? pathSpan(o) : null;
+      if (edge === "left") limit(-w.start, w.end - (span ? span.end - span.start : 0) - 0.1 - w.start);
+      else limit(Math.max(w.start, span ? span.end : w.start) + 0.1 - w.end, entry.duration - w.end);
+    }
+  }
+  const dt = r3(clamp(dtRaw, Math.min(0, lo), Math.max(0, hi)));
+  if (dt === 0) return project;
+  const steps = project.steps.map((st, i) => {
+    const entry = timeline[i];
+    if (!entry || !items.some((it) => it.step === i)) return st;
+    const has = (kind: MultiItem["kind"], index: number) => picked.has(multiKey({ kind, step: i, index }));
+    const next: Step = { ...st };
+    if (st.zooms)
+      next.zooms = st.zooms.map((z, j) => {
+        if (!has("zoom", j)) return z;
+        return edge === "left"
+          ? retimeZoom(z, r3(z.start + dt), z.end)
+          : retimeZoom(z, z.start, r3(z.end + dt));
+      });
+    for (const kind of ["pointer", "shape"] as const) {
+      const field = OBJECT_FIELD[kind];
+      const list = st[field] as Parameters<typeof retimeObject>[0][] | undefined;
+      if (!list) continue;
+      (next as Record<string, unknown>)[field] = list.map((o, j) => {
+        if (!has(kind, j)) return o;
+        const w = objectWindow(o, entry.duration);
+        return edge === "left"
+          ? retimeObject(o, w.start + dt, o.end === undefined ? null : w.end)
+          : retimeObject(o, w.start, w.end + dt);
+      });
+    }
+    return next;
+  });
+  return { ...project, steps };
+}
+
+/** Ctrl+クリックでまとめて選べる帯(読み上げ・ズーム・オブジェクト) */
+type MultiItem = { kind: "speech" | "zoom" | ObjectKind; step: number; index: number };
+const multiKey = (m: MultiItem) => `${m.kind}:${m.step}:${m.index}`;
+
+/**
+ * まとめて選んだ帯を dt 秒ずらす。どれもステップの中(ズームは選んでいないズームと重ならない範囲)に収まるよう
+ * dt を詰める。読み上げ・ズーム・オブジェクトの時刻はステップ内の時刻なので、ステップはまたがない
+ */
+function shiftGroup(
+  project: Project,
+  timeline: TimelineEntry[],
+  items: MultiItem[],
+  speechDurations: ReadonlyMap<string, readonly number[]>,
+  dtRaw: number,
+): Project {
+  let lo = Number.NEGATIVE_INFINITY;
+  let hi = Number.POSITIVE_INFINITY;
+  const picked = new Set(items.map(multiKey));
+  const speechStart = (st: Step, k: number) =>
+    speechTimes(st, speechDurations.get(st.id) ?? [])[k]?.start ?? 0;
+  for (const it of items) {
+    const entry = timeline[it.step];
+    const st = project.steps[it.step];
+    if (!entry || !st) continue;
+    if (it.kind === "zoom") {
+      const z = st.zooms?.[it.index];
+      if (!z) continue;
+      const others = (st.zooms ?? []).filter(
+        (_, j) => !picked.has(multiKey({ kind: "zoom", step: it.step, index: j })),
+      );
+      const a = Math.max(0, ...others.filter((o) => o.end <= z.start + 1e-6).map((o) => o.end));
+      const b = Math.min(
+        entry.duration,
+        ...others.filter((o) => o.start >= z.end - 1e-6).map((o) => o.start),
+      );
+      lo = Math.max(lo, a - z.start);
+      hi = Math.min(hi, b - z.end);
+    } else if (it.kind === "speech") {
+      const x = speechStart(st, it.index);
+      lo = Math.max(lo, -x);
+      hi = Math.min(hi, baseDuration(st) - x);
+    } else {
+      const o = objectOf(st, { kind: it.kind, index: it.index });
+      if (!o) continue;
+      const w = objectWindow(o, entry.duration);
+      lo = Math.max(lo, -w.start);
+      hi = Math.min(hi, entry.duration - w.end);
+    }
+  }
+  const dt = r3(clamp(dtRaw, Math.min(0, lo), Math.max(0, hi)));
+  if (dt === 0) return project;
+  const steps = project.steps.map((st, i) => {
+    const mine = items.filter((it) => it.step === i);
+    if (mine.length === 0) return st;
+    const has = (kind: MultiItem["kind"], index: number) => picked.has(multiKey({ kind, step: i, index }));
+    const entry = timeline[i];
+    const next: Step = { ...st };
+    if (st.zooms)
+      next.zooms = st.zooms.map((z, j) =>
+        has("zoom", j) ? retimeZoom(z, r3(z.start + dt), r3(z.end + dt)) : z,
+      );
+    if (mine.some((it) => it.kind === "speech")) {
+      const pieces = speechPieces(st).map((p, k) => {
+        if (!has("speech", k)) return p;
+        const v = r3(speechStart(st, k) + dt);
+        const { start: _s, ...rest } = p;
+        return v > 0 || k > 0 ? { ...rest, start: v } : rest;
+      });
+      Object.assign(next, withSpeechPieces(next, pieces));
+    }
+    for (const kind of ["pointer", "shape"] as const) {
+      const field = OBJECT_FIELD[kind];
+      const list = st[field] as Parameters<typeof retimeObject>[0][] | undefined;
+      if (!list || !entry) continue;
+      (next as Record<string, unknown>)[field] = list.map((o, j) => {
+        if (!has(kind, j)) return o;
+        const w = objectWindow(o, entry.duration);
+        return retimeObject(o, w.start + dt, o.end === undefined ? null : w.end + dt);
+      });
+    }
+    return next;
+  });
+  return { ...project, steps };
+}
 const TILE_W = Math.round((VIDEO_H - 4) * (16 / 9));
 const SNAP_PX = 6;
 /** 再生ヘッドを吸着させる距離 */
@@ -134,6 +317,10 @@ export function Timeline(props: {
   onPasteZoom: ((at: number) => void) | null;
   /** 再生位置のステップに、時刻 local でズームを足して範囲の編集を始める */
   onAddZoomAt: (step: number, local: number) => void;
+  /** オブジェクトを選ぶ(再生位置は動かさない) */
+  onSelectObject: (step: number, ref: ObjectRef) => void;
+  /** ズーム step / zoom の時刻 local に枠を足して、その枠の編集を始める */
+  onAddZoomKey: (step: number, zoom: number, local: number) => void;
 }) {
   const { project, timeline, total, time, update, selection } = props;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -176,6 +363,10 @@ export function Timeline(props: {
       } else if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
         el.scrollLeft += e.deltaY;
+      } else if (e.deltaX !== 0) {
+        // 横のホイール(チルト・タッチパッド)はその向きへ
+        e.preventDefault();
+        el.scrollLeft += e.deltaX;
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -237,6 +428,12 @@ export function Timeline(props: {
         if (sd[k]) ts.push(e.start + x.end);
       });
       for (const z of s.zooms ?? []) ts.push(e.start + z.start, e.start + z.end);
+      for (const ref of stepObjects(s)) {
+        const o = objectOf(s, ref);
+        if (!o) continue;
+        const w = objectWindow(o, e.duration);
+        ts.push(e.start + w.start, e.start + w.end);
+      }
       for (const h of stepHolds(s)) ts.push(e.start + h.at, e.start + h.at + h.duration);
       const base = baseDuration(s);
       if (e.duration > base) ts.push(e.start + base);
@@ -259,8 +456,63 @@ export function Timeline(props: {
     return best;
   };
 
+  // Ctrl+クリックでまとめて選んだ帯。まとめてドラッグで動かせる
+  const [multi, setMulti] = useState<MultiItem[]>([]);
+  const inMulti = (m: MultiItem) => multi.length > 1 && multi.some((x) => multiKey(x) === multiKey(m));
+  /** Ctrl+クリック: 帯をまとめて選ぶ・外す。最初は今選んでいる帯も入れる */
+  const toggleMulti = (m: MultiItem) => {
+    const cur =
+      multi.length > 0
+        ? multi
+        : "index" in selection &&
+            (selection.kind === "speech" ||
+              selection.kind === "zoom" ||
+              selection.kind === "pointer" ||
+              selection.kind === "shape")
+          ? [{ kind: selection.kind, step: selection.step, index: selection.index }]
+          : [];
+    const k = multiKey(m);
+    setMulti(cur.some((x) => multiKey(x) === k) ? cur.filter((x) => multiKey(x) !== k) : [...cur, m]);
+  };
+  /**
+   * 帯の押下。Ctrl なら選びに加え(ドラッグしない)、まとめて選んだ帯ならまとめてドラッグ、それ以外は 1 つを選んで
+   * 再生位置をその始まり(全体の時刻 at)へ移す
+   */
+  const barProps = (
+    m: MultiItem,
+    onSelect: () => void,
+    onMove: (dx: number, key: string) => void,
+    at: number,
+  ) => ({
+    multi: inMulti(m),
+    onCtrlClick: () => toggleMulti(m),
+    onSelect: () => {
+      if (!inMulti(m)) {
+        setMulti([]);
+        onSelect();
+        props.onSeek(at);
+      }
+    },
+    onMove: inMulti(m)
+      ? (dx: number, key: string) =>
+          update(() => shiftGroup(project, timeline, multi, props.speechDurations, dx / scale), key)
+      : onMove,
+  });
+  /** 帯の端のドラッグ。まとめて選んだ帯なら、選んだものすべての同じ側の端を同じだけ動かす */
+  const groupEdge =
+    (m: MultiItem, edge: "left" | "right", single: (dx: number, key: string) => void) =>
+    (dx: number, key: string) => {
+      if (inMulti(m)) update(() => resizeGroup(project, timeline, multi, edge, dx / scale), key);
+      else single(dx, key);
+    };
+  // タイムラインの外で選び直したら、まとめた選択を解く
+  useEffect(() => {
+    if (!("index" in selection)) setMulti([]);
+  }, [selection]);
+
   const scrubFrom = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    setMulti([]);
     props.onSeek(seekAt(e.clientX, e.shiftKey));
     const move = (ev: PointerEvent) => props.onSeek(seekAt(ev.clientX, ev.shiftKey));
     const up = () => {
@@ -363,9 +615,32 @@ export function Timeline(props: {
     if (!hit) return;
     const zooms = hit.entry.step.zooms ?? [];
     const on = zooms.findIndex((z) => hit.local >= z.start && hit.local <= z.end);
-    if (on >= 0) props.onEditZoomRect(hit.entry.index, on);
+    // ズームの上ならその時刻に枠を足す
+    if (on >= 0) props.onAddZoomKey(hit.entry.index, on, hit.local);
     else props.onAddZoomAt(hit.entry.index, hit.local);
   };
+
+  // オブジェクトは重なる時刻ごとに行を分ける(ステップごとに、始まりの順で空いている行へ)
+  const objRows = timeline.map((entry) => {
+    const rowEnds: number[] = [];
+    const rows = new Map<string, number>();
+    const items = stepObjects(entry.step)
+      .map((ref) => {
+        const o = objectOf(entry.step, ref);
+        return o ? { ref, w: objectWindow(o, entry.duration) } : null;
+      })
+      .filter((x) => x !== null)
+      .sort((a, b) => a.w.start - b.w.start);
+    for (const it of items) {
+      let r = rowEnds.findIndex((end) => end <= it.w.start + 1e-6);
+      if (r < 0) r = rowEnds.length;
+      rowEnds[r] = it.w.end;
+      rows.set(`${it.ref.kind}:${it.ref.index}`, r);
+    }
+    return { rows, count: Math.max(1, rowEnds.length) };
+  });
+  const objRowCount = Math.max(1, ...objRows.map((r) => r.count));
+  const objLaneH = 4 + objRowCount * OBJ_ROW_H;
 
   return (
     <div className="timeline">
@@ -396,8 +671,19 @@ export function Timeline(props: {
         <div className="tl-label">{t("caption")}</div>
         <div className="tl-label">{t("speech")}</div>
         <div className="tl-label">{t("zooms")}</div>
+        <div className="tl-label" style={{ height: objLaneH }}>
+          {t("trackObjects")}
+        </div>
       </div>
-      <div className="tl-scroll" ref={scrollRef} onScroll={(e) => setScrollLeft(e.currentTarget.scrollLeft)}>
+      <div
+        className="tl-scroll"
+        ref={scrollRef}
+        onScroll={(e) => setScrollLeft(e.currentTarget.scrollLeft)}
+        onPointerDown={(e) => {
+          // レーンの下の空いた所
+          if (e.target === e.currentTarget) scrubFrom(e);
+        }}
+      >
         <div className="tl-inner" style={{ width: innerW }} onPointerDown={scrubFrom}>
           <div className="tl-ruler">{ticks}</div>
 
@@ -436,12 +722,33 @@ export function Timeline(props: {
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     e.stopPropagation();
+                    setMulti([]);
                     props.onSelect({ kind: "step", step: i });
-                    scrubFrom(e);
+                    // 再生位置がこのステップの外なら始まりへ(中ならそのまま)
+                    if (time < entry.start || time >= entry.start + entry.duration) props.onSeek(entry.start);
                   }}
                   onContextMenu={(e) => clipMenu(e, entry)}
                 >
                   <div className="tl-tiles">{tiles}</div>
+                  {/* ステップのフェードイン・フェードアウト(黒から現れる・黒へ消える区間) */}
+                  {step.fadeIn ? (
+                    <div
+                      className="tl-fade in"
+                      style={{ width: Math.min(step.fadeIn, entry.duration) * scale }}
+                      title={t("fadeIn")}
+                    >
+                      <FadeRamp dir="in" />
+                    </div>
+                  ) : null}
+                  {step.fadeOut ? (
+                    <div
+                      className="tl-fade out"
+                      style={{ width: Math.min(step.fadeOut, entry.duration) * scale }}
+                      title={t("fadeOut")}
+                    >
+                      <FadeRamp dir="out" />
+                    </div>
+                  ) : null}
                   {stepHolds(step).map((h) => {
                     const k = explicit.findIndex((x) => x.at === h.at && x.duration === h.duration);
                     return (
@@ -453,39 +760,32 @@ export function Timeline(props: {
                         onPointerDown={(e) => {
                           if (k < 0 || e.button !== 0) return;
                           props.onSelect({ kind: "hold", step: i, index: k });
+                          props.onSeek(entry.start + h.at);
                           // ドラッグで位置を動かす(再生ヘッド・ステップの切れ目に始まりか終わりを吸着)。
                           // 動かさずに離したら、そこへシークする
-                          const x0 = e.clientX;
-                          const free = e.shiftKey;
                           const holds = stepHolds(step);
                           const prev = [...holds].reverse().find((x) => x.at < h.at);
                           const next = holds.find((x) => x.at > h.at);
                           const lo = prev ? prev.at + prev.duration : 0;
                           const hi = (next ? next.at : base) - h.duration;
                           let moved = false;
-                          startDrag(
-                            e,
-                            (dx, key) => {
-                              if (!moved && Math.abs(dx) < 3) return;
-                              moved = true;
-                              const raw = entry.start + h.at + dx / scale;
-                              let tm = snap(raw);
-                              if (tm === raw) tm = snap(raw, h.duration);
-                              const at = r3(clamp(tm - entry.start, lo, hi));
-                              patchStep(
-                                update,
-                                i,
-                                (s) => ({
-                                  ...s,
-                                  holds: s.holds?.map((x, j) => (j === k ? { ...x, at } : x)),
-                                }),
-                                key,
-                              );
-                            },
-                            () => {
-                              if (!moved) props.onSeek(seekAt(x0, free));
-                            },
-                          );
+                          startDrag(e, (dx, key) => {
+                            if (!moved && Math.abs(dx) < 3) return;
+                            moved = true;
+                            const raw = entry.start + h.at + dx / scale;
+                            let tm = snap(raw);
+                            if (tm === raw) tm = snap(raw, h.duration);
+                            const at = r3(clamp(tm - entry.start, lo, hi));
+                            patchStep(
+                              update,
+                              i,
+                              (s) => ({
+                                ...s,
+                                holds: s.holds?.map((x, j) => (j === k ? { ...x, at } : x)),
+                              }),
+                              key,
+                            );
+                          });
                         }}
                       >
                         {k >= 0 && (
@@ -594,7 +894,11 @@ export function Timeline(props: {
                   left={(entry.start + w.start) * scale}
                   width={(w.end - w.start) * scale}
                   label={step.caption?.text.trim() ? step.caption.text : `(${t("captionPlaceholder")})`}
-                  onSelect={() => props.onSelect({ kind: "caption", step: i })}
+                  onSelect={() => {
+                    setMulti([]);
+                    props.onSelect({ kind: "caption", step: i });
+                    props.onSeek(entry.start + w.start);
+                  }}
                   onMove={(dx, key) => {
                     const len = w.end - w.start;
                     const s = clamp(
@@ -653,7 +957,12 @@ export function Timeline(props: {
                     left={(entry.start + st) * scale}
                     width={(d || 1) * scale}
                     label={text ?? `(${t("speechPlaceholder")})`}
-                    onSelect={() => props.onSelect({ kind: "speech", step: i, index: k })}
+                    {...barProps(
+                      { kind: "speech", step: i, index: k },
+                      () => props.onSelect({ kind: "speech", step: i, index: k }),
+                      (dx, key) => moveSpeech(dx, key),
+                      entry.start + st,
+                    )}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -662,28 +971,29 @@ export function Timeline(props: {
                         { label: t("previewSpeech"), action: () => props.onPreviewSpeech(i) },
                       ]);
                     }}
-                    onMove={(dx, key) => {
-                      const v = r3(
-                        clamp(snap(entry.start + st + dx / scale) - entry.start, 0, baseDuration(step)),
-                      );
-                      patchStep(
-                        update,
-                        i,
-                        (x) =>
-                          withSpeechPieces(
-                            x,
-                            speechPieces(x).map((p, j) => {
-                              if (j !== k) return p;
-                              const { start: _s, ...rest } = p;
-                              // 最初の読み上げの 0 は既定値なので書かない
-                              return v > 0 || k > 0 ? { ...rest, start: v } : rest;
-                            }),
-                          ),
-                        key,
-                      );
-                    }}
                   />
                 );
+                function moveSpeech(dx: number, key: string) {
+                  const v = r3(
+                    clamp(snap(entry.start + st + dx / scale) - entry.start, 0, baseDuration(step)),
+                  );
+                  props.onSeek(entry.start + v);
+                  patchStep(
+                    update,
+                    i,
+                    (x) =>
+                      withSpeechPieces(
+                        x,
+                        speechPieces(x).map((p, j) => {
+                          if (j !== k) return p;
+                          const { start: _s, ...rest } = p;
+                          // 最初の読み上げの 0 は既定値なので書かない
+                          return v > 0 || k > 0 ? { ...rest, start: v } : rest;
+                        }),
+                      ),
+                    key,
+                  );
+                }
               });
             })}
           </div>
@@ -856,35 +1166,43 @@ export function Timeline(props: {
                         left={z.start * scale}
                         width={(z.end - z.start) * scale}
                         label={`${zs.toFixed(1)}×`}
-                        onSelect={() => props.onSelect({ kind: "zoom", step: i, index: k })}
-                        onMove={(dx, key) => {
-                          const { lo, hi } = bounds(k);
-                          const len = z.end - z.start;
+                        {...barProps(
+                          { kind: "zoom", step: i, index: k },
+                          () => props.onSelect({ kind: "zoom", step: i, index: k }),
+                          (dx, key) => {
+                            const { lo, hi } = bounds(k);
+                            const len = z.end - z.start;
+                            const s = clamp(
+                              snap(entry.start + z.start + dx / scale) - entry.start,
+                              lo,
+                              hi - len,
+                            );
+                            setZoom(k, s, s + len, key);
+                            props.onSeek(entry.start + s);
+                          },
+                          entry.start + z.start,
+                        )}
+                        onLeft={groupEdge({ kind: "zoom", step: i, index: k }, "left", (dx, key) => {
+                          const { lo } = bounds(k);
                           const s = clamp(
                             snap(entry.start + z.start + dx / scale) - entry.start,
                             lo,
-                            hi - len,
+                            z.end - 0.1,
                           );
-                          setZoom(k, s, s + len, key);
-                        }}
-                        onLeft={(dx, key) => {
-                          const { lo } = bounds(k);
-                          setZoom(
-                            k,
-                            clamp(snap(entry.start + z.start + dx / scale) - entry.start, lo, z.end - 0.1),
-                            z.end,
-                            key,
-                          );
-                        }}
-                        onRight={(dx, key) => {
+                          setZoom(k, s, z.end, key);
+                          props.onSeek(entry.start + s);
+                        })}
+                        onRight={groupEdge({ kind: "zoom", step: i, index: k }, "right", (dx, key) => {
                           const { hi } = bounds(k);
-                          setZoom(
-                            k,
-                            z.start,
-                            clamp(snap(entry.start + z.end + dx / scale) - entry.start, z.start + 0.1, hi),
-                            key,
+                          const e = clamp(
+                            snap(entry.start + z.end + dx / scale) - entry.start,
+                            z.start + 0.1,
+                            hi,
                           );
-                        }}
+                          setZoom(k, z.start, e, key);
+                          // 映像を止めるズームは止めた所(始まり)を、それ以外は終わりを見せる
+                          props.onSeek(entry.start + (zoomHoldMode(z) === "zoom" ? z.start : e));
+                        })}
                       />,
                       // 枠(キーフレーム)の印。クリックでその枠を編集、ドラッグで時刻を変える、右クリックで削除
                       ...(z.keys.length > 1
@@ -957,6 +1275,104 @@ export function Timeline(props: {
             })}
           </div>
 
+          {/* オブジェクト(ポインター・蛍光ペン・図形)。重なるものは行を分ける */}
+          <div className="tl-lane" style={{ height: objLaneH }}>
+            {timeline.map((entry) => {
+              const { step, index: i } = entry;
+              const labels = objectLabels(step, entry.duration);
+              const om = props.media.get(step.source);
+              return stepObjects(step).map((ref) => {
+                const o = objectOf(step, ref);
+                if (!o) return null;
+                const w = objectWindow(o, entry.duration);
+                const row = objRows[i]?.rows.get(`${ref.kind}:${ref.index}`) ?? 0;
+                const field = OBJECT_FIELD[ref.kind];
+                // ドラッグを始めたときの値(o)から変える
+                const setWin = (start: number, end: number | null, key: string) =>
+                  patchStep(
+                    update,
+                    i,
+                    (s) => ({
+                      ...s,
+                      [field]: (s[field] as unknown[] | undefined)?.map((x, j) =>
+                        j === ref.index ? retimeObject(o, r3(start), end === null ? null : r3(end)) : x,
+                      ),
+                    }),
+                    key,
+                  );
+                const span = isPath(o) ? pathSpan(o) : null;
+                const outside = !!om && shapeOutsideVideo(o, om.width, om.height);
+                const label = labels.get(`${ref.kind}:${ref.index}`) ?? objectLabel(o, ref.kind);
+                return (
+                  <Bar
+                    key={`${i}-${ref.kind}-${ref.index}`}
+                    className={`object ${ref.kind} ${outside ? "warn" : ""} ${isSel(ref.kind, i, ref.index) ? "selected" : ""}`}
+                    left={(entry.start + w.start) * scale}
+                    width={(w.end - w.start) * scale}
+                    top={2 + row * OBJ_ROW_H}
+                    height={OBJ_ROW_H - 2}
+                    label={outside ? `⚠ ${t("outsideBadge")} | ${label}` : label}
+                    title={outside ? `${label}\n${t("outsideVideoTip")}` : undefined}
+                    inner={
+                      span && span.end > span.start ? (
+                        <div
+                          className="tl-motion"
+                          style={{
+                            left: (span.start - w.start) * scale,
+                            width: (span.end - span.start) * scale,
+                          }}
+                        />
+                      ) : null
+                    }
+                    {...barProps(
+                      { kind: ref.kind, step: i, index: ref.index },
+                      () => props.onSelectObject(i, ref),
+                      (dx, key) => {
+                        const len = w.end - w.start;
+                        const st = clamp(
+                          snap(entry.start + w.start + dx / scale, 0) - entry.start,
+                          0,
+                          entry.duration - len,
+                        );
+                        const atEnd = st + len >= entry.duration - 1e-3 && o.end === undefined;
+                        setWin(st, atEnd ? null : st + len, key);
+                        props.onSeek(entry.start + st);
+                      },
+                      entry.start + w.start,
+                    )}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      props.onSelectObject(i, ref);
+                      props.openMenu(e.clientX, e.clientY, objectMenu(update, i, ref, step));
+                    }}
+                    onLeft={groupEdge({ kind: ref.kind, step: i, index: ref.index }, "left", (dx, key) => {
+                      // ポインターは動きごとずらすので、動きが終わりを越えないようにする
+                      const motion = span ? span.end - span.start : 0;
+                      const st = clamp(
+                        snap(entry.start + w.start + dx / scale) - entry.start,
+                        0,
+                        w.end - motion - 0.1,
+                      );
+                      setWin(st, o.end === undefined ? null : w.end, key);
+                      props.onSeek(entry.start + st);
+                    })}
+                    onRight={groupEdge({ kind: ref.kind, step: i, index: ref.index }, "right", (dx, key) => {
+                      const lo = Math.max(w.start, span ? span.end : w.start) + 0.1;
+                      const e = clamp(
+                        snap(entry.start + w.end + dx / scale) - entry.start,
+                        lo,
+                        entry.duration,
+                      );
+                      // 末尾まで伸ばしたら「ステップの終わりまで」(end 省略)にする
+                      setWin(w.start, (entry.duration - e) * scale < SNAP_PX ? null : e, key);
+                    })}
+                  />
+                );
+              });
+            })}
+          </div>
+
           {timeline.map((e) => (
             <div key={`b${e.index}`} className="tl-boundary" style={{ left: e.start * scale }} />
           ))}
@@ -1022,12 +1438,44 @@ function defaultZoom(start: number, end: number, m: SourceMedia | undefined): Zo
   };
 }
 
+/**
+ * フェードの区間の印。黒から現れる(in)は左下から右上へ上がる線、黒へ消える(out)は左上から右下へ下がる線で、
+ * 線より上(暗い側)を黒く塗る
+ */
+function FadeRamp(props: { dir: "in" | "out" }) {
+  const inn = props.dir === "in";
+  return (
+    <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+      <polygon points={inn ? "0,0 1,0 0,1" : "0,0 1,0 1,1"} fill="rgb(0 0 0 / 0.7)" />
+      <line
+        x1="0"
+        y1={inn ? 1 : 0}
+        x2="1"
+        y2={inn ? 0 : 1}
+        stroke="#fff"
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
 /** タイムライン上の帯。本体のドラッグで移動、両端のドラッグで伸縮 */
 function Bar(props: {
   className: string;
   left: number;
   width: number;
+  /** 行を分けるレーンでの縦の位置(省略するとレーンいっぱい) */
+  top?: number;
+  height?: number;
+  /** 帯の中に重ねるもの(動きの区間など) */
+  inner?: ReactNode;
   label: string;
+  /** ツールチップ(省略すると label) */
+  title?: string;
+  /** Ctrl+クリックでまとめて選んだ帯 */
+  multi?: boolean;
+  onCtrlClick?: () => void;
   onSelect: () => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -1038,16 +1486,27 @@ function Bar(props: {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。キー操作は別にある
     <div
-      className={`tl-bar ${props.className}`}
-      style={{ left: props.left, width: Math.max(2, props.width) }}
-      title={props.label}
+      className={`tl-bar ${props.className} ${props.multi ? "multi" : ""}`}
+      style={{
+        left: props.left,
+        width: Math.max(2, props.width),
+        ...(props.top !== undefined ? { top: props.top, height: props.height, bottom: "auto" } : {}),
+      }}
+      title={props.title ?? props.label}
       onPointerDown={(e) => {
+        if (e.button === 0 && (e.ctrlKey || e.metaKey) && props.onCtrlClick) {
+          e.stopPropagation();
+          e.preventDefault();
+          props.onCtrlClick();
+          return;
+        }
         props.onSelect();
         startDrag(e, props.onMove);
       }}
       onDoubleClick={props.onDoubleClick}
       onContextMenu={props.onContextMenu}
     >
+      {props.inner}
       <span>{props.label}</span>
       {props.onLeft && (
         <div

@@ -31,6 +31,7 @@ export function ContextMenu(props: { x: number; y: number; items: MenuItem[]; on
           type="button"
           role="menuitem"
           key={it.label}
+          className={it.separator ? "sep" : undefined}
           disabled={it.disabled}
           onClick={() => {
             onClose();
@@ -106,7 +107,7 @@ export function saveChoice(key: string, value: string): void {
   }
 }
 
-/** キー操作の一覧(ヘルプメニュー・プレビューの下の帯の ? から開く)。外のクリックか Esc で閉じる */
+/** キー操作の一覧(ヘッダーの ? ・Ctrl+/ から開く)。外のクリックか Esc で閉じる */
 export function ShortcutsDialog(props: { onClose: () => void }) {
   const { onClose } = props;
   useEffect(() => {
@@ -127,6 +128,7 @@ export function ShortcutsDialog(props: { onClose: () => void }) {
     ["S", "scSplit"],
     ["Z", "scZoom"],
     ["M", "scMute"],
+    ["C", "scAnchor"],
     ["F", "scFullscreen"],
     ["Delete", "scDelete"],
     ["Ctrl+Z / Ctrl+Shift+Z", "scUndo"],

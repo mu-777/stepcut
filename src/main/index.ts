@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import type { AppSettings, ExportJob, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
 import { type CliArgs, formatValidate, HELP, parseCli, validateFile } from "./cli";
 import { resolveStoredPath } from "./paths";
@@ -191,6 +191,8 @@ function registerIpc(): void {
     });
     return r.filePaths[0] ?? null;
   });
+  // 書き出したファイルをエクスプローラー(Finder)で選んだ状態で開く
+  ipcMain.handle("file:reveal", (_e, absPath: string) => shell.showItemInFolder(absPath));
   ipcMain.handle("export:pick", async (_e, defaultPath: string) => {
     const r = await dialog.showSaveDialog({ filters: [{ name: "MP4", extensions: ["mp4"] }], defaultPath });
     return r.canceled ? null : (r.filePath ?? null);

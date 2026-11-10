@@ -1,6 +1,7 @@
 // ステップの編集操作(STP-05, STP-06)。プロジェクトは書き換えず、新しいオブジェクトを返す。
 
 import { speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
+import { cutObjectAt, objectGone, objectWindow, shiftObject } from "./objects";
 import type { Project, SpeechPiece, Step } from "./schema";
 import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
 
@@ -32,9 +33,13 @@ export function splitStep(project: Project, index: number, t: number, keepRest: 
     out: at,
     holds: step.holds?.filter((h) => h.at < t),
     zooms: step.zooms?.filter((z) => z.start < t),
+    // 切る時刻をまたいで出ているものは、前半のステップの終わりまで出す
+    pointers: step.pointers?.filter((a) => objectWindow(a, t).start < t).map((a) => cutObjectAt(a, t)),
+    shapes: step.shapes?.filter((a) => a.start < t).map((a) => cutObjectAt(a, t)),
   };
-  if (!first.holds?.length) delete first.holds;
-  if (!first.zooms?.length) delete first.zooms;
+  for (const key of ["holds", "zooms", "pointers", "shapes"] as const) {
+    if (!first[key]?.length) delete first[key];
+  }
   const steps = [...project.steps];
   steps[index] = first;
   if (keepRest) {
@@ -97,16 +102,12 @@ export function shiftStepElements(step: Step, dt: number): Step {
     });
     Object.assign(next, withSpeechPieces(next, pieces));
   }
-  for (const key of ["pointers", "highlights"] as const) {
+  for (const key of ["pointers", "shapes"] as const) {
     const list = step[key];
     if (!list) continue;
-    const moved = list
-      .map((a) => ({
-        ...a,
-        path: a.path.map((pt) => ({ ...pt, t: r3(pt.t + dt) })),
-        ...(a.end !== undefined ? { end: r3(a.end + dt) } : {}),
-      }))
-      .filter((a) => a.path.every((pt) => pt.t >= 0));
+    const moved = (list as Parameters<typeof shiftObject>[0][])
+      .map((a) => shiftObject(a, dt))
+      .filter((a) => !objectGone(a));
     if (moved.length) next[key] = moved as never;
     else delete next[key];
   }
@@ -198,7 +199,7 @@ export function mergeSteps(project: Project, index: number, firstDuration?: numb
   if (holds.length) merged.holds = holds;
   const zooms = [...(a.zooms ?? []), ...(shiftedB.zooms ?? [])];
   if (zooms.length) merged.zooms = zooms;
-  for (const key of ["pointers", "highlights"] as const) {
+  for (const key of ["pointers", "shapes"] as const) {
     const list = [...(a[key] ?? []), ...(shiftedB[key] ?? [])];
     if (list.length) merged[key] = list as never;
   }

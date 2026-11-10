@@ -29,13 +29,26 @@ import {
   sortedKeys,
   zoomScale,
 } from "../../core/layout";
+import { type ObjectRef, shapeOutsideVideo, stepObjects } from "../../core/objects";
 import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
 import { speechTimes } from "../../core/timeline";
 import type { Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
-import { CheckField, Field, FontField, NumField, prune, SelectField, TextField, withParam } from "./fields";
+import {
+  CheckField,
+  Field,
+  FontField,
+  NumField,
+  prune,
+  SegField,
+  SelectField,
+  TextField,
+  withParam,
+} from "./fields";
 import { t } from "./i18n";
+import { ObjectDefaults, ObjectsList } from "./object-panel";
+import type { NewObjectKind } from "./objects-ui";
 import type { Selection } from "./timeline";
 import { loadChoice, saveChoice } from "./widgets";
 
@@ -86,6 +99,7 @@ export function foldOf(s: Selection): string | null {
   if (s.kind === "caption" || s.kind === "speech") return "text";
   if (s.kind === "zoom") return "zoom";
   if (s.kind === "hold") return "recording";
+  if (s.kind === "pointer" || s.kind === "shape") return "objects";
   return null;
 }
 
@@ -156,6 +170,18 @@ export function StepDetail(props: {
   /** ズームを選ぶ。null で選択を外す(ステップを選んだ状態に戻す) */
   onSelectZoom: (zoom: number | null) => void;
   srcSizeOf: (step: number) => { w: number; h: number } | null;
+  /** ステップの出力上の長さ(オブジェクトの終わりの既定) */
+  stepDuration: number;
+  onSelectObject: (ref: ObjectRef | null) => void;
+  onAddObject: (kind: NewObjectKind) => void;
+  /** 図形の座標の基準を変える(見えている位置を保つ) */
+  onShapeAnchor: (index: number, anchor: "video" | "screen") => void;
+  imageSize: (path: string) => { w: number; h: number } | null;
+  /** 画像を読み込んで大きさを返す(読めなければ null) */
+  loadImage: (path: string) => Promise<{ w: number; h: number } | null>;
+  imageError: (path: string) => string | null;
+  /** 時刻を直したら再生位置をそこへ移す(ステップ index 内の時刻) */
+  onSeekLocal: (step: number, local: number) => void;
 }) {
   const { project, index, focus } = props;
   const step = project.steps[index];
@@ -204,6 +230,32 @@ export function StepDetail(props: {
         <button type="button" onClick={props.onAddZoom}>
           ＋ {t("addZoom")} (Z)
         </button>
+      </Fold>
+      <Fold
+        id="objects"
+        defaultOpen
+        title={t("sectionObjects")}
+        summary={`${stepObjects(step).length}${objectsOutside(step, props.srcSizeOf(index)) ? " ⚠" : ""}`}
+      >
+        <ObjectsList
+          project={project}
+          index={index}
+          update={props.update}
+          selected={
+            mine && (focus.kind === "pointer" || focus.kind === "shape")
+              ? { kind: focus.kind, index: focus.index }
+              : null
+          }
+          stepDuration={props.stepDuration}
+          srcSize={props.srcSizeOf(index)}
+          onSeekLocal={(local) => props.onSeekLocal(index, local)}
+          onSelect={props.onSelectObject}
+          onAdd={props.onAddObject}
+          onShapeAnchor={props.onShapeAnchor}
+          imageSize={props.imageSize}
+          loadImage={props.loadImage}
+          imageError={props.imageError}
+        />
       </Fold>
     </div>
   );
@@ -386,6 +438,7 @@ function StepText(props: {
   speechPlaying: boolean;
   onPreviewSpeech: () => void;
   onGoShared: () => void;
+  onSeekLocal: (step: number, local: number) => void;
 }) {
   const { project, index, update, voices, focus } = props;
   const step = project.steps[index];
@@ -621,7 +674,10 @@ function StepText(props: {
               value={p.start}
               min={0}
               placeholder={k === 0 ? "0" : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`}
-              onChange={(v) => setPiece(k, "start", { start: v === 0 && k === 0 ? undefined : v })}
+              onChange={(v) => {
+                setPiece(k, "start", { start: v === 0 && k === 0 ? undefined : v });
+                if (v !== undefined) props.onSeekLocal(index, v);
+              }}
             />
             {status?.durations[k] ? <p className="hint">{status.durations[k]?.toFixed(2)} s</p> : null}
           </div>
@@ -875,6 +931,10 @@ function TextDefaults(props: { project: Project; update: Update; voices: Voice[]
 
 const fmtSec = (s: number) => `${s.toFixed(1)}s`;
 
+/** 録画に追従する図形のうち、録画の外にはみ出したものがあるか(欄を畳んでいても印を出す) */
+const objectsOutside = (step: Step, src: { w: number; h: number } | null) =>
+  !!src && (step.shapes ?? []).some((s) => shapeOutsideVideo(s, src.w, src.h));
+
 function ZoomSection(props: {
   project: Project;
   update: Update;
@@ -884,6 +944,7 @@ function ZoomSection(props: {
   onDrawZoom: (step: number, zoomIndex: number, key?: number) => void;
   syncSize: boolean;
   srcSizeOf: (step: number) => { w: number; h: number } | null;
+  onSeekLocal: (step: number, local: number) => void;
 }) {
   const { project, update, index, k } = props;
   const step = project.steps[index];
@@ -914,15 +975,22 @@ function ZoomSection(props: {
           label={t("start")}
           value={z.start}
           min={0}
-          onChange={(v) => v !== undefined && v < z.end && setZoomFn("start", (x) => retimeZoom(x, v, x.end))}
+          onChange={(v) => {
+            if (v === undefined || v >= z.end) return;
+            setZoomFn("start", (x) => retimeZoom(x, v, x.end));
+            props.onSeekLocal(index, v);
+          }}
         />
         <NumField
           label={t("end")}
           value={z.end}
           min={0}
-          onChange={(v) =>
-            v !== undefined && v > z.start && setZoomFn("end", (x) => retimeZoom(x, x.start, v))
-          }
+          onChange={(v) => {
+            if (v === undefined || v <= z.start) return;
+            setZoomFn("end", (x) => retimeZoom(x, x.start, v));
+            // 映像を止めるズームは止めた所(始まり)を、それ以外は終わりを見せる
+            props.onSeekLocal(index, zoomHoldMode(z) === "zoom" ? z.start : v);
+          }}
         />
       </div>
       <p className="field-label">
@@ -999,7 +1067,7 @@ function ZoomSection(props: {
         ).toFixed(2)}
         onChange={(v) => setZoom("transition", { transition: v })}
       />
-      <SelectField
+      <SegField
         label={t("hold")}
         value={zoomHoldMode(z)}
         options={[
@@ -1119,14 +1187,18 @@ function Section(props: { focused: boolean; className?: string; children: ReactN
   );
 }
 
+/** 出力の縦横比を固定しているときの比(幅 ÷ 高さ)。保存はせず、アプリを閉じるまで覚えておく */
+let lockedAspect: number | null = null;
+
 /** 「余白なし」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
 let savedMargin: { margin: Margin | undefined; fit: "contain" | "cover" | undefined } | null = null;
 
+/** 解像度の候補。かっこの中は通称 */
 const RESOLUTIONS = [
-  { label: "1920×1080", w: 1920, h: 1080 },
-  { label: "1280×720", w: 1280, h: 720 },
-  { label: "2560×1440", w: 2560, h: 1440 },
-  { label: "3840×2160", w: 3840, h: 2160 },
+  { label: "1920×1080 (Full HD)", w: 1920, h: 1080 },
+  { label: "1280×720 (HD)", w: 1280, h: 720 },
+  { label: "2560×1440 (WQHD)", w: 2560, h: 1440 },
+  { label: "3840×2160 (4K)", w: 3840, h: 2160 },
 ];
 
 /**
@@ -1150,6 +1222,14 @@ export function ProjectPanel(props: {
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
   const noMargin = layout.fit === "contain" && Object.values(layout.margin).every((v) => Math.abs(v) < 1e-9);
   const even = (v: number | undefined) => (v === undefined ? undefined : Math.max(16, Math.round(v / 2) * 2));
+  // 縦横比の固定。固定したときの比(幅 ÷ 高さ)を保つ(入力の途中の値で比が崩れないように)。アプリを閉じるまで覚える
+  const [aspect, setAspect] = useState<number | null>(() => lockedAspect);
+  const lockAspect = (v: number | null) => {
+    lockedAspect = v;
+    setAspect(v);
+  };
+  const setSize = (w: number | undefined, h: number | undefined, key: string) =>
+    set("output", prune({ ...project.output, width: even(w), height: even(h) }), key);
 
   return (
     <div className="inspector">
@@ -1164,7 +1244,9 @@ export function ProjectPanel(props: {
             value={RESOLUTIONS.find((r) => r.w === out.width && r.h === out.height)?.label ?? ""}
             onChange={(e) => {
               const r = RESOLUTIONS.find((x) => x.label === e.target.value);
-              if (r) set("output", { ...project.output, width: r.w, height: r.h });
+              if (!r) return;
+              set("output", { ...project.output, width: r.w, height: r.h });
+              if (aspect !== null) lockAspect(r.w / r.h);
             }}
           >
             <option value="">—</option>
@@ -1178,13 +1260,22 @@ export function ProjectPanel(props: {
             label={t("width")}
             value={out.width}
             step={2}
-            onChange={(v) => set("output", prune({ ...project.output, width: even(v) }), "output.w")}
+            onChange={(v) =>
+              setSize(v, aspect !== null && v !== undefined ? v / aspect : project.output?.height, "output.w")
+            }
           />
           <NumField
             label={t("height")}
             value={out.height}
             step={2}
-            onChange={(v) => set("output", prune({ ...project.output, height: even(v) }), "output.h")}
+            onChange={(v) =>
+              setSize(aspect !== null && v !== undefined ? v * aspect : project.output?.width, v, "output.h")
+            }
+          />
+          <CheckField
+            label={t("lockAspect")}
+            value={aspect !== null}
+            onChange={(v) => lockAspect(v ? out.width / out.height : null)}
           />
         </div>
         <div className="row">
@@ -1260,6 +1351,9 @@ export function ProjectPanel(props: {
       </Fold>
 
       <TextDefaults project={project} update={update} voices={props.voices} focused={props.focusShared} />
+      <Fold id="p.objects" title={t("objectDefaults")} defaultOpen={false}>
+        <ObjectDefaults project={project} update={update} />
+      </Fold>
     </div>
   );
 }

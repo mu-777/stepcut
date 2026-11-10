@@ -8,10 +8,12 @@ import {
   resolveLayout,
 } from "../../core/defaults";
 import { computeLayout, marginArea, type Rect, videoBoxFor, viewRectAt } from "../../core/layout";
+import type { ObjectRef } from "../../core/objects";
 import type { Project, Step } from "../../core/schema";
 import { wrapText } from "../../core/text";
 import { fadeLevel } from "../../core/timeline";
 import { drawSimpleBackground } from "./backgrounds";
+import { drawObjects, type Img } from "./objects-draw";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Frame = CanvasImageSource & { width: number; height: number };
@@ -37,6 +39,56 @@ export interface FrameInput {
   captionPlaceholder?: string;
   /** テロップを描かない(プレビュー上でテロップの文を入力中。入力欄を重ねて出す) */
   hideCaption?: boolean;
+  /** 図形・ポインターの画像(読み込み済みなら返す) */
+  images?: (path: string) => Img | null;
+  /** 出ている間ならフェード・点滅に関わらず出すオブジェクト(編集画面で選んでいるもの) */
+  showObject?: ObjectRef;
+}
+
+/** 1 フレームの配置。video はズームなしの録画の領域、view は映すソースの範囲、box はそれを描く領域(出力のピクセル) */
+export interface FrameGeometry {
+  video: Rect;
+  view: Rect;
+  box: Rect;
+  /** ソースの 1px が出力の何 px か */
+  k: number;
+}
+
+export function frameGeometry(
+  project: Project,
+  step: Step | null,
+  local: number,
+  outW: number,
+  outH: number,
+  srcW: number,
+  srcH: number,
+  ignoreZoom = false,
+): FrameGeometry {
+  const layout = resolveLayout(project);
+  const geo = computeLayout(outW, outH, layout, srcW, srcH);
+  const view = step && !ignoreZoom ? viewRectAt(step, local, srcW, srcH, geo.crop) : geo.crop;
+  // 枠どおりに映すズームでは、録画を描く領域の形が変わる
+  const box = view === geo.crop ? geo.video : videoBoxFor(view, marginArea(outW, outH, layout.margin));
+  return { video: geo.video, view, box, k: box.w / view.w };
+}
+
+/**
+ * 画面に固定した図形の座標(出力の高さ 1080 を基準にした px)の配置。frameGeometry と同じ形で、
+ * toOutput / toSource をそのまま使える。録画の領域では切らない(box は画面全体)
+ */
+export function screenGeometry(outW: number, outH: number, video: Rect): FrameGeometry {
+  const k = outH / 1080;
+  return { video, view: { x: 0, y: 0, w: outW / k, h: 1080 }, box: { x: 0, y: 0, w: outW, h: outH }, k };
+}
+
+/** ソースの座標(x, y)を出力のピクセルへ */
+export function toOutput(g: FrameGeometry, x: number, y: number): { x: number; y: number } {
+  return { x: g.box.x + (x - g.view.x) * g.k, y: g.box.y + (y - g.view.y) * g.k };
+}
+
+/** 出力のピクセルをソースの座標へ */
+export function toSource(g: FrameGeometry, x: number, y: number): { x: number; y: number } {
+  return { x: g.view.x + (x - g.box.x) / g.k, y: g.view.y + (y - g.box.y) / g.k };
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
@@ -52,12 +104,10 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
 
   const srcW = f.srcW || 1920;
   const srcH = f.srcH || 1080;
-  const geo = computeLayout(f.outW, f.outH, layout, srcW, srcH);
+  const g = frameGeometry(f.project, f.step, f.local, f.outW, f.outH, srcW, srcH, f.ignoreZoom);
   // テロップの置き場所はズームによらず、ズームなしの録画の位置で決める
-  const v = geo.video;
-  const view = f.step && !f.ignoreZoom ? viewRectAt(f.step, f.local, srcW, srcH, geo.crop) : geo.crop;
-  // 枠どおりに映すズームでは、録画を描く領域の形が変わる
-  const box = view === geo.crop ? v : videoBoxFor(view, marginArea(f.outW, f.outH, layout.margin));
+  const v = g.video;
+  const { view, box } = g;
 
   if (layout.shadow) {
     ctx.save();
@@ -79,6 +129,21 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
     const ky = f.frame.height / srcH;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(f.frame, view.x * kx, view.y * ky, view.w * kx, view.h * ky, box.x, box.y, box.w, box.h);
+  }
+
+  if (f.step) {
+    // ポインター・蛍光ペン・図形。映像側のものは録画の領域で切ってズームに追従させ、画面に固定した図形は画面全体に描く
+    drawObjects(ctx, {
+      project: f.project,
+      step: f.step,
+      local: f.local,
+      stepDuration: f.stepDuration,
+      video: g,
+      screen: screenGeometry(f.outW, f.outH, v),
+      outScale: scale,
+      images: f.images,
+      show: f.showObject,
+    });
   }
 
   if (f.step && !f.hideCaption) {

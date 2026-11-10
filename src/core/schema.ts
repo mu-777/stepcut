@@ -30,15 +30,50 @@ const captionPlacement = {
   width: ratio.optional(),
 };
 
+/**
+ * ポインターの見た目。preset は "arrow"(矢印のカーソル)・"dot"(丸)・"ring"(輪)・"highlighter"(蛍光ペン。
+ * 動きに沿って線を引く)
+ */
 export const pointerStyleSchema = z.strictObject({
   preset: z.string().min(1).optional(),
+  /** カーソル・丸・輪・画像の大きさ(出力の高さ 1080 を基準にした px。ズームしても変わらない) */
   size: z.number().positive().optional(),
+  /** ユーザーの画像(png など)。preset の代わりに使い、画像の左上を指す点にする */
+  image: z.string().min(1).optional(),
+  /** 丸・輪・蛍光ペンの色 */
+  color: color.optional(),
+  /** 蛍光ペンの線の太さ(ソースのピクセル。ズームに合わせて太くなる) */
+  width: z.number().positive().optional(),
+  /** 蛍光ペンの不透明度 */
+  opacity: ratio.optional(),
 });
 
-export const highlighterStyleSchema = z.strictObject({
+/** 四角。線の太さ・角の丸みはソースのピクセル */
+export const rectStyleSchema = z.strictObject({
+  stroke: color.optional(),
+  /** 0 なら線なし */
+  strokeWidth: z.number().min(0).optional(),
+  fill: color.optional(),
+  /** 塗りの不透明度。0 なら枠だけ */
+  fillOpacity: ratio.optional(),
+  radius: z.number().min(0).optional(),
+});
+
+/** 矢印。太さはソースのピクセル、head は矢じりの大きさ(太さの何倍か) */
+export const arrowStyleSchema = z.strictObject({
   color: color.optional(),
   width: z.number().positive().optional(),
-  opacity: ratio.optional(),
+  head: z.number().positive().optional(),
+});
+
+/** 自由に置く文字。size はソースのピクセル(ズームに合わせて大きくなる) */
+export const textStyleSchema = z.strictObject({
+  font: z.string().min(1).optional(),
+  size: z.number().positive().optional(),
+  color: color.optional(),
+  align: z.enum(["left", "center", "right"]).optional(),
+  /** 枠の塗り。透明(#RRGGBB00)なら塗らない */
+  background: color.optional(),
 });
 
 const audioSchema = z.strictObject({
@@ -69,13 +104,22 @@ export const backgroundSchema = z.union([
 
 const pointSchema = z.strictObject({ t: time, x: z.number(), y: z.number() });
 const transitionKind = z.enum(["none", "fade", "flash"]);
+/** 現れ方・消え方。種類だけか、長さ(秒)・点滅の回数も書く形 */
+const transitionSchema = z.union([
+  transitionKind,
+  z.strictObject({
+    type: transitionKind,
+    duration: z.number().positive().optional(),
+    count: z.number().int().min(1).max(20).optional(),
+  }),
+]);
 
 const annotationBase = {
   mode: z.enum(["line", "freehand"]),
   path: z.array(pointSchema).min(2),
   end: time.optional(),
-  enter: transitionKind.optional(),
-  exit: transitionKind.optional(),
+  enter: transitionSchema.optional(),
+  exit: transitionSchema.optional(),
 };
 
 const rectSchema = z.strictObject({
@@ -84,6 +128,50 @@ const rectSchema = z.strictObject({
   w: z.number().positive(),
   h: z.number().positive(),
 });
+
+const xySchema = z.strictObject({ x: z.number(), y: z.number() });
+
+/** 図形が出ている間。start〜end(省略するとステップの終わりまで)はステップ内の出力時刻 */
+const shapeTiming = {
+  start: time,
+  end: time.optional(),
+  enter: transitionSchema.optional(),
+  exit: transitionSchema.optional(),
+  /**
+   * 座標の基準。省略(映像側)はソースのピクセルでズームに追従し、録画の領域で切る。
+   * "screen"(画面側)は出力の高さ 1080 を基準にした px で、ズームしても動かず、背景にも置ける
+   */
+  anchor: z.literal("screen").optional(),
+};
+
+/** 図形(四角・矢印・文字)。座標は anchor で決まる(既定は映像側)。配列の後ろほど手前に描く */
+export const shapeSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("rect"),
+    ...shapeTiming,
+    rect: rectSchema,
+    /**
+     * 中に描く画像ファイルのパス(素材と同じく、プロジェクトファイルからの相対パスで保存する)。
+     * 塗り → 画像 → 線の順に描くので、透明な所には塗りが見え、線は画像の枠になる
+     */
+    image: z.string().min(1).optional(),
+    style: rectStyleSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("arrow"),
+    ...shapeTiming,
+    from: xySchema,
+    to: xySchema,
+    style: arrowStyleSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("text"),
+    ...shapeTiming,
+    rect: rectSchema,
+    text: z.string(),
+    style: textStyleSchema.optional(),
+  }),
+]);
 
 /** ズームの枠(キーフレーム)。t はステップ内の出力時刻 */
 export const zoomKeySchema = z.strictObject({ t: time, rect: rectSchema });
@@ -104,6 +192,13 @@ export const zoomSchema = z.strictObject({
    */
   hold: z.union([z.boolean(), z.literal("transition")]).optional(),
   transition: time.optional(),
+});
+
+export const pointerSchema = z.strictObject({
+  ...annotationBase,
+  /** 最後の点に着いたときにクリックの波紋を出す */
+  click: z.boolean().optional(),
+  style: pointerStyleSchema.optional(),
 });
 
 export const speechPieceSchema = z.strictObject({
@@ -141,10 +236,8 @@ export const stepSchema = z.strictObject({
   audio: audioSchema.optional(),
   holds: z.array(holdSchema).optional(),
   zooms: z.array(zoomSchema).optional(),
-  pointers: z.array(z.strictObject({ ...annotationBase, style: pointerStyleSchema.optional() })).optional(),
-  highlights: z
-    .array(z.strictObject({ ...annotationBase, style: highlighterStyleSchema.optional() }))
-    .optional(),
+  pointers: z.array(pointerSchema).optional(),
+  shapes: z.array(shapeSchema).optional(),
 });
 
 export const projectSchema = z.strictObject({
@@ -180,7 +273,9 @@ export const projectSchema = z.strictObject({
     .strictObject({
       caption: captionStyleSchema.extend(captionPlacement).optional(),
       pointer: pointerStyleSchema.optional(),
-      highlighter: highlighterStyleSchema.optional(),
+      rect: rectStyleSchema.optional(),
+      arrow: arrowStyleSchema.optional(),
+      text: textStyleSchema.optional(),
     })
     .optional(),
   speech: z
@@ -204,4 +299,13 @@ export type Hold = z.infer<typeof holdSchema>;
 export type SpeechPiece = z.infer<typeof speechPieceSchema>;
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
 export type Background = z.infer<typeof backgroundSchema>;
+export type Pointer = z.infer<typeof pointerSchema>;
+export type Shape = z.infer<typeof shapeSchema>;
+export type ShapeType = Shape["type"];
+export type PointerStyle = z.infer<typeof pointerStyleSchema>;
+export type RectStyle = z.infer<typeof rectStyleSchema>;
+export type ArrowStyle = z.infer<typeof arrowStyleSchema>;
+export type TextStyle = z.infer<typeof textStyleSchema>;
+export type Transition = z.infer<typeof transitionKind>;
+export type TransitionSpec = z.infer<typeof transitionSchema>;
 export type Margin = NonNullable<NonNullable<Project["layout"]>["margin"]>;

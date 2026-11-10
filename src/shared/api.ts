@@ -81,6 +81,8 @@ export interface Api {
   pathForFile(file: File): string;
   /** 背景の画像を選ぶ(絶対パス) */
   pickImage(): Promise<string | null>;
+  /** ファイルのあるフォルダーを開き、そのファイルを選んだ状態にする */
+  revealFile(absPath: string): Promise<void>;
   pickExportPath(defaultPath: string): Promise<string | null>;
   resolveSource(projectPath: string | null, stored: string): Promise<string>;
   setDirty(dirty: boolean): void;
