@@ -1,7 +1,7 @@
 // プロジェクトファイルの保存(素材パスの書き換え)と外部変更の監視(AI-05)。
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { type StatsListener, unwatchFile, watchFile } from "node:fs";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolveStoredPath, toStoredPath } from "./paths";
 
@@ -43,10 +43,17 @@ export function rebaseSourcePaths(text: string, fromDir: string | null, toDir: s
 }
 
 /** 書きかけのファイルを読まれないよう、一時ファイルに書いてから置き換える */
-export async function writeAtomic(filePath: string, text: string): Promise<void> {
-  const tmp = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tmp, text, "utf8");
-  await rename(tmp, filePath);
+export async function writeAtomic(filePath: string, data: string | Uint8Array): Promise<void> {
+  // 同じファイルへの同時の書き込みでも一時ファイルが衝突しないよう、乱数を入れる
+  const tmp = `${filePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    if (typeof data === "string") await writeFile(tmp, data, "utf8");
+    else await writeFile(tmp, data);
+    await rename(tmp, filePath);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 /**

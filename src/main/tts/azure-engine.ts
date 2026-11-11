@@ -54,6 +54,8 @@ export function createAzureEngine(
 
   return {
     name: "azure",
+    // 429(多すぎる)を避けるため少なめ
+    concurrency: 3,
     version: "azure-1",
     notice: AZURE_NOTICE,
     async unavailable() {
