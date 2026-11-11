@@ -1669,6 +1669,106 @@ function fakeVoicevox() {
     server.close();
   }
 
+  // クラッシュ復旧(PRJ-06): 未保存の変更を 5 秒後に別ファイルへ残し、強制終了のあとの起動で復元を尋ねる。
+  // 別のアプリの設定フォルダー・別のプロジェクトで、起動し直して確かめる
+  {
+    const recDir = path.join(outDir, "user-data-recovery");
+    fs.rmSync(recDir, { recursive: true, force: true });
+    const recProject = path.join(outDir, "recover.sanno.json");
+    fs.copyFileSync(projectPath, recProject);
+    const recFiles = () => {
+      try {
+        return fs.readdirSync(path.join(recDir, "recovery")).filter((f) => f.endsWith(".json"));
+      } catch {
+        return [];
+      }
+    };
+    // 起動して最初のダイアログの文を覚える(answer が false なら断る)。window.confirm は読み込みの直後に出る
+    const launchRecovery = async (answer) => {
+      const a = await electron.launch({
+        executablePath: require(path.join(root, "node_modules/electron")),
+        args: [root, "--no-sandbox", `--user-data-dir=${recDir}`, recProject],
+        cwd: root,
+      });
+      const w = await a.firstWindow();
+      const dialogs = [];
+      w.on("dialog", (d) => {
+        dialogs.push(d.message());
+        void (answer ? d.accept() : d.dismiss());
+      });
+      await w.setViewportSize({ width: 1400, height: 860 });
+      await w.waitForSelector(".rail-thumb");
+      await w.waitForTimeout(1500);
+      return { a, w, dialogs };
+    };
+    const editCaption = async (w, text) => {
+      await w.locator(".rail-thumb").first().click();
+      await w.locator(".tl-bar.caption").first().click();
+      const box = w.locator(".section.focused textarea").first();
+      await box.fill(text);
+      await box.blur();
+      await w.waitForTimeout(200);
+    };
+    const captionOf = async (w) => {
+      await w.locator(".rail-thumb").first().click();
+      await w.locator(".tl-bar.caption").first().click();
+      return w.locator(".section.focused textarea").first().inputValue();
+    };
+
+    // 1) 編集して 5 秒以上待ち、強制終了。プロジェクトのファイルは変わらない
+    const before = fs.readFileSync(recProject, "utf8");
+    let r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "復旧ファイルがなければ復元の確認は出ない");
+    await editCaption(r.w, "クラッシュ前の編集");
+    await r.w.waitForTimeout(6000);
+    check(recFiles().length === 1, `未保存の変更を 5 秒後に復旧ファイルへ残す (${recFiles().join(",")})`);
+    check(fs.readFileSync(recProject, "utf8") === before, "自動保存でプロジェクトのファイルは書き換えない");
+    r.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 800));
+
+    // 2) 起動し直す: 復元を尋ね、受け入れると編集が戻り、未保存として出る
+    r = await launchRecovery(true);
+    check(
+      r.dialogs.length === 1 && /復元|Restore/.test(r.dialogs[0]),
+      `強制終了のあとの起動で復元を尋ねる (${r.dialogs.join(" | ")})`,
+    );
+    check((await captionOf(r.w)) === "クラッシュ前の編集", "復元すると編集が戻る");
+    check((await r.w.locator(".tb-dirty").count()) === 1, "復元した内容は未保存として出る");
+    check(fs.readFileSync(recProject, "utf8") === before, "復元してもプロジェクトのファイルは書き換わらない");
+
+    // 3) 保存すると復旧ファイルが消える。閉じて起動し直しても尋ねない
+    await r.w.getByRole("button", { name: /^(File|ファイル)/ }).click();
+    await r.w.getByRole("menuitem", { name: /^(Save|保存)/ }).click();
+    await r.w.waitForTimeout(800);
+    check(recFiles().length === 0, "保存すると復旧ファイルを消す");
+    check(
+      fs.readFileSync(recProject, "utf8").includes("クラッシュ前の編集"),
+      "保存でプロジェクトのファイルに入る",
+    );
+    await r.a.close();
+    r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "保存して閉じたあとの起動では復元を尋ねない");
+
+    // 4) 復元したあとの保存済みの内容を、もう一度編集して強制終了する
+    await editCaption(r.w, "破棄する編集");
+    await r.w.waitForTimeout(6000);
+    check(recFiles().length === 1, "もう一度、復旧ファイルが残る");
+    r.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 800));
+
+    // 5) 復元を断ると復旧ファイルが消え、保存した内容が開く
+    r = await launchRecovery(false);
+    check(r.dialogs.length === 1, "復元を尋ねる");
+    check((await captionOf(r.w)) === "クラッシュ前の編集", "断ると保存してある内容のまま");
+    check((await r.w.locator(".tb-dirty").count()) === 0, "断ると未保存にならない");
+    check(recFiles().length === 0, "断ると復旧ファイルを消す");
+    await r.a.close();
+    r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "断ったあとの起動では尋ねない");
+    check(r.dialogs.length === 0 && recFiles().length === 0, "変更なしで閉じたあとに復旧ファイルが残らない");
+    await r.a.close();
+  }
+
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();
 })().catch(async (e) => {

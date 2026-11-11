@@ -127,6 +127,15 @@ function issuePath(path: string): string {
   return m ? `${t("step")} ${Number(m[1]) + 1} (${path})` : path;
 }
 
+/** 復旧ファイルを書くまでの待ち(最後の変更から) */
+const RECOVERY_DELAY_MS = 5000;
+
+/** 読み込んだ結果と比べられる形(保存するときと同じ整形)。読めなければそのまま */
+function canonicalText(text: string): string {
+  const r = parseProjectText(text);
+  return r.ok ? serializeProject(r.project) : text;
+}
+
 export function App() {
   const [hist, setHist] = useState<History>(() => initHistory(newProject()));
   const project = hist.present;
@@ -365,6 +374,33 @@ export function App() {
     return true;
   }, []);
 
+  /** 復旧ファイルが残っているプロジェクト(書いた・復元した)。保存・破棄・保存先の変更で消す */
+  const recoveryWritten = useRef<{ path: string | null } | null>(null);
+  /**
+   * 前回のクラッシュで残った復旧ファイルがあれば、復元するか尋ねる(PRJ-06)。読み込んだ内容(diskText)と同じ・読めない
+   * ものは黙って消す。復元しても savedText は読み込んだ内容のままなので、未保存の変更として出る
+   */
+  const offerRecovery = useCallback(async (projectPath: string | null, diskText: string) => {
+    try {
+      const rec = await api.readRecovery(projectPath);
+      if (!rec) return;
+      const r = parseProjectText(rec.text);
+      if (!r.ok || serializeProject(r.project) === diskText) {
+        await api.clearRecovery(projectPath);
+        return;
+      }
+      if (!window.confirm(t("recoverConfirm").replace("{time}", new Date(rec.savedAt).toLocaleString()))) {
+        await api.clearRecovery(projectPath);
+        return;
+      }
+      recoveryWritten.current = { path: projectPath };
+      setHist(initHistory(r.project));
+      if (projectPath === null) setPendingName(rec.name);
+    } catch {
+      // 復旧は補助。失敗しても編集は続ける
+    }
+  }, []);
+
   const confirmDiscard = () => !dirty || window.confirm(t("discardConfirm"));
 
   const actions = useRef<Record<string, () => void>>({});
@@ -381,7 +417,7 @@ export function App() {
     open: async () => {
       if (!confirmDiscard()) return;
       const r = await api.openProjectDialog();
-      if (r) loadProject(r.filePath, r.text, false);
+      if (r && loadProject(r.filePath, r.text, false)) void offerRecovery(r.filePath, canonicalText(r.text));
     },
     // まだ保存していないプロジェクトは、先にヘッダーで名前を入れてもらう
     save: () => {
@@ -528,8 +564,32 @@ export function App() {
   useEffect(() => api.onMenu((cmd) => actions.current[cmd]?.()), []);
 
   useEffect(() => {
-    api.initialProject().then((p) => p && loadProject(p.filePath, p.text, false));
-  }, [loadProject]);
+    api
+      .initialProject()
+      .then((p) => {
+        if (!p) return offerRecovery(null, serializeProject(newProject()));
+        if (loadProject(p.filePath, p.text, false)) return offerRecovery(p.filePath, canonicalText(p.text));
+      })
+      .catch(() => {});
+  }, [loadProject, offerRecovery]);
+
+  // クラッシュ復旧の自動保存: 未保存の変更があるとき、最後の変更の 5 秒後に別ファイルへ書く(PRJ-06)。
+  // プロジェクトや保存先が変わると前のタイマーは捨てる。保存・破棄・読み込み直し・名前の変更で古い復旧ファイルを消す
+  useEffect(() => {
+    if (!dirty) return;
+    const timer = setTimeout(() => {
+      recoveryWritten.current = { path: filePath };
+      api.writeRecovery(filePath, filePath ? null : pendingName, serializeProject(project)).catch(() => {});
+    }, RECOVERY_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [dirty, project, filePath, pendingName]);
+  useEffect(() => {
+    const w = recoveryWritten.current;
+    if (w && (!dirty || w.path !== filePath)) {
+      recoveryWritten.current = null;
+      api.clearRecovery(w.path).catch(() => {});
+    }
+  }, [dirty, filePath]);
 
   useEffect(
     () =>

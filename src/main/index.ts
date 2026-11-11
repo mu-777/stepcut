@@ -25,6 +25,7 @@ import { FileReaders } from "./file-readers";
 import { OutputFiles } from "./output-files";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
+import { clearRecovery, clearRecoverySync, readRecovery, writeRecovery } from "./recovery";
 import { azureKey, loadSettings, saveSettings, setAzureKey } from "./settings";
 import { createAzureEngine } from "./tts/azure-engine";
 import { createOsEngine } from "./tts/os-engine";
@@ -48,6 +49,19 @@ let cliJson = false;
 let busy = false;
 /** レンダラーから受け取るパスの許可(docs/decisions/20261111-ipc-restrictions.md) */
 const acl = new AccessList();
+
+/** クラッシュ復旧の自動保存の置き場(PRJ-06) */
+const recoveryDir = () => path.join(app.getPath("userData"), "recovery");
+/** 最後に復旧ファイルを書いたプロジェクト(null は未保存のプロジェクト)。閉じるときに消す */
+let recoveryKeyOf: { projectPath: string | null } | null = null;
+/** 書き込みと削除が前後しないよう、1 本ずつ順に行う */
+let recoveryQueue: Promise<unknown> = Promise.resolve();
+const inRecoveryQueue = <T>(fn: () => Promise<T>): Promise<T> => {
+  const r = recoveryQueue.then(fn, fn);
+  recoveryQueue = r.catch(() => {});
+  return r;
+};
+const assertRecoveryPath = (p: string | null) => (p === null ? null : acl.assertProject(p));
 
 const tts = () =>
   new TtsService(path.join(app.getPath("userData"), "tts-cache"), [
@@ -246,6 +260,23 @@ function registerIpc(): void {
     watcher.watch(target, await readFile(target, "utf8"));
     return target;
   });
+  ipcMain.handle(
+    "recovery:write",
+    async (_e, projectPath: string | null, name: string | null, text: string) => {
+      const p = assertRecoveryPath(projectPath);
+      if (typeof text !== "string") return;
+      recoveryKeyOf = { projectPath: p };
+      await inRecoveryQueue(() =>
+        writeRecovery(recoveryDir(), p, typeof name === "string" ? name : null, text),
+      );
+    },
+  );
+  ipcMain.handle("recovery:read", (_e, projectPath: string | null) =>
+    readRecovery(recoveryDir(), assertRecoveryPath(projectPath)),
+  );
+  ipcMain.handle("recovery:clear", (_e, projectPath: string | null) =>
+    inRecoveryQueue(() => clearRecovery(recoveryDir(), assertRecoveryPath(projectPath))),
+  );
   ipcMain.handle("sources:pick", async () => {
     const r = await dialog.showOpenDialog({
       filters: [
@@ -411,7 +442,11 @@ app.whenReady().then(async () => {
         return;
       }
     }
-    if (!dirty) return;
+    if (!dirty) {
+      // 変更なしで閉じる。復旧ファイルは要らない
+      if (recoveryKeyOf) clearRecoverySync(recoveryDir(), recoveryKeyOf.projectPath);
+      return;
+    }
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: "warning",
       buttons: ["保存して閉じる / Save and close", "破棄して閉じる / Discard", "キャンセル / Cancel"],
@@ -424,6 +459,7 @@ app.whenReady().then(async () => {
       e.preventDefault();
       mainWindow.webContents.send("menu", "saveAndClose");
     } else if (choice === 2) e.preventDefault();
+    else if (recoveryKeyOf) clearRecoverySync(recoveryDir(), recoveryKeyOf.projectPath); // 破棄して閉じる
   });
   mainWindow.on("closed", () => {
     mainWindow = null;

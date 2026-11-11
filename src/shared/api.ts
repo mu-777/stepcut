@@ -103,6 +103,15 @@ export interface OpenedProject {
   text: string;
 }
 
+/** クラッシュ復旧用に残した、保存していない内容(PRJ-06) */
+export interface RecoveryData {
+  text: string;
+  /** 残した日時(ISO 8601) */
+  savedAt: string;
+  /** まだ保存していないプロジェクトに付けていた名前 */
+  name: string | null;
+}
+
 /** CLI の frame の指定。step(1 始まりの番号か id)と time(ステップ内の出力時刻)か、at(全体の時刻) */
 export interface FrameRequest {
   step?: string;
@@ -159,6 +168,10 @@ export interface Api {
   /** プロジェクトのファイル名を変える(同じフォルダー)。新しいパスを返す */
   renameProject(filePath: string, name: string): Promise<string>;
   pickSources(): Promise<string[]>;
+  // クラッシュ復旧(projectPath が null ならまだ保存していないプロジェクト)
+  writeRecovery(projectPath: string | null, name: string | null, text: string): Promise<void>;
+  readRecovery(projectPath: string | null): Promise<RecoveryData | null>;
+  clearRecovery(projectPath: string | null): Promise<void>;
   // アプリの設定
   getSettings(): Promise<AppSettings>;
   setSettings(patch: SettingsPatch): Promise<AppSettings>;

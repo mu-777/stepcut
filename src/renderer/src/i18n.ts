@@ -126,6 +126,7 @@ const en = {
   externalChange:
     "The project file was changed outside the app. Load the external version? (Unsaved changes will be lost)",
   externalInvalid: "The project file was changed outside the app but has errors. It was not loaded.",
+  recoverConfirm: "Unsaved changes from last time remain ({time}). Restore them?",
   speechPending: "Generating speech…",
   exportDone: "Export finished",
   revealFolder: "Show in folder",
@@ -532,6 +533,7 @@ const ja: typeof en = {
     "プロジェクトファイルがアプリの外で変更されました。外部の内容を読み込みますか?(未保存の変更は失われます)",
   externalInvalid:
     "プロジェクトファイルがアプリの外で変更されましたが、エラーがあるため読み込みませんでした。",
+  recoverConfirm: "前回、保存されていない変更が残っています({time})。復元しますか?",
   speechPending: "読み上げを生成中…",
   exportDone: "書き出しが終わりました",
   revealFolder: "フォルダーを開く",
