@@ -1843,7 +1843,7 @@ function fakeVoicevox() {
     // 3) ズーム(映像を止める)で伸びた長さを「録画・速度」の見出しに出す
     await r.w.locator(".rail-thumb").first().click();
     const summary = () => r.w.locator(".fold-summary").first().textContent();
-    check((await summary()) === "4.0s", `保持がなければ録画の長さだけ (${await summary()})`);
+    check((await summary()) === "4.0s", `保持がなければ録画の長さ (${await summary()})`);
     await r.w.keyboard.press("ArrowRight");
     await r.w.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
     await r.w.keyboard.press("Escape");
@@ -1851,10 +1851,9 @@ function fakeVoicevox() {
     const held = (await summary()) ?? "";
     const railLen = (await r.w.locator(".rail-thumb").first().locator(".rail-text").textContent()) ?? "";
     check(
-      /^6\.0s[(（](保持 2\.0s を含む|incl\. 2\.0s hold)[)）]$/.test(held),
-      `ズームで伸びた長さと保持の分を見出しに出す (${held})`,
+      held === "6.0s" && railLen.includes("6.0s"),
+      `ズームで伸びたら、見出しも左の列と同じ伸びた後の長さ (${held} / ${railLen})`,
     );
-    check(railLen.includes(held.slice(0, held.indexOf("s") + 1)), `見出しの長さは左の列と同じ (${railLen})`);
 
     // 4) 書き出しの中止: ボタンが中止になり、押すと知らせが出て、途中のファイルを残さない
     const outMp4 = path.join(fixDir, "cancel.mp4");

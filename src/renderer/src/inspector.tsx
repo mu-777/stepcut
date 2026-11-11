@@ -36,7 +36,7 @@ import {
 } from "../../core/layout";
 import { type ObjectRef, shapeOutsideVideo, stepObjects } from "../../core/objects";
 import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
-import { speechTimes, videoDuration } from "../../core/timeline";
+import { speechTimes } from "../../core/timeline";
 import type { SpeechEngineSettings, Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
@@ -160,16 +160,10 @@ function Fold(props: {
   );
 }
 
-/**
- * 「録画・速度」の見出しに添える長さ。保持(ズーム中に止める・置いた保持・読み上げ待ち)で伸びているときは、
- * 左の列・タイムラインと同じ伸びた後の長さを出し、保持の分を添える
- */
+/** 「録画・速度」の見出しに添える長さ。左の列・タイムラインと同じ、保持を含むステップ全体の長さ */
 function recordingSummary(step: Step, stepDuration: number): string {
   const speed = step.speed ?? 1;
-  const speedText = speed > 1 ? ` ×${speed}` : "";
-  const held = stepDuration - videoDuration(step);
-  if (held < 0.05) return `${(step.out - step.in).toFixed(1)}s${speedText}`;
-  return `${stepDuration.toFixed(1)}s${speedText}(${t("holdIncluded").replace("{sec}", held.toFixed(1))})`;
+  return `${stepDuration.toFixed(1)}s${speed > 1 ? ` ×${speed}` : ""}`;
 }
 
 /** ステップの詳細: 録画・速度 / 文(テロップと読み上げ)/ ズーム を開け閉めできる欄で並べる */
