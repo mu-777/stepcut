@@ -1,14 +1,4 @@
-import {
-  access,
-  appendFile,
-  type FileHandle,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { access, appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
@@ -21,6 +11,7 @@ import {
   type SettingsPatch,
   type TtsRequest,
 } from "../shared/api";
+import { AccessList, isValidProjectName } from "./access";
 import {
   type CliArgs,
   defaultOutPath,
@@ -30,8 +21,11 @@ import {
   parseCli,
   validateFile,
 } from "./cli";
+import { FileReaders } from "./file-readers";
+import { OutputFiles } from "./output-files";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
+import { clearRecovery, clearRecoverySync, readRecovery, writeRecovery } from "./recovery";
 import { azureKey, loadSettings, saveSettings, setAzureKey } from "./settings";
 import { createAzureEngine } from "./tts/azure-engine";
 import { createOsEngine } from "./tts/os-engine";
@@ -51,6 +45,23 @@ let dirty = false;
 let exportJob: ExportJob | null = null;
 let exportDone: ((r: ExportResult | CliJobResult) => void) | null = null;
 let cliJson = false;
+/** 書き出し中か(ウィンドウを閉じるときに確かめる) */
+let busy = false;
+/** レンダラーから受け取るパスの許可(docs/decisions/20261111-ipc-restrictions.md) */
+const acl = new AccessList();
+
+/** クラッシュ復旧の自動保存の置き場(PRJ-06) */
+const recoveryDir = () => path.join(app.getPath("userData"), "recovery");
+/** 最後に復旧ファイルを書いたプロジェクト(null は未保存のプロジェクト)。閉じるときに消す */
+let recoveryKeyOf: { projectPath: string | null } | null = null;
+/** 書き込みと削除が前後しないよう、1 本ずつ順に行う */
+let recoveryQueue: Promise<unknown> = Promise.resolve();
+const inRecoveryQueue = <T>(fn: () => Promise<T>): Promise<T> => {
+  const r = recoveryQueue.then(fn, fn);
+  recoveryQueue = r.catch(() => {});
+  return r;
+};
+const assertRecoveryPath = (p: string | null) => (p === null ? null : acl.assertProject(p));
 
 const tts = () =>
   new TtsService(path.join(app.getPath("userData"), "tts-cache"), [
@@ -81,6 +92,11 @@ function createWindow(opts: { show: boolean; query?: Record<string, string> }): 
       backgroundThrottling: false,
     },
   });
+  lockNavigation(win);
+  const wcId = win.webContents.id;
+  // レンダラーが落ちた・ウィンドウが閉じたら、書きかけの出力(.part)を捨てる
+  win.webContents.on("render-process-gone", () => void outputs.closeOwner(wcId));
+  win.on("closed", () => void outputs.closeOwner(wcId));
   const query = new URLSearchParams(opts.query).toString();
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query ? `?${query}` : ""}`);
@@ -88,6 +104,23 @@ function createWindow(opts: { show: boolean; query?: Record<string, string> }): 
     win.loadFile(path.join(__dirname, "../renderer/index.html"), { query: opts.query });
   }
   return win;
+}
+
+/** 別のページへ移る・新しいウィンドウを開く・webview を付けることを禁じる(開発時だけ自分の dev サーバーの中は許す) */
+function lockNavigation(win: BrowserWindow): void {
+  const devUrl = process.env.ELECTRON_RENDERER_URL;
+  const devOrigin = devUrl ? new URL(devUrl).origin : null;
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (e, url) => {
+    let origin: string | null = null;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      // 読めない URL は止める
+    }
+    if (!devOrigin || origin !== devOrigin) e.preventDefault();
+  });
+  win.webContents.on("will-attach-webview", (e) => e.preventDefault());
 }
 
 function sendMenu(command: string) {
@@ -135,26 +168,32 @@ function buildMenu(): void {
 }
 
 async function readProject(filePath: string): Promise<OpenedProject> {
+  acl.allowProject(filePath);
   const text = await readFile(filePath, "utf8");
   watcher.watch(filePath, text);
   return { filePath, text };
 }
 
-// 素材は読み込みのたびに開き直さず、開いたままにする(アプリの終了で閉じる)
-const readers = new Map<string, Promise<FileHandle>>();
-const outputs = new Map<number, FileHandle>();
-let nextHandle = 1;
+// 素材は読み込み中だけ開いておき、使われなくなったら閉じる
+const readers = new FileReaders();
+const outputs = new OutputFiles();
 
 function registerIpc(): void {
   ipcMain.handle("settings:get", () => loadSettings());
-  ipcMain.handle("settings:set", (_e, patch: SettingsPatch) => saveSettings(patch));
+  ipcMain.handle("settings:set", async (_e, patch: SettingsPatch) => {
+    // 起動する実行ファイルは、ファイル選択で選んだものか今の設定のものだけ
+    acl.assertExe(patch?.engines?.voicevox?.exePath, (await loadSettings()).engines.voicevox.exePath);
+    return saveSettings(patch);
+  });
   ipcMain.handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
   ipcMain.handle("dialog:pick-exe", async () => {
     const r = await dialog.showOpenDialog({
       filters: process.platform === "win32" ? [{ name: "Program", extensions: ["exe"] }] : [],
       properties: ["openFile"],
     });
-    return r.canceled ? null : (r.filePaths[0] ?? null);
+    const exe = r.canceled ? null : (r.filePaths[0] ?? null);
+    if (exe) acl.allowExe(exe);
+    return exe;
   });
   // 規約の案内を開く。https だけ
   ipcMain.handle("shell:open-external", async (_e, url: string) => {
@@ -177,11 +216,12 @@ function registerIpc(): void {
     const file = r.filePaths[0];
     return file ? readProject(file) : null;
   });
-  ipcMain.handle("project:read", (_e, filePath: string) => readProject(filePath));
+  ipcMain.handle("project:read", (_e, filePath: string) => readProject(acl.assertProject(filePath)));
   ipcMain.handle("project:initial", () => (initialProject ? readProject(initialProject) : null));
   ipcMain.handle(
     "project:save",
     async (_e, filePath: string | null, text: string, prevPath: string | null, name?: string) => {
+      if (filePath !== null) acl.assertProject(filePath);
       let target = filePath;
       if (!target) {
         // 新しいプロジェクト: 名前(ヘッダーで入力したもの)で、アプリの設定の保存先に置く。
@@ -199,6 +239,7 @@ function registerIpc(): void {
           target = r.filePath;
         }
       }
+      acl.allowProject(target);
       const rebased = rebaseSourcePaths(text, prevPath ? path.dirname(prevPath) : null, path.dirname(target));
       watcher.markSaved(rebased);
       await writeAtomic(target, rebased);
@@ -208,14 +249,34 @@ function registerIpc(): void {
   );
   // プロジェクトの名前の変更: 同じフォルダーでファイル名を変える(素材のパスは同じフォルダーからの相対なので変わらない)
   ipcMain.handle("project:rename", async (_e, from: string, name: string) => {
+    acl.assertProject(from);
+    if (!isValidProjectName(name)) throw new Error(`この名前は使えません / Invalid name: ${String(name)}`);
     const ext = /\.sanno\.json$/i.test(from) ? ".sanno.json" : path.extname(from);
     const target = path.join(path.dirname(from), `${name}${ext}`);
     if (target === from) return target;
     if (await exists(target)) throw new Error(`同じ名前のファイルがあります / Already exists: ${target}`);
     await rename(from, target);
+    acl.allowProject(target);
     watcher.watch(target, await readFile(target, "utf8"));
     return target;
   });
+  ipcMain.handle(
+    "recovery:write",
+    async (_e, projectPath: string | null, name: string | null, text: string) => {
+      const p = assertRecoveryPath(projectPath);
+      if (typeof text !== "string") return;
+      recoveryKeyOf = { projectPath: p };
+      await inRecoveryQueue(() =>
+        writeRecovery(recoveryDir(), p, typeof name === "string" ? name : null, text),
+      );
+    },
+  );
+  ipcMain.handle("recovery:read", (_e, projectPath: string | null) =>
+    readRecovery(recoveryDir(), assertRecoveryPath(projectPath)),
+  );
+  ipcMain.handle("recovery:clear", (_e, projectPath: string | null) =>
+    inRecoveryQueue(() => clearRecovery(recoveryDir(), assertRecoveryPath(projectPath))),
+  );
   ipcMain.handle("sources:pick", async () => {
     const r = await dialog.showOpenDialog({
       filters: [
@@ -225,6 +286,7 @@ function registerIpc(): void {
       ],
       properties: ["openFile", "multiSelections"],
     });
+    for (const p of r.filePaths) acl.allowRead(p);
     return r.filePaths;
   });
   ipcMain.handle("image:pick", async () => {
@@ -232,47 +294,54 @@ function registerIpc(): void {
       filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }],
       properties: ["openFile"],
     });
-    return r.filePaths[0] ?? null;
+    const img = r.filePaths[0] ?? null;
+    if (img) acl.allowRead(img);
+    return img;
   });
   // 書き出したファイルをエクスプローラー(Finder)で選んだ状態で開く
-  ipcMain.handle("file:reveal", (_e, absPath: string) => shell.showItemInFolder(absPath));
+  ipcMain.handle("file:reveal", (_e, absPath: string) => shell.showItemInFolder(acl.assertReveal(absPath)));
   ipcMain.handle("export:pick", async (_e, defaultPath: string) => {
     const r = await dialog.showSaveDialog({ filters: [{ name: "MP4", extensions: ["mp4"] }], defaultPath });
-    return r.canceled ? null : (r.filePath ?? null);
+    const out = r.canceled ? null : (r.filePath ?? null);
+    if (out) acl.allowExport(out);
+    return out;
   });
-  ipcMain.handle("sources:resolve", (_e, projectPath: string | null, stored: string) =>
-    projectPath ? resolveStoredPath(path.dirname(projectPath), stored) : stored,
-  );
+  ipcMain.handle("sources:resolve", (_e, projectPath: string | null, stored: string) => {
+    const resolved = projectPath ? resolveStoredPath(path.dirname(projectPath), stored) : stored;
+    acl.allowResolved(projectPath, resolved);
+    return resolved;
+  });
   ipcMain.on("project:dirty", (_e, value: boolean) => {
     dirty = value;
   });
+  ipcMain.on("project:busy", (_e, value: boolean) => {
+    busy = value === true;
+  });
+  // 「保存して閉じる」で保存できたあと
+  ipcMain.on("window:close-after-save", () => {
+    dirty = false;
+    busy = false;
+    mainWindow?.close();
+  });
+  // プリロードが、ドロップされたファイルのパスを得たとき(レンダラーが決めたパスではない)
+  ipcMain.on("file:dropped", (_e, p: string) => {
+    if (typeof p === "string" && p) acl.allowRead(p);
+  });
 
-  ipcMain.handle("file:size", async (_e, p: string) => (await stat(p)).size);
-  ipcMain.handle("file:read-range", async (_e, p: string, start: number, end: number) => {
-    let fh = readers.get(p);
-    if (!fh) {
-      fh = open(p, "r");
-      readers.set(p, fh);
-    }
-    const buf = Buffer.alloc(end - start);
-    const { bytesRead } = await (await fh).read(buf, 0, end - start, start);
-    return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead);
-  });
-  ipcMain.handle("output:open", async (_e, p: string) => {
-    const handle = nextHandle++;
-    outputs.set(handle, await open(p, "w"));
-    return handle;
-  });
-  ipcMain.handle("output:write", async (_e, handle: number, position: number, data: Uint8Array) => {
-    const fh = outputs.get(handle);
-    if (!fh) throw new Error("output handle is closed");
-    await fh.write(data, 0, data.byteLength, position);
-  });
-  ipcMain.handle("output:close", async (_e, handle: number) => {
-    await outputs.get(handle)?.close();
-    outputs.delete(handle);
-  });
-  ipcMain.handle("file:write-text", (_e, p: string, text: string) => writeFile(p, text, "utf8"));
+  ipcMain.handle("file:size", async (_e, p: string) => (await stat(acl.assertRead(p))).size);
+  ipcMain.handle("file:read-range", (_e, p: string, start: number, end: number) =>
+    readers.read(acl.assertRead(p), start, end),
+  );
+  ipcMain.handle("output:open", (e, p: string) => outputs.open(acl.assertWrite(p), e.sender.id));
+  ipcMain.handle("output:write", (_e, handle: number, position: number, data: Uint8Array) =>
+    outputs.write(handle, position, data),
+  );
+  ipcMain.handle("output:close", (_e, handle: number, commit: boolean) =>
+    outputs.close(handle, commit === true),
+  );
+  ipcMain.handle("file:write-text", (_e, p: string, text: string) =>
+    writeFile(acl.assertWrite(p), text, "utf8"),
+  );
 
   ipcMain.handle("tts:voices", (_e, engine: string) => {
     ttsService ??= tts();
@@ -307,11 +376,15 @@ async function runCli(args: CliArgs): Promise<number> {
     await writeResult(args, v);
     return v.ok ? 0 : 1;
   }
+  acl.allowProject(projectPath);
+  const outPath = args.out ?? defaultOutPath(args);
+  if (args.command === "export") acl.allowExport(outPath);
+  else acl.allowWrite(outPath);
   exportJob = {
     kind: args.command === "frame" || args.command === "inspect" ? args.command : "export",
     projectPath,
     projectText: await readFile(projectPath, "utf8"),
-    outPath: args.out ?? defaultOutPath(args),
+    outPath,
     frame: { step: args.step, time: args.time, at: args.at, source: args.source },
   };
   const result = await new Promise<ExportResult | CliJobResult>((resolve) => {
@@ -333,6 +406,7 @@ const cli = parseCli(argv);
 // コマンドなしで .json を渡されたら、そのプロジェクトを開いて起動する
 const initialArg = cli ? undefined : argv.find((a) => !a.startsWith("-") && /\.json$/i.test(a));
 const initialProject = initialArg ? path.resolve(initialArg) : null;
+if (initialProject) acl.allowProject(initialProject);
 
 app.whenReady().then(async () => {
   registerIpc();
@@ -354,14 +428,38 @@ app.whenReady().then(async () => {
   // メニューバーは出さない(操作は画面のヘッダーにある)。メニューは残し、Ctrl+S などのキーとコピー・貼り付けに使う
   if (process.platform !== "darwin") mainWindow.setMenuBarVisibility(false);
   mainWindow.on("close", (e) => {
-    if (!dirty || !mainWindow) return;
+    if (!mainWindow) return;
+    if (busy) {
+      const keep = dialog.showMessageBoxSync(mainWindow, {
+        type: "warning",
+        buttons: ["中止して閉じる / Cancel export and close", "閉じない / Keep open"],
+        defaultId: 1,
+        cancelId: 1,
+        message: "書き出し中です。中止して閉じますか？ / An export is running. Cancel it and close?",
+      });
+      if (keep === 1) {
+        e.preventDefault();
+        return;
+      }
+    }
+    if (!dirty) {
+      // 変更なしで閉じる。復旧ファイルは要らない
+      if (recoveryKeyOf) clearRecoverySync(recoveryDir(), recoveryKeyOf.projectPath);
+      return;
+    }
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: "warning",
-      buttons: ["Discard / 破棄して閉じる", "Cancel / キャンセル"],
-      defaultId: 1,
+      buttons: ["保存して閉じる / Save and close", "破棄して閉じる / Discard", "キャンセル / Cancel"],
+      defaultId: 2,
+      cancelId: 2,
       message: "保存していない変更があります。/ You have unsaved changes.",
     });
-    if (choice === 1) e.preventDefault();
+    if (choice === 0) {
+      // 保存できたらレンダラーが closeAfterSave で閉じる。取り消し・失敗なら閉じない
+      e.preventDefault();
+      mainWindow.webContents.send("menu", "saveAndClose");
+    } else if (choice === 2) e.preventDefault();
+    else if (recoveryKeyOf) clearRecoverySync(recoveryDir(), recoveryKeyOf.projectPath); // 破棄して閉じる
   });
   mainWindow.on("closed", () => {
     mainWindow = null;

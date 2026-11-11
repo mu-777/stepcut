@@ -6,7 +6,6 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
-  speechText,
   withSpeechPieces,
 } from "../../core/defaults";
 import {
@@ -24,7 +23,6 @@ import {
 import {
   computeLayout,
   marginOf,
-  retimeZoom,
   setZoomKeyRect,
   sortedKeys,
   viewRectAt,
@@ -38,9 +36,9 @@ import {
   reanchorShape,
   shapeOutsideVideo,
 } from "../../core/objects";
-import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
-import { baseDuration, buildTimeline, locate, speechTimes, totalDuration } from "../../core/timeline";
-import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
+import type { Project, Step, Zoom } from "../../core/schema";
+import { buildTimeline, locate, totalDuration } from "../../core/timeline";
+import { parseProject } from "../../core/validate";
 import {
   CENTER_MIN_W,
   PANEL_MIN_W,
@@ -51,7 +49,6 @@ import {
 import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
-import { exportProject } from "./exporter";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
 import { Icon } from "./icons";
@@ -66,7 +63,7 @@ import {
   viewOf,
 } from "./inspector";
 import { actionOf, keyLabel, withKey } from "./keymap";
-import { openMedia, type SourceMedia } from "./media";
+import { openMedia, releaseMedia, type SourceMedia } from "./media";
 import { hitObject, ObjectEditor } from "./object-editor";
 import { objectTextInputId } from "./object-panel";
 import {
@@ -76,7 +73,6 @@ import {
   newKindLabel,
   newObject,
   objectMenu,
-  pasteObject,
   patchObject,
   patchStepObject,
 } from "./objects-ui";
@@ -86,16 +82,10 @@ import { SettingsDialog } from "./settings-dialog";
 import { SpeechStore } from "./speech";
 import { StepRail } from "./step-rail";
 import { ThumbCache } from "./thumbs";
-import {
-  type Clip,
-  type ClipItem,
-  fmtTime,
-  insertZoom,
-  type MenuItem,
-  type Selection,
-  selectedStep,
-  Timeline,
-} from "./timeline";
+import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
+import { useClipboard } from "./use-clipboard";
+import { useExport } from "./use-export";
+import { type Banner, useProjectFile } from "./use-project-file";
 import {
   ContextMenu,
   loadChoice,
@@ -119,8 +109,6 @@ const isTyping = () => {
 /** 検証の指摘の場所。ステップは画面と同じ「ステップ N」を添える(JSON の場所も残す) */
 /** ヘッダーのボタンの文字は「…」を付けない(押すとダイアログが開くことはアイコンで足りる) */
 const bare = (label: string) => label.replace(/…$/, "");
-/** プロジェクトの名前(ファイル名から拡張子を除く) */
-const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.sanno)?\.json$/i, "");
 
 function issuePath(path: string): string {
   const m = /^steps\[(\d+)\]/.exec(path);
@@ -130,8 +118,6 @@ function issuePath(path: string): string {
 export function App() {
   const [hist, setHist] = useState<History>(() => initHistory(newProject()));
   const project = hist.present;
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [savedText, setSavedText] = useState(() => serializeProject(newProject()));
   const [selection, setSelection] = useState<Selection>({ kind: "project" });
   const [media, setMedia] = useState<Map<string, SourceMedia>>(new Map());
   const [mediaErrors, setMediaErrors] = useState<string[]>([]);
@@ -173,12 +159,6 @@ export function App() {
       alive = false;
     };
   }, [engineName, speechEngines]);
-  /** ヘッダーのプロジェクト名を入力中 */
-  const [titleEdit, setTitleEdit] = useState(false);
-  /** まだ保存していないプロジェクトに付けた名前(保存するときのファイル名) */
-  const [pendingName, setPendingName] = useState<string | null>(null);
-  /** 名前を入れ終えたら保存する(未保存で「保存」を押した) */
-  const saveAfterName = useRef(false);
   /** 言語を切り替えたら増やして描き直す */
   const [, setLangVersion] = useState(0);
   /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
@@ -193,18 +173,8 @@ export function App() {
   useEffect(() => saveChoice("zoomSyncSize", syncSize ? "on" : "off"), [syncSize]);
   /** 読み上げの試聴中のステップ */
   const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
-  /**
-   * コピー・切り取りしたもの(アプリ内だけで持つ。最後の 1 つ)。ズーム・オブジェクトは録画の大きさが違うステップへ
-   * 貼るときに座標を換算する
-   */
-  const clipboard = useRef<Clip | null>(null);
-  const [clipKind, setClipKind] = useState<Clip["kind"] | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
-  /** 画面上端の知らせ。reveal があれば、そのファイルのフォルダーを開くリンクを付ける */
-  const [banner, setBanner] = useState<{ kind: "info" | "error"; text: string; reveal?: string } | null>(
-    null,
-  );
-  const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
+  const [banner, setBanner] = useState<Banner | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   /** 設定パネルに出しているもの(全体の設定か、ステップの詳細) */
   const [view, setView] = useState<PanelView>("step");
@@ -238,8 +208,21 @@ export function App() {
   const images = useMemo(() => new ImageStore(() => setImgVersion((v) => v + 1)), []);
   const speech = useMemo(() => new SpeechStore(), []);
   const playerRef = useRef<Player | null>(null);
+  const latestProject = useRef(project);
+  latestProject.current = project;
 
-  const dirty = serializeProject(project) !== savedText;
+  const {
+    filePath,
+    dirty,
+    projectName,
+    pendingName,
+    titleEdit,
+    setTitleEdit,
+    saveAfterName,
+    commitName,
+    fileActions,
+  } = useProjectFile({ project, setHist, setSelection, playerRef, setBanner });
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で読み上げの長さの更新を拾う
   const speechDurations = useMemo(() => speech.durations(project), [project, speechVersion]);
   const timeline = useMemo(() => buildTimeline(project.steps, speechDurations), [project, speechDurations]);
@@ -295,24 +278,18 @@ export function App() {
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
 
-  useEffect(() => {
-    api.setDirty(dirty);
-  }, [dirty]);
-  const projectName = filePath ? baseName(filePath) : (pendingName ?? t("untitled"));
-  // ウィンドウのタイトル(タスクバー)にもプロジェクトの名前を出す
-  useEffect(() => {
-    document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
-  }, [dirty, projectName]);
-
   // 素材を開く
   useEffect(() => {
     let alive = true;
     (async () => {
       const next = new Map<string, SourceMedia>();
       const errors: string[] = [];
+      const used: string[] = [];
       for (const s of project.sources) {
         try {
-          next.set(s.id, await openMedia(await api.resolveSource(filePath, s.path)));
+          const path = await api.resolveSource(filePath, s.path);
+          used.push(path);
+          next.set(s.id, await openMedia(path));
         } catch (e) {
           errors.push(`${s.id}: ${(e as Error).message}`);
         }
@@ -320,17 +297,33 @@ export function App() {
       if (alive) {
         setMedia(next);
         setMediaErrors(errors);
+        // 使わなくなった素材を閉じる。再生中なら止め、閉じた素材のフレームの写しも捨てる
+        // (録画の読み取りは閉じると落ちるが、プレイヤー・サムネイルは失敗を握りつぶす)
+        const keep = used;
+        if (releaseMedia(keep) > 0) {
+          if (playerRef.current?.playing) playerRef.current.stop();
+          playerRef.current?.dropCache();
+        }
+        thumbs.retain(keep);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [project.sources, filePath]);
+  }, [project.sources, filePath, thumbs]);
 
   // 読み上げを用意する(入力が落ち着いてから)
   useEffect(() => {
     const timer = setTimeout(() => {
-      speech.loadAll(project, () => setSpeechVersion((v) => v + 1));
+      speech
+        .loadAll(project, () => setSpeechVersion((v) => v + 1))
+        .then(() => {
+          // 使わなくなった文の音声を捨てる(古い状態の読み込みが後から終わっても、最新の状態でだけ行う)
+          if (latestProject.current === project) {
+            speech.retain(project);
+            setSpeechVersion((v) => v + 1);
+          }
+        });
       setSpeechVersion((v) => v + 1);
     }, 600);
     return () => clearTimeout(timer);
@@ -347,51 +340,23 @@ export function App() {
     if (selected !== null && selected >= project.steps.length) setSelection({ kind: "project" });
   }, [selected, project.steps.length]);
 
-  const loadProject = useCallback((path: string, text: string, keepHistory: boolean) => {
-    const r = parseProjectText(text);
-    if (!r.ok) {
-      setBanner({ kind: "error", text: r.errors.map((e) => `${e.path}: ${e.message}`).join("\n") });
-      return false;
-    }
-    setHist((h) => (keepHistory ? commit(h, r.project) : initHistory(r.project)));
-    setFilePath(path);
-    setSavedText(serializeProject(r.project));
-    setBanner(null);
-    if (!keepHistory) {
-      setSelection({ kind: "project" });
-      playerRef.current?.seek(0);
-    }
-    return true;
-  }, []);
-
-  const confirmDiscard = () => !dirty || window.confirm(t("discardConfirm"));
+  const { exporting, doExport } = useExport({
+    project,
+    filePath,
+    issues,
+    issuePath,
+    playerRef,
+    speech,
+    setBanner,
+  });
 
   const actions = useRef<Record<string, () => void>>({});
   actions.current = {
-    new: () => {
-      if (!confirmDiscard()) return;
-      const p = newProject();
-      setHist(initHistory(p));
-      setSavedText(serializeProject(p));
-      setFilePath(null);
-      setPendingName(null);
-      setSelection({ kind: "project" });
-    },
-    open: async () => {
-      if (!confirmDiscard()) return;
-      const r = await api.openProjectDialog();
-      if (r) loadProject(r.filePath, r.text, false);
-    },
-    // まだ保存していないプロジェクトは、先にヘッダーで名前を入れてもらう
-    save: () => {
-      if (filePath) void save(filePath);
-      else if (pendingName) void save(null, pendingName);
-      else {
-        saveAfterName.current = true;
-        setTitleEdit(true);
-      }
-    },
+    new: fileActions.new,
+    open: fileActions.open,
+    save: fileActions.save,
     addSource: async () => addSourcePaths(await api.pickSources()),
+    saveAndClose: fileActions.saveAndClose,
     export: () => doExport(),
     shortcuts: () => setShortcutsOpen(true),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
@@ -438,93 +403,7 @@ export function App() {
     setSelection({ kind: "step", step: at - 1 });
   }
 
-  async function save(path: string | null, name?: string) {
-    const r = await api.saveProject(path, serializeProject(project), filePath, name);
-    if (r) {
-      loadProject(r.filePath, r.text, true);
-      setPendingName(null);
-    }
-  }
-
-  /** ヘッダーのプロジェクト名の入力を終えた。保存済みならファイル名を変え、未保存なら保存するときの名前にする */
-  async function commitName(raw: string | null) {
-    setTitleEdit(false);
-    const wantSave = saveAfterName.current;
-    saveAfterName.current = false;
-    // ファイル名に使えない文字は除く
-    const name = raw?.replace(/[\\/:*?"<>|]/g, "").trim() ?? "";
-    if (!name) return;
-    if (!filePath) {
-      setPendingName(name);
-      if (wantSave) await save(null, name);
-      return;
-    }
-    if (name === baseName(filePath)) return;
-    try {
-      setFilePath(await api.renameProject(filePath, name));
-    } catch (e) {
-      setBanner({ kind: "error", text: (e as Error).message });
-    }
-  }
-
-  async function doExport() {
-    if (issues.some((i) => !i.message.includes("M2"))) {
-      setBanner({ kind: "error", text: issues.map((e) => `${issuePath(e.path)}: ${e.message}`).join("\n") });
-      return;
-    }
-    const outPath = await api.pickExportPath(
-      filePath ? filePath.replace(/(\.sanno)?\.json$/i, ".mp4") : "output.mp4",
-    );
-    if (!outPath) return;
-    playerRef.current?.stop();
-    setExporting({ done: 0, total: 1 });
-    try {
-      const r = await exportProject({
-        project,
-        projectPath: filePath,
-        outPath,
-        speech,
-        onProgress: (done, totalFrames) => {
-          if (done % 10 === 0 || done === totalFrames) setExporting({ done, total: totalFrames });
-        },
-      });
-      setBanner({
-        kind: "info",
-        text: [`${t("exportDone")}: ${r.outPath}`, ...r.warnings].join("\n"),
-        reveal: r.outPath,
-      });
-    } catch (e) {
-      setBanner({ kind: "error", text: `${t("exportFailed")}: ${(e as Error).message}` });
-    } finally {
-      setExporting(null);
-    }
-  }
-
   useEffect(() => api.onMenu((cmd) => actions.current[cmd]?.()), []);
-
-  useEffect(() => {
-    api.initialProject().then((p) => p && loadProject(p.filePath, p.text, false));
-  }, [loadProject]);
-
-  useEffect(
-    () =>
-      api.onExternalChange((p) => {
-        const r = parseProjectText(p.text);
-        if (!r.ok) {
-          setBanner({
-            kind: "error",
-            text: `${t("externalInvalid")}\n${r.errors.map((e) => `${e.path}: ${e.message}`).join("\n")}`,
-          });
-          return;
-        }
-        // 未保存の変更がなければそのまま読み込む(AI-05)。あれば確認する(AI-06)
-        if (dirtyRef.current && !window.confirm(t("externalChange"))) return;
-        loadProject(p.filePath, p.text, true);
-      }),
-    [loadProject],
-  );
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
 
   /** 選んだ要素を消す(Delete キー) */
   const deleteSelection = () => removeItem(selection);
@@ -1148,167 +1027,19 @@ export function App() {
     setSelection({ kind: "step", step: i });
   };
 
-  /** ズーム・読み上げ・オブジェクトをコピーする */
-  const copyItem = (item: ClipItem) => {
-    const st = project.steps[item.step];
-    if (!st) return;
-    const m = media.get(st.source);
-    const srcW = m?.width ?? 1920;
-    const srcH = m?.height ?? 1080;
-    let clip: Clip | null = null;
-    if (item.kind === "zoom") {
-      const z = st.zooms?.[item.index];
-      if (z) clip = { kind: "zoom", zoom: structuredClone(z), srcW, srcH };
-    } else if (item.kind === "speech") {
-      const piece = speechPieces(st)[item.index];
-      // テロップの文を読む読み上げは、今の文を書いた読み上げとして写す(貼った先のテロップの文に変わらないように)
-      if (piece)
-        clip = {
-          kind: "speech",
-          piece: { ...structuredClone(piece), text: speechText(st, item.index) ?? "" },
-        };
-    } else {
-      const o = objectOf(st, { kind: item.kind, index: item.index });
-      if (o) clip = { kind: "object", objKind: item.kind, object: structuredClone(o), srcW, srcH };
-    }
-    if (!clip) return;
-    clipboard.current = clip;
-    setClipKind(clip.kind);
-  };
-
-  /** 切り取り: コピーして消す */
-  const cutItem = (item: ClipItem) => {
-    copyItem(item);
-    removeItem(item);
-  };
-
-  /** コピーしたもの(kind を渡したらその種類のときだけ)を全体の時刻 at に貼る */
-  const pasteAt = (at: number, kind?: Clip["kind"]) => {
-    const clip = clipboard.current;
-    if (!clip || (kind && clip.kind !== kind)) return;
-    if (clip.kind === "zoom") pasteZoom(clip, at);
-    else if (clip.kind === "speech") pasteSpeech(clip, at);
-    else pasteObjectAt(clip, at);
-  };
-
-  /** コピーしたオブジェクトを、全体の時刻 at を始まりにして貼る */
-  const pasteObjectAt = (clip: Extract<Clip, { kind: "object" }>, at: number) => {
-    const l = locate(timeline, at);
-    if (!l) return;
-    const m = media.get(l.entry.step.source);
-    const local = Math.min(l.local, Math.max(0, l.entry.duration - 0.1));
-    const r = pasteObject(
-      project,
-      l.entry.index,
-      clip.objKind,
-      clip.object,
-      local,
-      l.entry.duration,
-      (m?.width ?? 1920) / clip.srcW,
-      (m?.height ?? 1080) / clip.srcH,
-    );
-    update(() => r.project, "object-paste");
-    setSelection({ kind: r.ref.kind, step: l.entry.index, index: r.ref.index });
-  };
-
-  /** コピーした読み上げを、全体の時刻 at から読むように貼る(読む順は始まりの時刻の順) */
-  const pasteSpeech = (clip: Extract<Clip, { kind: "speech" }>, at: number) => {
-    const l = locate(timeline, at);
-    if (!l) return;
-    const st = l.entry.step;
-    const local = Math.round(Math.min(l.local, baseDuration(st)) * 1000) / 1000;
-    const pieces = speechPieces(st);
-    const times = speechTimes(st, speechDurations.get(st.id) ?? []);
-    const k = times.findIndex((x) => x.start > local);
-    const index = k < 0 ? pieces.length : k;
-    const piece = { ...clip.piece, start: local };
-    update(
-      (p) => ({
-        ...p,
-        steps: p.steps.map((x, j) =>
-          j === l.entry.index
-            ? withSpeechPieces(x, [...pieces.slice(0, index), piece, ...pieces.slice(index)])
-            : x,
-        ),
-      }),
-      "speech-paste",
-    );
-    setSelection({ kind: "speech", step: l.entry.index, index });
-  };
-
-  /** コピーしたズームを全体の時刻 at に貼る。録画の大きさが違えば枠を換算し、空いている長さに収める */
-  const pasteZoom = (clip: Extract<Clip, { kind: "zoom" }>, at: number) => {
-    const l = locate(timeline, at);
-    if (!l) return;
-    const { entry, local } = l;
-    const zooms = entry.step.zooms ?? [];
-    if (zooms.some((z) => local >= z.start && local <= z.end)) return;
-    const m = media.get(entry.step.source);
-    const kx = (m?.width ?? 1920) / clip.srcW;
-    const ky = (m?.height ?? 1080) / clip.srcH;
-    const conv = (r: ZoomKey["rect"]) => ({
-      x: Math.round(r.x * kx),
-      y: Math.round(r.y * ky),
-      w: Math.round(r.w * kx),
-      h: Math.round(r.h * ky),
-    });
-    const hi = Math.min(entry.duration, ...zooms.filter((z) => z.start > local).map((z) => z.start));
-    const end = Math.min(hi, local + (clip.zoom.end - clip.zoom.start));
-    if (end - local < 0.1) return;
-    const r3 = (n: number) => Math.round(n * 1000) / 1000;
-    const moved = retimeZoom(clip.zoom, local, local + (clip.zoom.end - clip.zoom.start));
-    const fitted = retimeZoom(moved, r3(local), r3(end));
-    const z: Zoom = { ...fitted, keys: fitted.keys.map((k) => ({ ...k, rect: conv(k.rect) })) };
-    update(
-      (p) => ({
-        ...p,
-        steps: p.steps.map((s, j) => (j === entry.index ? { ...s, zooms: [...zooms, z] } : s)),
-      }),
-      "zoom-paste",
-    );
-    setSelection({ kind: "zoom", step: entry.index, index: zooms.length });
-  };
-
-  /** 選んでいる要素のうち、コピー・切り取りできるもの */
-  const clipItemOf = (s: Selection): ClipItem | null =>
-    s.kind === "zoom" || s.kind === "speech" || s.kind === "pointer" || s.kind === "shape"
-      ? { kind: s.kind, step: s.step, index: s.index }
-      : null;
-
-  // Ctrl+C / Ctrl+X / Ctrl+V(メニューのコピー・切り取り・貼り付け)。文字の入力中はそのまま。
-  // ズーム・読み上げ・オブジェクトを選んでいればコピー(切り取り)し、最後にコピーしたものを再生位置に貼る
-  const clipRef = useRef<Record<"copy" | "cut" | "paste", (e: ClipboardEvent) => void>>({
-    copy: () => {},
-    cut: () => {},
-    paste: () => {},
+  const { clipKind, copyItem, cutItem, pasteAt } = useClipboard({
+    project,
+    media,
+    timeline,
+    speechDurations,
+    update,
+    selection,
+    setSelection,
+    removeItem,
+    playerRef,
+    time,
+    isTyping,
   });
-  clipRef.current = {
-    copy: (e) => {
-      const item = clipItemOf(selection);
-      if (isTyping() || !item) return;
-      e.preventDefault();
-      copyItem(item);
-    },
-    cut: (e) => {
-      const item = clipItemOf(selection);
-      if (isTyping() || !item) return;
-      e.preventDefault();
-      cutItem(item);
-    },
-    paste: (e) => {
-      if (isTyping() || !clipboard.current) return;
-      e.preventDefault();
-      pasteAt(playerRef.current?.time ?? time);
-    },
-  };
-  useEffect(() => {
-    const on = (name: "copy" | "cut" | "paste") => (e: ClipboardEvent) => clipRef.current[name](e);
-    const handlers = (["copy", "cut", "paste"] as const).map((n) => [n, on(n)] as const);
-    for (const [n, h] of handlers) document.addEventListener(n, h);
-    return () => {
-      for (const [n, h] of handlers) document.removeEventListener(n, h);
-    };
-  }, []);
 
   // 再生を始めたら読み上げの試聴を終える
   // biome-ignore lint/correctness/useExhaustiveDependencies: 再生の開始だけを見る

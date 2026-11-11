@@ -4,27 +4,27 @@
 2026-11-11
 
 ## ブランチ
-main(external-tts をマージ済み。VOICEVOX・Azure AI Speech の対応)
+claude/vigilant-archimedes-osom10(main 24a5618 から。実装レビューの指摘への対応。未マージ・PR なし)
 
 ## ゴール
-VOICEVOX・Azure AI Speech をユーザーの責任で使えるようにする(既定は使えず、同意して有効にする)
+レビューの指摘 #1〜#18(#17・#19 を除く)を直す
 
 ## 現在地
-- 読み上げエンジン(TTS-12〜14): main の tts/voicevox-engine.ts・azure-engine.ts。アプリの設定の「読み上げエンジン」(engine-settings.tsx)で同意して有効に。Azure の鍵は safeStorage で暗号化(settings.ts)。無効なエンジンは OS 標準で代読(service.ts の pick)。全体の設定の読み上げでエンジンを選ぶ。決定 docs/decisions/20261111-external-tts.md、C1 を読み替え
-- AI 連携(main に入済み): CLI の frame・inspect と Claude Code のプラグイン(docs/decisions/20261111-ai-integration.md)
-- 確認: npm run check(単体 111)、ui-smoke(176 項目。テスト用の VOICEVOX サーバーで接続まで)。実機の VOICEVOX・Azure は未確認
-- main までの到達点(6384412): AI 連携・画像の素材・ステップごとの録画の枠ほか(詳細は git log)
+- 指摘への対応は実装済み。読み上げ(tts/service.ts): エンジンごとの同時数・同じ鍵の共有・VOICEVOX の起動 1 回と失敗の扱い・キャッシュの上限
+- 書き出しは .part に書いて成功時に置き換え(main/output-files.ts)。素材のファイルは 10 秒使わなければ閉じる(main/file-readers.ts)
+- IPC はパスの許可リスト(main/access.ts、決定 docs/decisions/20261111-ipc-restrictions.md)。ページの移動を禁止
+- クラッシュ復旧(PRJ-06): main/recovery.ts と use-project-file.ts。閉じるときに「保存して閉じる」
+- 使わない素材・読み上げ・サムネイルを解放。60 秒を超えるステップの音声は区切って書き出す。App.tsx から use-project-file.ts・use-export.ts・use-clipboard.ts を分けた(挙動は同じ)
+- 確認: npm run check(単体 152)、ui-smoke(193 項目)、CLI の export・frame・inspect。実機(Windows)は未確認
 
 ## 次にやること
-- ユーザーの実機確認(手順書 docs/manual-test.html。特に VOICEVOX の起動・自動起動・声・書き出しと Azure の鍵の保存・声・書き出し)。NG があれば直す
-- ユーザーの確認: Claude Code のプラグインを入れてスキルを試す(README の「Claude Code から使う」)
-- M2 の残り: クラッシュ復旧(PRJ-06)、PRJ-03
+- ユーザーの実機確認(docs/manual-test.html): 今回の分は、閉じるときの確認・強制終了からの復元・録画のドロップ・書き出しの上書き・書き出し後に録画を消せるか。前回からの分は VOICEVOX・Azure
+- 確認が済んだら main へ PR(Windows バイナリは /pr-build)。M2 の残り: PRJ-03
 
 ## 課題・ブロッカー
 - なし
 
 ## 未決事項
-- ユーザーに聞いている: フェード以外の切り替え、アプリの設定に足す項目
-- 仮決め: ズームの帯のダブルクリックは枠の追加のまま(ほかの帯はダブルクリックで始まりへシーク)。保持はクリックした所へシークのまま
-- 仮決め: 画面に固定した図形の単位は出力の高さ 1080 基準の px。新しいオブジェクトは 3 秒出す。全体の設定のポインターの共通値は形と大きさだけ
-- 仮決め: HW がなければ OpenH264・AAC がなければ Opus(T-02)。要件の未決 U-01, U-04。法務・規約 T-03, T-04, T-08
+- 仮決め(今回): 読み上げのキャッシュの上限 500MB、同時数は OS 2・VOICEVOX 1・Azure 3、復旧の保存は変更の 5 秒後、sandbox は false のまま
+- 配布前にやる: 移行の判定を version の番号にする(#17)、CI で ui-smoke を回す(#19)。ユーザーに聞いている: フェード以外の切り替え、アプリの設定に足す項目
+- 仮決め(以前から): ズームの帯のダブルクリック、画面に固定した図形の単位、HW/AAC の代替(T-02)。要件の未決 U-01, U-04。法務 T-03, T-04, T-08

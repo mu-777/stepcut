@@ -26,12 +26,26 @@ export function speechRequest(project: Project, step: Step, k = 0): TtsRequest |
   };
 }
 
+export const requestKey = (req: TtsRequest): string => JSON.stringify(req);
+
 let decoder: OfflineAudioContext | null = null;
 
 async function decodeWav(wav: Uint8Array): Promise<AudioBuffer> {
   decoder ??= new OfflineAudioContext(2, 1, SAMPLE_RATE);
   const copy = wav.slice().buffer;
   return decoder.decodeAudioData(copy);
+}
+
+/** project の読み上げが使う要求の鍵(重複なし)。SpeechStore.retain が残すものを決める */
+export function usedSpeechKeys(project: Project, key: (req: TtsRequest) => string): Set<string> {
+  const keys = new Set<string>();
+  for (const step of project.steps) {
+    speechPieces(step).forEach((_, k) => {
+      const req = speechRequest(project, step, k);
+      if (req) keys.add(key(req));
+    });
+  }
+  return keys;
 }
 
 export class SpeechStore {
@@ -41,7 +55,14 @@ export class SpeechStore {
   notices = new Set<string>();
 
   private key(req: TtsRequest): string {
-    return JSON.stringify(req);
+    return requestKey(req);
+  }
+
+  /** project が使わない読み上げの結果・失敗を捨てる(入力のたびに増えるデコード済み音声を残さない。生成中のものは残す) */
+  retain(project: Project): void {
+    const used = usedSpeechKeys(project, requestKey);
+    for (const k of [...this.results.keys()]) if (!used.has(k)) this.results.delete(k);
+    for (const k of [...this.errors.keys()]) if (!used.has(k)) this.errors.delete(k);
   }
 
   /** k 番目の読み上げの音声。未生成・文が空なら null */

@@ -26,6 +26,8 @@ export interface SourceMedia {
   audio: AudioBufferSink | null;
   /** サムネイル用に幅 width の縮小フレームを読む口を作る(プレビューとは別のデコーダー) */
   thumbSink: (width: number) => Promise<FrameSink | null>;
+  /** 使い終わった素材の資源を手放す(録画は Input を閉じ、画像は ImageBitmap を閉じる)。2 回呼んでもよい。以後は読めない */
+  dispose(): void;
 }
 
 const cache = new Map<string, Promise<SourceMedia>>();
@@ -71,6 +73,7 @@ async function loadImage(absPath: string): Promise<SourceMedia> {
     prefetch: sink,
     audio: null,
     thumbSink: async (width) => stillSink(drawScaled(img, width)),
+    dispose: () => img.close(),
   };
 }
 
@@ -101,6 +104,10 @@ async function loadVideo(absPath: string): Promise<SourceMedia> {
     prefetch: new CanvasSink(videoTrack, { poolSize: 4 }),
     audio: audioTrack && canAudio ? new AudioBufferSink(audioTrack) : null,
     thumbSink: async (width) => new CanvasSink(videoTrack, { width }),
+    // 読み込み中の読み取り・デコーダーも止まる(止まった読み取りは InputDisposedError で落ちるが、呼び側が握りつぶす)
+    dispose: () => {
+      if (!input.disposed) input.dispose();
+    },
   };
 }
 
@@ -116,6 +123,25 @@ export function openMedia(absPath: string): Promise<SourceMedia> {
     cache.set(absPath, p);
   }
   return p;
+}
+
+/**
+ * keep に含まれない素材を閉じてキャッシュから外す。読み込み中のものは読み終えてから閉じる。
+ * 閉じた数を返す
+ */
+export function releaseMedia(keep: Iterable<string>): number {
+  const keepSet = new Set(keep);
+  let n = 0;
+  for (const [path, p] of [...cache]) {
+    if (keepSet.has(path)) continue;
+    cache.delete(path);
+    p.then(
+      (m) => m.dispose(),
+      () => {},
+    );
+    n++;
+  }
+  return n;
 }
 
 /** 映像を別の CanvasSink で読む(書き出し中にプレビューと取り合わないため) */

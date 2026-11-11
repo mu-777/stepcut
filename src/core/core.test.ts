@@ -43,6 +43,7 @@ import { migrateProject } from "./migrate";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
 import {
+  audioChunkRanges,
   baseDuration,
   buildTimeline,
   continuousRuns,
@@ -672,5 +673,23 @@ describe("録画の枠に合わせてテロップを動かす(followCaptions)", 
     const p = base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 });
     const q = { ...p, steps: [...p.steps] };
     expect(followCaptions(p, q)).toBe(q);
+  });
+});
+
+describe("audioChunkRanges", () => {
+  it("60 秒以下は全体の 1 つ", () => {
+    expect(audioChunkRanges(60)).toEqual([[0, 60]]);
+    expect(audioChunkRanges(12.5)).toEqual([[0, 12.5]]);
+  });
+  it("長いステップは 60 秒ずつに区切り、隙間も重なりもない", () => {
+    expect(audioChunkRanges(130)).toEqual([
+      [0, 60],
+      [60, 120],
+      [120, 130],
+    ]);
+    expect(audioChunkRanges(120)).toEqual([
+      [0, 60],
+      [60, 120],
+    ]);
   });
 });

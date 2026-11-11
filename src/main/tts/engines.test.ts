@@ -6,6 +6,7 @@ import { DEFAULT_ENGINE_SETTINGS } from "../../shared/api";
 import { sanitizeEngines } from "../settings";
 import { AZURE_DEFAULT_VOICE, azureSsml, createAzureEngine } from "./azure-engine";
 import type { TtsEngine } from "./engine";
+import { clampPitch, clampRate } from "./os-engine";
 import { TtsService } from "./service";
 import { createVoicevoxEngine } from "./voicevox-engine";
 import { silentWav } from "./wav";
@@ -69,12 +70,61 @@ describe("VOICEVOX", () => {
     const e = createVoicevoxEngine(
       async () => ({ ...vv, exePath: "C:/vv/run.exe", autoStart: true }),
       fn,
-      (exe) => {
+      async (exe) => {
         expect(exe).toBe("C:/vv/run.exe");
         started = true;
       },
     );
     expect(await e.voices()).toHaveLength(1);
+  });
+
+  it("起動に失敗しても例外にせず、分かる言葉で拒否する", async () => {
+    const { fn } = fakeFetch(() => null);
+    const e = createVoicevoxEngine(
+      async () => ({ ...vv, exePath: "C:/none.exe", autoStart: true }),
+      fn,
+      async () => {
+        throw new Error("spawn ENOENT");
+      },
+    );
+    await expect(e.voices()).rejects.toThrow(
+      /VOICEVOX のエンジンを起動できません\(C:\/none\.exe\): spawn ENOENT/,
+    );
+  });
+
+  it("同時の ready() はエンジンの起動と待ちを 1 回にする", async () => {
+    let started = 0;
+    let up = false;
+    const { fn } = fakeFetch((url) =>
+      up && url.endsWith("/version") ? json("1") : up && url.endsWith("/speakers") ? json(speakers) : null,
+    );
+    const e = createVoicevoxEngine(
+      async () => ({ ...vv, exePath: "C:/vv/run.exe", autoStart: true }),
+      fn,
+      async () => {
+        started++;
+        up = true;
+      },
+    );
+    await Promise.all([e.voices(), e.voices(), e.voices()]);
+    expect(started).toBe(1);
+  });
+
+  it("cacheVersion は起動せずに版を調べる。つながらなければ未確認のまま", async () => {
+    let up = false;
+    let started = 0;
+    const { fn } = fakeFetch((url) => (up && url.endsWith("/version") ? json("2.0") : null));
+    const e = createVoicevoxEngine(
+      async () => ({ ...vv, exePath: "C:/vv/run.exe", autoStart: true }),
+      fn,
+      async () => {
+        started++;
+      },
+    );
+    expect(await e.cacheVersion?.()).toBe("voicevox");
+    up = true;
+    expect(await e.cacheVersion?.()).toBe("voicevox-2.0");
+    expect(started).toBe(0);
   });
 
   it("つながらず起動の指定もなければ、分かる言葉で失敗する", async () => {
@@ -163,5 +213,16 @@ describe("アプリの設定のエンジン", () => {
     expect(e.voicevox.enabled).toBe(false);
     expect(e.voicevox.url).toBe(DEFAULT_ENGINE_SETTINGS.voicevox.url);
     expect(e.azure).toMatchObject({ enabled: true, hasKey: true });
+  });
+});
+
+describe("OS エンジンの値の丸め", () => {
+  it("速さは 0.5〜6.0、高さは 0.0〜2.0 に収める", () => {
+    expect(clampRate(0.1)).toBe(0.5);
+    expect(clampRate(1.5)).toBe(1.5);
+    expect(clampRate(9)).toBe(6);
+    expect(clampPitch(-1)).toBe(0);
+    expect(clampPitch(1)).toBe(1);
+    expect(clampPitch(3)).toBe(2);
   });
 });

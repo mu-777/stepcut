@@ -103,6 +103,15 @@ export interface OpenedProject {
   text: string;
 }
 
+/** クラッシュ復旧用に残した、保存していない内容(PRJ-06) */
+export interface RecoveryData {
+  text: string;
+  /** 残した日時(ISO 8601) */
+  savedAt: string;
+  /** まだ保存していないプロジェクトに付けていた名前 */
+  name: string | null;
+}
+
 /** CLI の frame の指定。step(1 始まりの番号か id)と time(ステップ内の出力時刻)か、at(全体の時刻) */
 export interface FrameRequest {
   step?: string;
@@ -159,6 +168,10 @@ export interface Api {
   /** プロジェクトのファイル名を変える(同じフォルダー)。新しいパスを返す */
   renameProject(filePath: string, name: string): Promise<string>;
   pickSources(): Promise<string[]>;
+  // クラッシュ復旧(projectPath が null ならまだ保存していないプロジェクト)
+  writeRecovery(projectPath: string | null, name: string | null, text: string): Promise<void>;
+  readRecovery(projectPath: string | null): Promise<RecoveryData | null>;
+  clearRecovery(projectPath: string | null): Promise<void>;
   // アプリの設定
   getSettings(): Promise<AppSettings>;
   setSettings(patch: SettingsPatch): Promise<AppSettings>;
@@ -179,6 +192,10 @@ export interface Api {
   pickExportPath(defaultPath: string): Promise<string | null>;
   resolveSource(projectPath: string | null, stored: string): Promise<string>;
   setDirty(dirty: boolean): void;
+  /** 書き出し中か。閉じるときの確認に使う */
+  setBusy(busy: boolean): void;
+  /** 「保存して閉じる」で保存できたあと、ウィンドウを閉じる */
+  closeAfterSave(): void;
   onExternalChange(cb: (p: OpenedProject) => void): () => void;
   onMenu(cb: (command: string) => void): () => void;
   // 素材の読み込み
@@ -187,7 +204,8 @@ export interface Api {
   // 書き出し
   openOutput(absPath: string): Promise<number>;
   writeOutput(handle: number, position: number, data: Uint8Array): Promise<void>;
-  closeOutput(handle: number): Promise<void>;
+  /** commit なら書き出し先に置き換える。そうでなければ一時ファイルを捨てる */
+  closeOutput(handle: number, commit: boolean): Promise<void>;
   writeText(absPath: string, text: string): Promise<void>;
   // 読み上げ
   ttsVoices(engine: string): Promise<Voice[]>;
