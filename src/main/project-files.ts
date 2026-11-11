@@ -1,7 +1,7 @@
 // プロジェクトファイルの保存(素材パスの書き換え)と外部変更の監視(AI-05)。
 import { createHash, randomBytes } from "node:crypto";
 import { type StatsListener, unwatchFile, watchFile } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { rename as fsRename, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolveStoredPath, toStoredPath } from "./paths";
 
@@ -42,6 +42,36 @@ export function rebaseSourcePaths(text: string, fromDir: string | null, toDir: s
   return `${JSON.stringify(data, null, 2)}\n`;
 }
 
+const RETRY_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+const RETRY_DELAYS_MS = [50, 100, 200, 400, 800];
+
+/**
+ * 置き換え(rename)。Windows ではウイルス対策ソフトやエディターが置き換え先を一瞬つかんでいて
+ * EPERM / EBUSY / EACCES になることがあるので、間隔を空けて最大 5 回やり直す
+ */
+export async function renameWithRetry(
+  from: string,
+  to: string,
+  opts: {
+    rename?: (from: string, to: string) => Promise<void>;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<void> {
+  const doRename = opts.rename ?? fsRename;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await doRename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !code || !RETRY_CODES.has(code)) throw err;
+      await sleep(delay);
+    }
+  }
+}
+
 /** 書きかけのファイルを読まれないよう、一時ファイルに書いてから置き換える */
 export async function writeAtomic(filePath: string, data: string | Uint8Array): Promise<void> {
   // 同じファイルへの同時の書き込みでも一時ファイルが衝突しないよう、乱数を入れる
@@ -49,7 +79,7 @@ export async function writeAtomic(filePath: string, data: string | Uint8Array): 
   try {
     if (typeof data === "string") await writeFile(tmp, data, "utf8");
     else await writeFile(tmp, data);
-    await rename(tmp, filePath);
+    await renameWithRetry(tmp, filePath);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
     throw err;

@@ -974,7 +974,7 @@ function fakeVoicevox() {
   // フェードイン: ステップの頭は黒になる(プレビューの中央の明るさで見る)
   await thumbs.first().click();
   await page.waitForTimeout(200);
-  const recFold = page.locator(".fold").filter({ hasText: /Recording|録画・速度/ });
+  const recFold = page.locator(".fold").filter({ hasText: /Recording & speed|録画・速度/ });
   if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
     await recFold.locator(".fold-head").click();
   const brightness = () =>
@@ -1513,7 +1513,7 @@ function fakeVoicevox() {
   await page.keyboard.press("Escape");
 
   {
-    await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/ }).click();
+    await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/i }).click();
     await page.getByRole("button", { name: /Change keys|キー操作を変更/ }).click();
     await page.waitForTimeout(200);
     const splitKey = page.getByRole("button", {
@@ -1555,7 +1555,7 @@ function fakeVoicevox() {
     await pickReturns([img]);
     await page.locator(".rail-add").click();
     await page.waitForTimeout(600);
-    const recFold = page.locator(".fold").filter({ hasText: /Recording|録画・速度/ });
+    const recFold = page.locator(".fold").filter({ hasText: /Recording & speed|録画・速度/ });
     if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
       await recFold.locator(".fold-head").click();
     const len = page.getByLabel(/^(Length \(s\)|長さ\(秒\))$/);
@@ -1622,8 +1622,8 @@ function fakeVoicevox() {
       .locator(".field", { hasText: /^(Speech engine|読み上げエンジン)/ })
       .locator("select");
     check(
-      (await engineSel.locator('option[value="voicevox"]').isDisabled()) &&
-        (await engineSel.locator('option[value="azure"]').isDisabled()),
+      (await engineSel.locator('option[value="voicevox"]').evaluate((el) => el.disabled)) &&
+        (await engineSel.locator('option[value="azure"]').evaluate((el) => el.disabled)),
       "VOICEVOX・Azure は既定では選べない",
     );
     await page.getByRole("button", { name: /Speech engine settings|読み上げエンジンの設定/ }).click();

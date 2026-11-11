@@ -6,6 +6,8 @@
 // --result は結果の JSON をファイルにも書く(Windows の GUI アプリは標準出力がコンソールにつながらないことがあるため)。
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
+import { objectImages } from "../core/objects";
+import type { Project } from "../core/schema";
 import { parseProjectText } from "../core/validate";
 import { resolveStoredPath } from "./paths";
 
@@ -38,12 +40,24 @@ export function parseCli(args: string[]): CliArgs | { error: string } | null {
   const rest = args.slice(args.indexOf(first) + 1);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i] as string;
+    // 値を取るオプション。値がない(末尾・次が別のオプション)ときは null
+    const value = (): string | null => {
+      const v = rest[i + 1];
+      if (v === undefined || v.startsWith("--")) return null;
+      i++;
+      return v;
+    };
     if (a === "--json") out.json = true;
-    else if (a === "--out" || a === "-o") out.out = rest[++i];
-    else if (a === "--result") out.result = rest[++i];
-    else if (a === "--step") out.step = rest[++i];
-    else if (a === "--time" || a === "--at") {
-      const v = Number(rest[++i]);
+    else if (a === "--out" || a === "-o" || a === "--result" || a === "--step") {
+      const v = value();
+      if (v === null) return { error: `${a}: 値を指定してください` };
+      if (a === "--result") out.result = v;
+      else if (a === "--step") out.step = v;
+      else out.out = v;
+    } else if (a === "--time" || a === "--at") {
+      const raw = value();
+      if (raw === null) return { error: `${a}: 0 以上の秒数を指定してください` };
+      const v = Number(raw);
       if (!Number.isFinite(v) || v < 0) return { error: `${a}: 0 以上の秒数を指定してください` };
       if (a === "--time") out.time = v;
       else out.at = v;
@@ -81,6 +95,18 @@ export interface ValidateOutput {
   warnings: { path: string; message: string }[];
 }
 
+/** 画像のパスがプロジェクトのどこにあるか(最初に見つかった所) */
+function imagePath(p: Project, image: string): string {
+  if (p.styles?.pointer?.image === image) return "styles.pointer.image";
+  for (const [i, s] of p.steps.entries()) {
+    for (const [k, a] of (s.pointers ?? []).entries())
+      if (a.style?.image === image) return `steps[${i}].pointers[${k}].style.image`;
+    for (const [k, sh] of (s.shapes ?? []).entries())
+      if (sh.type === "rect" && sh.image === image) return `steps[${i}].shapes[${k}].image`;
+  }
+  return "";
+}
+
 export async function validateFile(projectPath: string): Promise<ValidateOutput> {
   let text: string;
   try {
@@ -99,6 +125,18 @@ export async function validateFile(projectPath: string): Promise<ValidateOutput>
       errors.push({ path: `sources[${i}].path`, message: `ファイルがありません: ${s.path}` });
     }
   }
+  // 画像(背景・図形・ポインター)。読めなければ書き出しで失敗するので、先に知らせる
+  const missing = async (stored: string, where: string) => {
+    try {
+      await access(resolveStoredPath(dir, stored));
+    } catch {
+      errors.push({ path: where, message: `ファイルがありません: ${stored}` });
+    }
+  };
+  const bg = r.project.layout?.background as { image?: string } | string | undefined;
+  if (bg && typeof bg === "object" && typeof bg.image === "string" && !bg.image.startsWith("preset:"))
+    await missing(bg.image, "layout.background.image");
+  for (const img of objectImages(r.project)) await missing(img, imagePath(r.project, img));
   return { ok: errors.length === 0, errors, warnings: r.warnings };
 }
 

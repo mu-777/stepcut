@@ -179,6 +179,10 @@ export interface Api {
   pickExportPath(defaultPath: string): Promise<string | null>;
   resolveSource(projectPath: string | null, stored: string): Promise<string>;
   setDirty(dirty: boolean): void;
+  /** 書き出し中か。閉じるときの確認に使う */
+  setBusy(busy: boolean): void;
+  /** 「保存して閉じる」で保存できたあと、ウィンドウを閉じる */
+  closeAfterSave(): void;
   onExternalChange(cb: (p: OpenedProject) => void): () => void;
   onMenu(cb: (command: string) => void): () => void;
   // 素材の読み込み
@@ -187,7 +191,8 @@ export interface Api {
   // 書き出し
   openOutput(absPath: string): Promise<number>;
   writeOutput(handle: number, position: number, data: Uint8Array): Promise<void>;
-  closeOutput(handle: number): Promise<void>;
+  /** commit なら書き出し先に置き換える。そうでなければ一時ファイルを捨てる */
+  closeOutput(handle: number, commit: boolean): Promise<void>;
   writeText(absPath: string, text: string): Promise<void>;
   // 読み上げ
   ttsVoices(engine: string): Promise<Voice[]>;

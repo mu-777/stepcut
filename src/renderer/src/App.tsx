@@ -178,7 +178,8 @@ export function App() {
   /** まだ保存していないプロジェクトに付けた名前(保存するときのファイル名) */
   const [pendingName, setPendingName] = useState<string | null>(null);
   /** 名前を入れ終えたら保存する(未保存で「保存」を押した) */
-  const saveAfterName = useRef(false);
+  /** 名前の入力のあとに保存する(close なら保存できたあと閉じる) */
+  const saveAfterName = useRef<false | true | "close">(false);
   /** 言語を切り替えたら増やして描き直す */
   const [, setLangVersion] = useState(0);
   /** 枠の拡大縮小の基準。中心固定(既定)か、反対側の角・辺を固定 */
@@ -392,6 +393,21 @@ export function App() {
       }
     },
     addSource: async () => addSourcePaths(await api.pickSources()),
+    // ウィンドウを閉じるときの「保存して閉じる」。保存できたときだけ閉じる(取り消し・失敗なら閉じない)
+    saveAndClose: async () => {
+      try {
+        if (filePath) {
+          if (await save(filePath)) api.closeAfterSave();
+        } else if (pendingName) {
+          if (await save(null, pendingName)) api.closeAfterSave();
+        } else {
+          saveAfterName.current = "close";
+          setTitleEdit(true);
+        }
+      } catch (e) {
+        setBanner({ kind: "error", text: (e as Error).message });
+      }
+    },
     export: () => doExport(),
     shortcuts: () => setShortcutsOpen(true),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
@@ -438,12 +454,13 @@ export function App() {
     setSelection({ kind: "step", step: at - 1 });
   }
 
-  async function save(path: string | null, name?: string) {
+  /** 保存する。保存できたら true(保存先の選択を取り消したときは false) */
+  async function save(path: string | null, name?: string): Promise<boolean> {
     const r = await api.saveProject(path, serializeProject(project), filePath, name);
-    if (r) {
-      loadProject(r.filePath, r.text, true);
-      setPendingName(null);
-    }
+    if (!r) return false;
+    loadProject(r.filePath, r.text, true);
+    setPendingName(null);
+    return true;
   }
 
   /** ヘッダーのプロジェクト名の入力を終えた。保存済みならファイル名を変え、未保存なら保存するときの名前にする */
@@ -456,7 +473,13 @@ export function App() {
     if (!name) return;
     if (!filePath) {
       setPendingName(name);
-      if (wantSave) await save(null, name);
+      if (wantSave) {
+        try {
+          if ((await save(null, name)) && wantSave === "close") api.closeAfterSave();
+        } catch (e) {
+          setBanner({ kind: "error", text: (e as Error).message });
+        }
+      }
       return;
     }
     if (name === baseName(filePath)) return;
@@ -478,6 +501,7 @@ export function App() {
     if (!outPath) return;
     playerRef.current?.stop();
     setExporting({ done: 0, total: 1 });
+    api.setBusy(true);
     try {
       const r = await exportProject({
         project,
@@ -496,6 +520,7 @@ export function App() {
     } catch (e) {
       setBanner({ kind: "error", text: `${t("exportFailed")}: ${(e as Error).message}` });
     } finally {
+      api.setBusy(false);
       setExporting(null);
     }
   }

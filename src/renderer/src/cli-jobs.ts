@@ -74,8 +74,13 @@ function findEntry(timeline: TimelineEntry[], key: string): TimelineEntry | null
 async function writePng(canvas: OffscreenCanvas, outPath: string): Promise<void> {
   const blob = await canvas.convertToBlob({ type: "image/png" });
   const handle = await api.openOutput(outPath);
-  await api.writeOutput(handle, 0, new Uint8Array(await blob.arrayBuffer()));
-  await api.closeOutput(handle);
+  try {
+    await api.writeOutput(handle, 0, new Uint8Array(await blob.arrayBuffer()));
+  } catch (e) {
+    await api.closeOutput(handle, false).catch(() => {});
+    throw e;
+  }
+  await api.closeOutput(handle, true);
 }
 
 export async function runFrame(
