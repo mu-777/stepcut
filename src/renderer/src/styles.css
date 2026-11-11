@@ -991,6 +991,11 @@ button.icon.play {
   color: var(--error);
 }
 
+/* 読めない録画の場所を選び直すボタン */
+.issues li button {
+  margin-left: 8px;
+}
+
 .context-menu {
   position: fixed;
   z-index: 10;
@@ -1033,8 +1038,9 @@ button.icon.play {
   user-select: none;
 }
 
+/* 幅はいちばん長い見出し(「オブジェクト」)が折り返さない幅 */
 .tl-labels {
-  flex: 0 0 72px;
+  flex: 0 0 84px;
   min-height: 100%;
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -1047,6 +1053,7 @@ button.icon.play {
   align-items: center;
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2049,4 +2056,35 @@ button.obj-group-title.toggle {
   padding-top: 10px;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* アプリの設定の読み上げエンジン */
+.engine-settings {
+  margin-top: 12px;
+}
+
+.engine-block {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engine-block .engine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.engine-block > button.small {
+  align-self: flex-start;
+}
+
+.engine-block .dir-row input {
+  flex: 1;
+  min-width: 0;
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { captionCues } from "./captions";
 import {
   captionBoxColor,
+  isImageSource,
   type ResolvedLayout,
   resolveCaptionPlacement,
   resolveLayout,
@@ -13,9 +14,13 @@ import {
 import {
   addHold,
   canMergeSteps,
+  clearStepLayout,
   duplicateStep,
   followCaptions,
+  makeStepLayoutCommon,
   mergeSteps,
+  resizeImageStepStart,
+  setStepLayout,
   splitStep,
   trimStep,
   uniqueStepId,
@@ -38,6 +43,7 @@ import { migrateProject } from "./migrate";
 import type { Project, Step } from "./schema";
 import { applyDictionary, toSrt, wrapText } from "./text";
 import {
+  audioChunkRanges,
   baseDuration,
   buildTimeline,
   continuousRuns,
@@ -355,6 +361,21 @@ describe("speech.start", () => {
 describe("trim", () => {
   const p = (s: Step): Project => proj([s]);
 
+  it("素材が画像かは拡張子で決める", () => {
+    expect(isImageSource("shots/a.PNG")).toBe(true);
+    expect(isImageSource("C:\\x\\b.jpeg")).toBe(true);
+    expect(isImageSource("rec.mp4")).toBe(false);
+    expect(isImageSource("png")).toBe(false);
+  });
+
+  it("画像のステップは左端で長さを変え、in は 0 のまま、要素は伸びた分だけ後ろへずれる", () => {
+    const s = step({ in: 0, out: 3, caption: { text: "c", start: 1 } });
+    const longer = resizeImageStepStart(p(s), 0, 5).steps[0] as Step;
+    expect(longer).toMatchObject({ in: 0, out: 5, caption: { start: 3 } });
+    const shorter = resizeImageStepStart(p(longer), 0, 0.01).steps[0] as Step;
+    expect(shorter.out).toBe(0.1);
+  });
+
   it("Out は録画の長さで止まる", () => {
     expect(trimStep(p(step()), 0, "out", 99, 30).steps[0]?.out).toBe(30);
   });
@@ -574,6 +595,30 @@ describe("再生で読み続ける区間", () => {
   });
 });
 
+describe("ステップごとの録画の枠", () => {
+  const p = proj([step(), step({ id: "b" })]);
+  const zero = { top: 0, right: 0, bottom: 0, left: 0 };
+
+  it("書いた項目だけ全体の枠を上書きする", () => {
+    const q = setStepLayout({ ...p, layout: { shadow: false, fit: "cover" } }, 0, { margin: zero });
+    expect(resolveLayout(q, q.steps[0])).toMatchObject({ margin: zero, fit: "cover", shadow: false });
+    expect(resolveLayout(q, q.steps[1]).margin).toEqual(resolveLayout(q).margin);
+  });
+
+  it("undefined を渡した項目は消え、何も残らなければ layout ごと消す", () => {
+    const q = setStepLayout(p, 0, { margin: zero });
+    expect(setStepLayout(q, 0, { margin: undefined }).steps[0]?.layout).toBeUndefined();
+    expect(clearStepLayout(q, 0).steps[0]?.layout).toBeUndefined();
+  });
+
+  it("この枠を共通にする: 全体の枠にして、そのステップの上書きを消す", () => {
+    const q = makeStepLayoutCommon(setStepLayout(p, 0, { margin: zero, fit: "contain" }), 0);
+    expect(q.layout?.margin).toEqual(zero);
+    expect(q.layout?.fit).toBeUndefined();
+    expect(q.steps[0]?.layout).toBeUndefined();
+  });
+});
+
 describe("録画の枠に合わせてテロップを動かす(followCaptions)", () => {
   const base = (margin: { top: number; right: number; bottom: number; left: number }) =>
     ({
@@ -602,9 +647,49 @@ describe("録画の枠に合わせてテロップを動かす(followCaptions)", 
     expect(next.steps[1]?.caption?.position).toBeUndefined();
   });
 
+  it("ステップだけの枠を変えると、そのステップのテロップだけが動く(全体の位置を使っていれば自分の位置として書く)", () => {
+    const prev = base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 });
+    const next = followCaptions(
+      prev,
+      setStepLayout(prev, 1, { margin: { top: 0.1, right: 0.1, bottom: 0.4, left: 0.1 } }),
+    );
+    expect(next.styles?.caption?.position).toEqual({ x: 0.5, y: 0.9 });
+    expect(next.steps[1]?.caption?.position).toEqual({ x: 0.5, y: 0.8 });
+    expect(next.steps[0]?.caption?.position).toEqual({ x: 0.25, y: 0.5 });
+  });
+
+  it("全体の枠を変えても、自分の枠を持つステップのテロップは動かない", () => {
+    const own = setStepLayout(base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 }), 1, { fit: "cover" });
+    const prev = setStepLayout(own, 1, { margin: { top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 } });
+    const next = followCaptions(prev, {
+      ...prev,
+      layout: { margin: { top: 0.1, right: 0.1, bottom: 0.4, left: 0.1 } },
+    });
+    expect(next.styles?.caption?.position).toEqual({ x: 0.5, y: 0.8 });
+    expect(next.steps[1]?.caption?.position).toEqual({ x: 0.5, y: 0.9 });
+  });
+
   it("枠が変わらなければそのまま", () => {
     const p = base({ top: 0.1, right: 0.1, bottom: 0.2, left: 0.1 });
     const q = { ...p, steps: [...p.steps] };
     expect(followCaptions(p, q)).toBe(q);
+  });
+});
+
+describe("audioChunkRanges", () => {
+  it("60 秒以下は全体の 1 つ", () => {
+    expect(audioChunkRanges(60)).toEqual([[0, 60]]);
+    expect(audioChunkRanges(12.5)).toEqual([[0, 12.5]]);
+  });
+  it("長いステップは 60 秒ずつに区切り、隙間も重なりもない", () => {
+    expect(audioChunkRanges(130)).toEqual([
+      [0, 60],
+      [60, 120],
+      [120, 130],
+    ]);
+    expect(audioChunkRanges(120)).toEqual([
+      [0, 60],
+      [60, 120],
+    ]);
   });
 });

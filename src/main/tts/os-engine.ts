@@ -46,6 +46,12 @@ $reader.ReadBytes($bytes)
 [System.IO.File]::WriteAllBytes($OutFile, $bytes)
 `;
 
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+/** Windows の SpeakingRate は範囲外だと例外になる(0.5〜6.0)。Mac の say も同じ範囲に揃える */
+export const clampRate = (v: number) => clamp(v, 0.5, 6.0);
+/** Windows の AudioPitch は 0.0〜2.0 */
+export const clampPitch = (v: number) => clamp(v, 0.0, 2.0);
+
 function run(cmd: string, args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { windowsHide: true, signal });
@@ -95,6 +101,7 @@ function windowsEngine(): TtsEngine {
     );
   return {
     name: "os",
+    concurrency: 2,
     version: `win32-${os.release()}`,
     notice: COMMERCIAL_NOTICE,
     voices: () =>
@@ -114,8 +121,8 @@ function windowsEngine(): TtsEngine {
             textFile,
             outFile,
             input.voice ?? "",
-            String(num(input.params.rate, 1)),
-            String(num(input.params.pitch, 1)),
+            String(clampRate(num(input.params.rate, 1))),
+            String(clampPitch(num(input.params.pitch, 1))),
           ],
           signal,
         );
@@ -127,6 +134,7 @@ function windowsEngine(): TtsEngine {
 function macEngine(): TtsEngine {
   return {
     name: "os",
+    concurrency: 2,
     version: `darwin-${os.release()}`,
     notice: COMMERCIAL_NOTICE,
     voices: async () => {
@@ -144,7 +152,7 @@ function macEngine(): TtsEngine {
         await writeFile(textFile, input.text, "utf8");
         const args = ["-o", outFile, "--data-format=LEI16@22050", "-f", textFile];
         if (input.voice) args.push("-v", input.voice);
-        args.push("-r", String(Math.round(175 * num(input.params.rate, 1))));
+        args.push("-r", String(Math.round(175 * clampRate(num(input.params.rate, 1)))));
         await run("say", args, signal);
         return new Uint8Array(await readFile(outFile));
       }),

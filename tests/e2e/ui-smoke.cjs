@@ -5,6 +5,7 @@
 const { _electron: electron } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
@@ -34,6 +35,22 @@ if (!fs.existsSync(rec)) {
     "aac",
     "-shortest",
     rec,
+  ]);
+}
+// 素材にする画像(赤一色)
+const img = path.join(outDir, "red.png");
+if (!fs.existsSync(img)) {
+  execFileSync("ffmpeg", [
+    "-loglevel",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=red:s=640x360",
+    "-frames:v",
+    "1",
+    img,
   ]);
 }
 const projectPath = path.join(outDir, "ui.stepcut.json");
@@ -75,10 +92,41 @@ const drag = async (page, from, to) => {
 };
 const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
+// アプリの設定(settings.json)は開発者のものを使わず、テスト用のフォルダーに置く(毎回まっさらにする)
+const userDataDir = path.join(outDir, "user-data");
+fs.rmSync(userDataDir, { recursive: true, force: true });
+
+// VOICEVOX のエンジンの代わり(声 1 つ、無音の WAV を返す)
+function fakeVoicevox() {
+  const wav = Buffer.alloc(44 + 24000 * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + 48000, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(24000, 24);
+  wav.writeUInt32LE(48000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(48000, 40);
+  const server = http.createServer((req, res) => {
+    if (req.url === "/version") return res.end(JSON.stringify("0.0.0-test"));
+    if (req.url === "/speakers")
+      return res.end(JSON.stringify([{ name: "テスト", styles: [{ name: "ノーマル", id: 7 }] }]));
+    if (req.url?.startsWith("/audio_query")) return res.end(JSON.stringify({ speedScale: 1 }));
+    if (req.url?.startsWith("/synthesis")) return res.end(wav);
+    res.statusCode = 404;
+    res.end();
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+}
+
 (async () => {
   const app = await electron.launch({
     executablePath: require(path.join(root, "node_modules/electron")),
-    args: [root, "--no-sandbox", projectPath],
+    args: [root, "--no-sandbox", `--user-data-dir=${userDataDir}`, projectPath],
     cwd: root,
   });
   const page = await app.firstWindow();
@@ -158,9 +206,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await thumbs.first().click();
   check(
     /^(Step|ステップ) 1$/.test((await panelTitle()).trim()) &&
-      (await page.locator(".fold").count()) === 4 &&
+      (await page.locator(".fold").count()) === 5 &&
       (await page.locator(".rail-thumb.on").count()) === 1,
-    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 文 / ズーム / オブジェクト)",
+    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 録画の枠 / 文 / ズーム / オブジェクト)",
   );
   check(
     (await page.locator(".fold.open").count()) === 3 &&
@@ -178,7 +226,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       "ステップの見出しは真ん中で、左右に前後のステップへの矢印",
     );
   }
-  await page.getByRole("button", { name: /Add zoom|ズームを追加/ }).click();
+  await page.getByRole("button", { name: /Zoom at playhead|再生位置にズーム/ }).click();
   const box = await page.locator(".draw-layer").boundingBox();
   await drag(
     page,
@@ -268,7 +316,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 置いた保持はドラッグで位置を動かせる
   await page.mouse.click(c1.x + pxPerSec, c1.y + c1.height / 2, { button: "right" });
-  await page.getByRole("menuitem", { name: /Freeze here|ここで静止/ }).click();
+  await page.getByRole("menuitem", { name: /Hold here|ここに保持/ }).click();
   await page.waitForTimeout(200);
   // 再生ヘッドに吸着しないよう、再生ヘッドを末尾へ離しておく
   await page.keyboard.press("End");
@@ -560,7 +608,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(tStart === tBefore, `タイムラインのズームの帯のクリックでは再生位置を動かさない (${tBefore})`);
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
-  await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
+  await page.getByRole("button", { name: /Area at playhead|再生位置に枠/ }).click();
   await page.waitForTimeout(300);
   check((await page.locator(".tl-key").count()) === 2, "再生位置に枠を足すとタイムラインに ◆ が 2 つ出る");
   check((await page.locator(".box-ghost").count()) === 1, "ほかの枠は点線で出る");
@@ -616,8 +664,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const vb = await page.locator(".box-outline").boundingBox();
   check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
   check(
-    (await page.locator(".rail-project.on").count()) === 1 && /Project|全体/.test(await panelTitle()),
-    "録画の枠を選ぶとパネルは全体の設定(全ステップに効く)",
+    (await page.locator(".rail-project.on").count()) === 0 &&
+      !/Project|全体/.test(await panelTitle()) &&
+      (await page.locator(".fold.open", { hasText: /Recording frame|録画の枠/ }).count()) === 1,
+    "録画の枠を選ぶとパネルはそのステップの「録画の枠」の欄",
   );
   check(
     (await page.locator(".preview-tools .seg").count()) === 1,
@@ -668,13 +718,40 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(300);
   await shot(page, "06-video-box");
 
+  // 枠の変更はそのステップだけ(ステップ 2 は全体の枠のまま)
+  await saveProject();
+  await page.waitForTimeout(800);
+  const savedOwn = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+  check(
+    savedOwn.steps[0].layout?.margin?.top > 0.04 &&
+      savedOwn.steps[0].layout?.fit === "cover" &&
+      savedOwn.steps[1].layout === undefined &&
+      savedOwn.layout?.margin === undefined,
+    `プレビューで動かした枠はそのステップだけに保存される (上 ${savedOwn.steps[0].layout?.margin?.top})`,
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  await page.getByRole("button", { name: /^(Use this frame for all steps|この枠を共通にする)$/ }).click();
+  await page.waitForTimeout(200);
+
   // 背景をプリセット「ミント」に変える
+  await openProject();
+  {
+    const layoutFold = page
+      .locator(".fold")
+      .filter({ has: page.locator(".fold-title", { hasText: /^(Layout|レイアウト)$/ }) });
+    if (!(await layoutFold.evaluate((el) => el.classList.contains("open"))))
+      await layoutFold.locator(".fold-head").click();
+  }
   await page.locator(".swatch").nth(2).click();
   await page.waitForTimeout(500);
   await saveProject();
   await page.waitForTimeout(800);
   const saved2 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
-  check(saved2.layout?.margin?.top > 0.04, `録画の余白が保存される (上 ${saved2.layout?.margin?.top})`);
+  check(
+    saved2.layout?.margin?.top > 0.04 && saved2.steps[0].layout === undefined,
+    `「この枠を共通にする」で全体の枠になり、ステップの個別の枠は消える (上 ${saved2.layout?.margin?.top})`,
+  );
   check(saved2.layout.fit === "cover", "辺のハンドルで縦横比を変えると切り取りになる");
   check(saved2.layout.background?.image === "preset:mint", "背景のプリセットを選べる");
   await page.keyboard.press("Escape");
@@ -698,6 +775,43 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     after[0] === before[0] && after[1] === before[1],
     `余白なしを外すと元の余白に戻る (${before} → ${after})`,
   );
+
+  // ステップ 2 だけ余白なしにする(設定パネルの「録画の枠」)
+  {
+    await thumbs.nth(1).click();
+    await page.waitForTimeout(200);
+    const frameFold = page.locator(".fold", { hasText: /Recording frame|録画の枠/ });
+    if (!(await frameFold.evaluate((el) => el.classList.contains("open"))))
+      await frameFold.locator(".fold-head").click();
+    await frameFold.getByLabel(/No margins|余白なし/).check();
+    await page.waitForTimeout(200);
+    await saveProject();
+    await page.waitForTimeout(800);
+    const saved3 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+    const m = saved3.steps[1].layout?.margin;
+    check(
+      m &&
+        m.top === 0 &&
+        m.left === 0 &&
+        saved3.steps[1].layout.fit === "contain" &&
+        saved3.layout.margin.top > 0.04,
+      "ステップ 2 だけ余白なしにできる(全体の余白はそのまま)",
+    );
+    check(
+      /This step uses its own frame|このステップだけの枠/.test(
+        await frameFold.locator(".fold-body .hint").first().textContent(),
+      ),
+      "個別の枠を使うステップは欄に「このステップだけの枠」と出る",
+    );
+    await page.getByRole("button", { name: /^(Back to the shared frame|全体の枠に戻す)$/ }).click();
+    await page.waitForTimeout(200);
+    check(
+      /Uses the shared frame|全体の枠を使っています/.test(
+        await frameFold.locator(".fold-body .hint").first().textContent(),
+      ),
+      "「全体の枠に戻す」で全体の枠に戻る",
+    );
+  }
 
   // テロップをプレビュー上でドラッグする(全体の設定を開いていても、そのステップの個別の値になる)
   await thumbs.first().click();
@@ -787,7 +901,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 読み上げを追加すると読み上げが 2 つになる
   await thumbs.first().click();
-  await page.getByRole("button", { name: /(Add speech|読み上げを追加)$/ }).click();
+  await page.getByRole("button", { name: /^＋ (Speech|読み上げ)$/ }).click();
   await page.waitForTimeout(200);
   check((await page.locator(".tl-bar.speech").count()) >= 2, "読み上げを 1 ステップに 2 つ置ける");
 
@@ -860,7 +974,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   // フェードイン: ステップの頭は黒になる(プレビューの中央の明るさで見る)
   await thumbs.first().click();
   await page.waitForTimeout(200);
-  const recFold = page.locator(".fold").filter({ hasText: /Recording|録画・速度/ });
+  const recFold = page.locator(".fold").filter({ hasText: /Recording & speed|録画・速度/ });
   if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
     await recFold.locator(".fold-head").click();
   const brightness = () =>
@@ -1170,7 +1284,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     const lane = await page.locator(".tl-lane").nth(2).boundingBox();
     const clip1 = await page.locator(".tl-clip").nth(1).boundingBox();
     await page.mouse.click(clip1.x + clip1.width - 6, lane.y + lane.height / 2, { button: "right" });
-    await page.getByRole("menuitem", { name: /Speech here|ここに読み上げ/ }).click();
+    await page.getByRole("menuitem", { name: /^(\+|＋) (Speech|読み上げ)$/ }).click();
     await page.waitForTimeout(200);
     check((await speechBars.count()) === s0 + 1, "読み上げのレーンの右クリックで読み上げを足す");
     await speechBars.nth(0).click({ button: "right" });
@@ -1430,6 +1544,342 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize()[0],
     );
     check(minW >= 700, `ウィンドウの最小幅を決めている (${minW}px)`);
+  }
+
+  // 画像を素材に足す(ファイル選択のダイアログは差し替える)
+  {
+    const pickReturns = (paths) =>
+      app.evaluate(({ dialog }, ps) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ps });
+      }, paths);
+    await pickReturns([img]);
+    await page.locator(".rail-add").click();
+    await page.waitForTimeout(600);
+    const recFold = page.locator(".fold").filter({ hasText: /Recording & speed|録画・速度/ });
+    if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
+      await recFold.locator(".fold-head").click();
+    const len = page.getByLabel(/^(Length \(s\)|長さ\(秒\))$/);
+    check(
+      (await page.locator(".tl-clip").count()) === 1 &&
+        (await len.count()) === 1 &&
+        (await len.inputValue()) === "3" &&
+        (await page.getByLabel(/^(Speed|速度)/).count()) === 0,
+      "画像を足すと 3 秒のステップになり、設定は長さだけ(速度・In/Out はない)",
+    );
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(400);
+    const stage = await page.locator(".preview-stage canvas").first().boundingBox();
+    const [pr, pg] = await pixelAt({ x: stage.x + stage.width / 2, y: stage.y + stage.height * 0.4 });
+    check(pr > 180 && pg < 80, `プレビューに画像を描く (${pr},${pg})`);
+    // 左端を左へ引くと長さが伸びる(in は 0 のまま)
+    await page.keyboard.press("End");
+    const clip = await page.locator(".tl-clip").first().boundingBox();
+    const hl = await page.locator(".tl-clip .tl-handle.left").first().boundingBox();
+    await drag(page, center(hl), { x: center(hl).x + clip.width / 3, y: center(hl).y });
+    const shorter = Number(await len.inputValue());
+    const hl2 = await page.locator(".tl-clip .tl-handle.left").first().boundingBox();
+    await drag(page, center(hl2), { x: center(hl2).x - clip.width, y: center(hl2).y });
+    const longer = Number(await len.inputValue());
+    check(
+      shorter < 3 && longer > shorter,
+      `画像のクリップは左端で縮めても伸ばしてもよい (${shorter} → ${longer})`,
+    );
+    // 画像のクリップの右クリックに録画の音の項目はない
+    await page.locator(".tl-clip").first().click({ button: "right" });
+    await page.waitForTimeout(150);
+    check(
+      (await page.getByRole("menuitem", { name: /recording audio|録画の音/ }).count()) === 0 &&
+        (await page.getByRole("menuitem", { name: /after this step|この後に録画・画像/ }).count()) === 1,
+      "画像のクリップの右クリック: 録画の音の項目はなく、「この後に録画・画像」がある",
+    );
+    await page.keyboard.press("Escape");
+    // 映像のレーンの空いた所の右クリックで末尾に足す
+    await pickReturns([rec]);
+    // 伸ばしたクリップの後ろが見えるよう、タイムラインを右端まで送る
+    await page.locator(".tl-scroll").evaluate((el) => {
+      el.scrollLeft = el.scrollWidth;
+    });
+    await page.waitForTimeout(150);
+    const c1 = await page.locator(".tl-clip").first().boundingBox();
+    const lane = await page.locator(".tl-video-lane").boundingBox();
+    await page.mouse.click(c1.x + c1.width + 15, lane.y + lane.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: /at the end|末尾に録画・画像/ }).click();
+    await page.waitForTimeout(600);
+    check((await page.locator(".tl-clip").count()) === 2, "映像のレーンの右クリックで録画を末尾に足す");
+  }
+
+  // 読み上げエンジン: 既定では選べず、アプリの設定で同意して有効にすると選べる(VOICEVOX はテスト用のサーバー)
+  {
+    const server = await fakeVoicevox();
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await openProject();
+    const speechFold = page
+      .locator(".fold")
+      .filter({ has: page.locator(".fold-title", { hasText: /^(Speech|読み上げ)$/ }) });
+    if (!(await speechFold.evaluate((el) => el.classList.contains("open"))))
+      await speechFold.locator(".fold-head").click();
+    const engineSel = speechFold
+      .locator(".field", { hasText: /^(Speech engine|読み上げエンジン)/ })
+      .locator("select");
+    check(
+      (await engineSel.locator('option[value="voicevox"]').evaluate((el) => el.disabled)) &&
+        (await engineSel.locator('option[value="azure"]').evaluate((el) => el.disabled)),
+      "VOICEVOX・Azure は既定では選べない",
+    );
+    await page.getByRole("button", { name: /Speech engine settings|読み上げエンジンの設定/ }).click();
+    await page.waitForTimeout(200);
+    let confirmText = "";
+    page.once("dialog", (d) => {
+      confirmText = d.message();
+      void d.accept();
+    });
+    // 確認の後に設定を保存してから入るので、check() ではなく click() で押す
+    await page.locator('.engine-block[data-engine="voicevox"] .engine-head input[type="checkbox"]').click();
+    await page.waitForTimeout(200);
+    check(/利用規約|terms/.test(confirmText), "有効にするときに規約の確認を求める");
+    const vvBlock = page.locator('.engine-block[data-engine="voicevox"]');
+    const urlInput = vvBlock.locator(".field", { hasText: /Engine URL|エンジンの場所/ }).locator("input");
+    await urlInput.fill(url);
+    await urlInput.blur();
+    await page.waitForTimeout(200);
+    await vvBlock.getByRole("button", { name: /Test connection|接続を確かめる/ }).click();
+    await page.waitForTimeout(800);
+    check(
+      /1/.test((await vvBlock.locator(".hint").last().textContent()) ?? ""),
+      `接続を確かめると声の数が出る (${await vvBlock.locator(".hint").last().textContent()})`,
+    );
+    await shot(page, "21-engines");
+    const saved = JSON.parse(fs.readFileSync(path.join(userDataDir, "settings.json"), "utf8"));
+    check(
+      saved.engines.voicevox.enabled && typeof saved.engines.voicevox.agreedAt === "string",
+      "同意した日時をアプリの設定に残す",
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await engineSel.selectOption("voicevox");
+    await page.waitForTimeout(800);
+    const voiceOpts = await speechFold
+      .locator(".field", { hasText: /^(Voice|声)/ })
+      .locator("option")
+      .allTextContents();
+    check(
+      voiceOpts.some((o) => o.includes("テスト(ノーマル)")),
+      `VOICEVOX を選ぶと声の一覧がエンジンの声になる (${voiceOpts.join(" / ")})`,
+    );
+    server.close();
+  }
+
+  // クラッシュ復旧(PRJ-06): 未保存の変更を 5 秒後に別ファイルへ残し、強制終了のあとの起動で復元を尋ねる。
+  // 別のアプリの設定フォルダー・別のプロジェクトで、起動し直して確かめる
+  {
+    const recDir = path.join(outDir, "user-data-recovery");
+    fs.rmSync(recDir, { recursive: true, force: true });
+    const recProject = path.join(outDir, "recover.stepcut.json");
+    fs.copyFileSync(projectPath, recProject);
+    const recFiles = () => {
+      try {
+        return fs.readdirSync(path.join(recDir, "recovery")).filter((f) => f.endsWith(".json"));
+      } catch {
+        return [];
+      }
+    };
+    // 起動して最初のダイアログの文を覚える(answer が false なら断る)。window.confirm は読み込みの直後に出る
+    const launchRecovery = async (answer) => {
+      const a = await electron.launch({
+        executablePath: require(path.join(root, "node_modules/electron")),
+        args: [root, "--no-sandbox", `--user-data-dir=${recDir}`, recProject],
+        cwd: root,
+      });
+      const w = await a.firstWindow();
+      const dialogs = [];
+      w.on("dialog", (d) => {
+        dialogs.push(d.message());
+        void (answer ? d.accept() : d.dismiss());
+      });
+      await w.setViewportSize({ width: 1400, height: 860 });
+      await w.waitForSelector(".rail-thumb");
+      await w.waitForTimeout(1500);
+      return { a, w, dialogs };
+    };
+    const editCaption = async (w, text) => {
+      await w.locator(".rail-thumb").first().click();
+      await w.locator(".tl-bar.caption").first().click();
+      const box = w.locator(".section.focused textarea").first();
+      await box.fill(text);
+      await box.blur();
+      await w.waitForTimeout(200);
+    };
+    const captionOf = async (w) => {
+      await w.locator(".rail-thumb").first().click();
+      await w.locator(".tl-bar.caption").first().click();
+      return w.locator(".section.focused textarea").first().inputValue();
+    };
+
+    // 1) 編集して 5 秒以上待ち、強制終了。プロジェクトのファイルは変わらない
+    const before = fs.readFileSync(recProject, "utf8");
+    let r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "復旧ファイルがなければ復元の確認は出ない");
+    await editCaption(r.w, "クラッシュ前の編集");
+    await r.w.waitForTimeout(6000);
+    check(recFiles().length === 1, `未保存の変更を 5 秒後に復旧ファイルへ残す (${recFiles().join(",")})`);
+    check(fs.readFileSync(recProject, "utf8") === before, "自動保存でプロジェクトのファイルは書き換えない");
+    r.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 800));
+
+    // 2) 起動し直す: 復元を尋ね、受け入れると編集が戻り、未保存として出る
+    r = await launchRecovery(true);
+    check(
+      r.dialogs.length === 1 && /復元|Restore/.test(r.dialogs[0]),
+      `強制終了のあとの起動で復元を尋ねる (${r.dialogs.join(" | ")})`,
+    );
+    check((await captionOf(r.w)) === "クラッシュ前の編集", "復元すると編集が戻る");
+    check((await r.w.locator(".tb-dirty").count()) === 1, "復元した内容は未保存として出る");
+    check(fs.readFileSync(recProject, "utf8") === before, "復元してもプロジェクトのファイルは書き換わらない");
+
+    // 3) 保存すると復旧ファイルが消える。閉じて起動し直しても尋ねない
+    await r.w.getByRole("button", { name: /^(File|ファイル)/ }).click();
+    await r.w.getByRole("menuitem", { name: /^(Save|保存)/ }).click();
+    await r.w.waitForTimeout(800);
+    check(recFiles().length === 0, "保存すると復旧ファイルを消す");
+    check(
+      fs.readFileSync(recProject, "utf8").includes("クラッシュ前の編集"),
+      "保存でプロジェクトのファイルに入る",
+    );
+    await r.a.close();
+    r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "保存して閉じたあとの起動では復元を尋ねない");
+
+    // 4) 復元したあとの保存済みの内容を、もう一度編集して強制終了する
+    await editCaption(r.w, "破棄する編集");
+    await r.w.waitForTimeout(6000);
+    check(recFiles().length === 1, "もう一度、復旧ファイルが残る");
+    r.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 800));
+
+    // 5) 復元を断ると復旧ファイルが消え、保存した内容が開く
+    r = await launchRecovery(false);
+    check(r.dialogs.length === 1, "復元を尋ねる");
+    check((await captionOf(r.w)) === "クラッシュ前の編集", "断ると保存してある内容のまま");
+    check((await r.w.locator(".tb-dirty").count()) === 0, "断ると未保存にならない");
+    check(recFiles().length === 0, "断ると復旧ファイルを消す");
+    await r.a.close();
+    r = await launchRecovery(true);
+    check(r.dialogs.length === 0, "断ったあとの起動では尋ねない");
+    check(r.dialogs.length === 0 && recFiles().length === 0, "変更なしで閉じたあとに復旧ファイルが残らない");
+    await r.a.close();
+  }
+
+  // 読めない録画の選び直し・開けないプロジェクトの知らせ・保持で伸びた長さ・書き出しの中止(別のフォルダーで起動し直す)
+  {
+    const fixDir = path.join(outDir, "fix");
+    fs.rmSync(fixDir, { recursive: true, force: true });
+    fs.mkdirSync(fixDir, { recursive: true });
+    const launchWith = async (file) => {
+      const a = await electron.launch({
+        executablePath: require(path.join(root, "node_modules/electron")),
+        args: [root, "--no-sandbox", `--user-data-dir=${path.join(fixDir, "user-data")}`, file],
+        cwd: root,
+      });
+      const w = await a.firstWindow();
+      await w.setViewportSize({ width: 1400, height: 860 });
+      await w.waitForTimeout(2000);
+      return { a, w };
+    };
+    // 閉じるときの「保存していない変更」の確認で止まらないよう、プロセスごと止める
+    const kill = async (a) => {
+      a.process().kill("SIGKILL");
+      await new Promise((res) => setTimeout(res, 500));
+    };
+
+    // 1) 開けないプロジェクト: 何が開けなかったかを先に書く
+    const badPath = path.join(fixDir, "bad.stepcut.json");
+    fs.writeFileSync(badPath, JSON.stringify({ format: "stepcut.project", version: 1, steps: "x" }));
+    let r = await launchWith(badPath);
+    const badText = (await r.w.locator(".banner.error pre").textContent()) ?? "";
+    check(
+      /^(プロジェクトファイルを開けませんでした|Could not open the project file): bad\.stepcut\.json\n/.test(
+        badText,
+      ) && badText.includes("steps"),
+      `開けないプロジェクトは、ファイル名を添えて知らせ、直す場所も出す (${badText.split("\n")[0]})`,
+    );
+    await kill(r.a);
+
+    // 2) 録画が見つからない: 平易な文と「場所を選ぶ…」で選び直す
+    const lostPath = path.join(fixDir, "lost.stepcut.json");
+    fs.writeFileSync(
+      lostPath,
+      JSON.stringify({
+        format: "stepcut.project",
+        version: 1,
+        sources: [{ id: "rec1", path: "moved.mp4" }],
+        steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],
+      }),
+    );
+    r = await launchWith(lostPath);
+    const lost = r.w.locator(".issues li.error");
+    const lostText = (await lost.first().textContent()) ?? "";
+    check(
+      /(録画・画像が見つかりません|Recording or image not found): moved\.mp4/.test(lostText) &&
+        !/ENOENT|remote method/.test(lostText),
+      `見つからない録画は、内部のエラー文ではなく平易な文で知らせる (${lostText})`,
+    );
+    await r.a.evaluate(
+      ({ dialog }, ps) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ps });
+      },
+      [rec],
+    );
+    await lost
+      .first()
+      .getByRole("button", { name: /^(場所を選ぶ…|Locate…)$/ })
+      .click();
+    await r.w.waitForTimeout(2500);
+    check(
+      (await r.w.locator(".issues li.error").count()) === 0 && (await r.w.locator(".tb-dirty").count()) === 1,
+      "「場所を選ぶ…」で録画を選び直すと問題が消え、未保存の変更になる",
+    );
+    check((await r.w.locator(".tl-tile canvas").count()) > 0, "選び直した録画のサムネイルが出る");
+
+    // 3) ズーム(映像を止める)で伸びた長さを「録画・速度」の見出しに出す
+    await r.w.locator(".rail-thumb").first().click();
+    const summary = () => r.w.locator(".fold-summary").first().textContent();
+    check((await summary()) === "4.0s", `保持がなければ録画の長さ (${await summary()})`);
+    await r.w.keyboard.press("ArrowRight");
+    await r.w.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
+    await r.w.keyboard.press("Escape");
+    await r.w.waitForTimeout(300);
+    const held = (await summary()) ?? "";
+    const railLen = (await r.w.locator(".rail-thumb").first().locator(".rail-text").textContent()) ?? "";
+    check(
+      held === "6.0s" && railLen.includes("6.0s"),
+      `ズームで伸びたら、見出しも左の列と同じ伸びた後の長さ (${held} / ${railLen})`,
+    );
+
+    // 4) 書き出しの中止: ボタンが中止になり、押すと知らせが出て、途中のファイルを残さない
+    const outMp4 = path.join(fixDir, "cancel.mp4");
+    await r.a.evaluate(({ dialog }, p) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: p });
+    }, outMp4);
+    const exportButton = r.w.locator(".tb-btn.primary");
+    await exportButton.click();
+    await r.w.waitForFunction(() =>
+      /中止|Cancel/.test(document.querySelector(".tb-btn.primary")?.textContent ?? ""),
+    );
+    check(true, "書き出し中は書き出しのボタンが「中止 n%」になる");
+    await exportButton.click();
+    await r.w.waitForSelector(".banner.info");
+    const canceled = (await r.w.locator(".banner.info pre").textContent()) ?? "";
+    await r.w.waitForTimeout(500);
+    check(/書き出しを中止しました|Export canceled/.test(canceled), `中止すると知らせが出る (${canceled})`);
+    check(
+      fs.readdirSync(fixDir).filter((f) => f.startsWith("cancel")).length === 0,
+      "中止した書き出しは、書き出し先にも途中のファイルにも残らない",
+    );
+    check(
+      /^(書き出し|Export)$/.test((await exportButton.textContent()) ?? ""),
+      "中止のあとは書き出しのボタンに戻る",
+    );
+    await kill(r.a);
   }
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);

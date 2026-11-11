@@ -16,7 +16,7 @@ import { resolveLayout, resolveOutput } from "../../core/defaults";
 import { objectImages } from "../../core/objects";
 import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
-import { buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
+import { audioChunkRanges, buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
 import type { ExportResult } from "../../shared/api";
 import { api } from "./api";
 import { renderStepAudio } from "./audio";
@@ -38,7 +38,7 @@ export interface ExportOptions {
 }
 
 export async function exportProject(opts: ExportOptions): Promise<ExportResult> {
-  const { project, outPath } = opts;
+  const { project } = opts;
   const warnings: string[] = [];
   const out = resolveOutput(project);
   const speech = opts.speech ?? new SpeechStore();
@@ -49,6 +49,22 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   warnings.push(...speech.notices);
 
   const media = new Map<string, SourceMedia>();
+  try {
+    return await exportWith(opts, media, warnings, out, speech);
+  } finally {
+    // 書き出し専用に開いた素材は、成功・失敗のどちらでも閉じる
+    for (const m of media.values()) m.dispose();
+  }
+}
+
+async function exportWith(
+  opts: ExportOptions,
+  media: Map<string, SourceMedia>,
+  warnings: string[],
+  out: ReturnType<typeof resolveOutput>,
+  speech: SpeechStore,
+): Promise<ExportResult> {
+  const { project, outPath } = opts;
   for (const s of project.sources) {
     if (project.steps.some((st) => st.source === s.id)) {
       media.set(s.id, await openExclusive(await api.resolveSource(opts.projectPath, s.path)));
@@ -103,79 +119,97 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   if (!audioCodec)
     warnings.push("音声を書き出せる形式がないため、音声なしで書き出しました / No audio encoder");
 
-  const handle = await api.openOutput(outPath);
-  const target = new StreamTarget(
-    new WritableStream({ write: (chunk) => api.writeOutput(handle, chunk.position, chunk.data) }),
-    { chunked: true, chunkSize: 4 * 1024 * 1024 },
-  );
-  const output = new Output({ format: new Mp4OutputFormat({ fastStart: false }), target });
-  const canvas = new OffscreenCanvas(out.width, out.height);
-  const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
-  const videoSource = new CanvasSource(canvas, {
-    codec: "avc",
-    quality,
-    hardwareAcceleration,
-    keyFrameInterval: 2,
-  });
-  output.addVideoTrack(videoSource, { frameRate: out.fps });
-  const audioSource = audioCodec ? new AudioBufferSource({ codec: audioCodec, quality: QUALITY_HIGH }) : null;
-  if (audioSource) output.addAudioTrack(audioSource);
-
   const totalFrames = Math.round(total * out.fps);
-  let frame = 0;
+  // 一時ファイルに書き、最後まで書けたときだけ書き出し先に置き換える(失敗・中止で前のファイルを壊さない)
+  const handle = await api.openOutput(outPath);
+  let committed = false;
   try {
-    await output.start();
-    for (const entry of timeline) {
-      const m = media.get(entry.step.source) ?? null;
-      if (audioSource) {
-        await audioSource.add(
-          await renderStepAudio(project, entry.step, entry.duration, m, speech.placed(project, entry.step)),
-        );
-      }
-      const endFrame = Math.round((entry.start + entry.duration) * out.fps);
-      const frames: number[] = [];
-      for (let k = frame; k < endFrame; k++) frames.push(k);
-      const locals = frames.map((k) => k / out.fps - entry.start);
-      const draw = async (k: number, local: number, img: CanvasImageSource | null) => {
-        drawFrame(ctx, {
-          project,
-          step: entry.step,
-          local,
-          stepDuration: entry.duration,
-          frame: img as (CanvasImageSource & { width: number; height: number }) | null,
-          srcW: m?.width ?? 0,
-          srcH: m?.height ?? 0,
-          outW: out.width,
-          outH: out.height,
-          backgroundImage,
-          images: (p) => images.get(p, opts.projectPath),
-        });
-        await videoSource.add(k / out.fps, 1 / out.fps);
-        opts.onProgress?.(k + 1, totalFrames);
-        if (opts.signal?.aborted) throw new Error("中止しました / Canceled");
-      };
-      if (m) {
-        let i = 0;
-        let last: CanvasImageSource | null = null;
-        const ts = locals.map((t) => sourceTimeAt(entry.step, t));
-        for await (const wc of m.video.canvasesAtTimestamps(ts)) {
-          // プールのキャンバスは次の取得で上書きされるので、描いてから次へ進む
-          if (wc) last = wc.canvas;
-          await draw(frames[i] as number, locals[i] as number, last);
-          i++;
+    const target = new StreamTarget(
+      new WritableStream({ write: (chunk) => api.writeOutput(handle, chunk.position, chunk.data) }),
+      { chunked: true, chunkSize: 4 * 1024 * 1024 },
+    );
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: false }), target });
+    const canvas = new OffscreenCanvas(out.width, out.height);
+    const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+    const videoSource = new CanvasSource(canvas, {
+      codec: "avc",
+      quality,
+      hardwareAcceleration,
+      keyFrameInterval: 2,
+    });
+    output.addVideoTrack(videoSource, { frameRate: out.fps });
+    const audioSource = audioCodec
+      ? new AudioBufferSource({ codec: audioCodec, quality: QUALITY_HIGH })
+      : null;
+    if (audioSource) output.addAudioTrack(audioSource);
+
+    let frame = 0;
+    try {
+      await output.start();
+      for (const entry of timeline) {
+        const m = media.get(entry.step.source) ?? null;
+        if (audioSource) {
+          const placed = speech.placed(project, entry.step);
+          const ranges = audioChunkRanges(entry.duration);
+          if (ranges.length === 1) {
+            await audioSource.add(await renderStepAudio(project, entry.step, entry.duration, m, placed));
+          } else {
+            // 長いステップは 60 秒ずつ作って足す(ステップ全体の音声を一度にメモリへ持たない)
+            for (const [from, to] of ranges)
+              await audioSource.add(
+                await renderStepAudio(project, entry.step, entry.duration, m, placed, from, to),
+              );
+          }
         }
-      } else {
-        for (let i = 0; i < frames.length; i++) await draw(frames[i] as number, locals[i] as number, null);
+        const endFrame = Math.round((entry.start + entry.duration) * out.fps);
+        const frames: number[] = [];
+        for (let k = frame; k < endFrame; k++) frames.push(k);
+        const locals = frames.map((k) => k / out.fps - entry.start);
+        const draw = async (k: number, local: number, img: CanvasImageSource | null) => {
+          drawFrame(ctx, {
+            project,
+            step: entry.step,
+            local,
+            stepDuration: entry.duration,
+            frame: img as (CanvasImageSource & { width: number; height: number }) | null,
+            srcW: m?.width ?? 0,
+            srcH: m?.height ?? 0,
+            outW: out.width,
+            outH: out.height,
+            backgroundImage,
+            images: (p) => images.get(p, opts.projectPath),
+          });
+          await videoSource.add(k / out.fps, 1 / out.fps);
+          opts.onProgress?.(k + 1, totalFrames);
+          if (opts.signal?.aborted) throw new Error("中止しました / Canceled");
+        };
+        if (m) {
+          let i = 0;
+          let last: CanvasImageSource | null = null;
+          const ts = locals.map((t) => sourceTimeAt(entry.step, t));
+          for await (const wc of m.video.canvasesAtTimestamps(ts)) {
+            // プールのキャンバスは次の取得で上書きされるので、描いてから次へ進む
+            if (wc) last = wc.canvas;
+            await draw(frames[i] as number, locals[i] as number, last);
+            i++;
+          }
+        } else {
+          for (let i = 0; i < frames.length; i++) await draw(frames[i] as number, locals[i] as number, null);
+        }
+        frame = endFrame;
       }
-      frame = endFrame;
+      await output.finalize();
+    } catch (e) {
+      // 後始末の失敗で元のエラーを隠さない
+      await output.cancel().catch(() => {});
+      throw e;
     }
-    await output.finalize();
+    committed = true;
+    await api.closeOutput(handle, true);
   } catch (e) {
-    await output.cancel();
-    await api.closeOutput(handle);
+    if (!committed) await api.closeOutput(handle, false).catch(() => {});
     throw e;
   }
-  await api.closeOutput(handle);
 
   let srtPath: string | undefined;
   if (out.srt) {

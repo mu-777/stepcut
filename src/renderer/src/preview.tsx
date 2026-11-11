@@ -40,6 +40,8 @@ export function Preview(props: {
   outW: number;
   outH: number;
   project: Project;
+  /** 再生位置のステップ(録画の枠はステップごとに上書きできる) */
+  step: Step | null;
   stateRef: MutableRefObject<PlayerState>;
   playerRef: MutableRefObject<Player | null>;
   onTime: (t: number, playing: boolean) => void;
@@ -227,7 +229,7 @@ export function Preview(props: {
     const r = (el.closest(".preview-stage") as HTMLElement).getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-  const layout = resolveLayout(props.project);
+  const layout = resolveLayout(props.project, props.step);
   const src = props.srcSize ?? { w: 1920, h: 1080 };
   const videoBox = computeLayout(size.w, size.h, layout, src.w, src.h).video;
   const [captionGuides, setCaptionGuides] = useState<{ x: number | null; y: number | null }>({
@@ -239,8 +241,17 @@ export function Preview(props: {
   if (d) {
     // ズーム範囲: ソースの座標 ⇔ 画面上の座標(ズームなしの表示で)
     const toScreen = (r: Rect) => {
-      const a = sourceToOutput(props.project, size.w, size.h, d.srcW, d.srcH, r.x, r.y);
-      const b = sourceToOutput(props.project, size.w, size.h, d.srcW, d.srcH, r.x + r.w, r.y + r.h);
+      const a = sourceToOutput(props.project, props.step, size.w, size.h, d.srcW, d.srcH, r.x, r.y);
+      const b = sourceToOutput(
+        props.project,
+        props.step,
+        size.w,
+        size.h,
+        d.srcW,
+        d.srcH,
+        r.x + r.w,
+        r.y + r.h,
+      );
       return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
     };
     const crop = computeLayout(size.w, size.h, layout, d.srcW, d.srcH).crop;
@@ -263,7 +274,7 @@ export function Preview(props: {
         edgeY={[videoBox.y, videoBox.y + videoBox.h]}
         onCommit={d.onCommit}
         onChange={(b, key, _shape, move) => {
-          const a = outputToSource(props.project, size.w, size.h, d.srcW, d.srcH, b.x, b.y);
+          const a = outputToSource(props.project, props.step, size.w, size.h, d.srcW, d.srcH, b.x, b.y);
           if (move && d.rect) {
             // 移動では大きさを変えない(画面の座標への換算の誤差や端での切り詰めで枠が伸び縮みしないように)
             const { w, h } = d.rect;
@@ -278,7 +289,16 @@ export function Preview(props: {
             );
             return;
           }
-          const c = outputToSource(props.project, size.w, size.h, d.srcW, d.srcH, b.x + b.w, b.y + b.h);
+          const c = outputToSource(
+            props.project,
+            props.step,
+            size.w,
+            size.h,
+            d.srcW,
+            d.srcH,
+            b.x + b.w,
+            b.y + b.h,
+          );
           if (c.x - a.x < 4 || c.y - a.y < 4) return;
           d.onRect(
             { x: Math.round(a.x), y: Math.round(a.y), w: Math.round(c.x - a.x), h: Math.round(c.y - a.y) },

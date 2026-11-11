@@ -2,7 +2,7 @@
 
 import { resolveLayout, speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
 import { cutObjectAt, objectGone, objectWindow, shiftObject } from "./objects";
-import type { Project, SpeechPiece, Step } from "./schema";
+import type { Margin, Project, SpeechPiece, Step, StepLayout } from "./schema";
 import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
 
 export function uniqueStepId(project: Project, base: string): string {
@@ -134,6 +134,18 @@ export function trimStep(
   const newIn = r3(Math.max(0, Math.min(value, step.out - MIN_STEP_SOURCE)));
   const dt = (step.in - newIn) / stepSpeed(step);
   return updateStep(project, index, (s) => ({ ...shiftStepElements(s, dt), in: newIn }));
+}
+
+/**
+ * 画像の素材のステップの長さを変える(クリップの左端のドラッグ)。画像はどの時刻も同じなので in を 0 にそろえ、
+ * 伸び縮みした分だけ後ろの要素を動かす(左端を動かしたのと同じ見え方にする)
+ */
+export function resizeImageStepStart(project: Project, index: number, length: number): Project {
+  const step = project.steps[index];
+  if (!step) return project;
+  const len = r3(Math.max(MIN_STEP_SOURCE, length));
+  const dt = (len - (step.out - step.in)) / stepSpeed(step);
+  return updateStep(project, index, (s) => ({ ...shiftStepElements(s, dt), in: 0, out: len }));
 }
 
 /** 保持を追加する。既存の保持(ズーム中の静止を含む)と重なる場合や、映像の外なら何もしない */
@@ -291,28 +303,89 @@ function followAxis(p: number, a: { lo: number; hi: number }, b: { lo: number; h
  * 位置を書いていないテロップは描画のときに録画の下の余白へ置くので、もとから枠についていく
  */
 export function followCaptions(prev: Project, next: Project): Project {
-  const m0 = prev.layout?.margin;
-  const m1 = next.layout?.margin;
-  if (m0 === m1) return next;
-  const a = resolveLayout(prev).margin;
-  const b = resolveLayout(next).margin;
-  if (a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left) return next;
+  // 枠に関わる値が変わっていなければ何もしない(ふだんの編集で毎回ステップを見直さない)
+  if (prev.layout?.margin === next.layout?.margin && prev.steps === next.steps) return next;
+  const same = (a: Margin, b: Margin) =>
+    a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
   const r4 = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 1e4) / 1e4;
-  const move = (pos: { x: number; y: number }) => ({
-    x: r4(followAxis(pos.x, { lo: a.left, hi: 1 - a.right }, { lo: b.left, hi: 1 - b.right })),
-    y: r4(followAxis(pos.y, { lo: a.top, hi: 1 - a.bottom }, { lo: b.top, hi: 1 - b.bottom })),
+  type Pos = { x: number; y: number };
+  const eq = (p?: Pos, q?: Pos) => (!p && !q) || (!!p && !!q && p.x === q.x && p.y === q.y);
+  const move = (pos: Pos, a: Margin, b: Margin) =>
+    same(a, b)
+      ? pos
+      : {
+          x: r4(followAxis(pos.x, { lo: a.left, hi: 1 - a.right }, { lo: b.left, hi: 1 - b.right })),
+          y: r4(followAxis(pos.y, { lo: a.top, hi: 1 - a.bottom }, { lo: b.top, hi: 1 - b.bottom })),
+        };
+  const pa = resolveLayout(prev).margin;
+  const pb = resolveLayout(next).margin;
+  // 全体の位置は全体の枠に合わせて動かす
+  const sharedPrev = prev.styles?.caption?.position;
+  const sharedNext = next.styles?.caption?.position;
+  const sharedMoved = sharedNext && eq(sharedNext, sharedPrev) ? move(sharedNext, pa, pb) : sharedNext;
+  const prevById = new Map(prev.steps.map((s) => [s.id, s]));
+  const steps = next.steps.map((s) => {
+    const before = prevById.get(s.id);
+    if (!before || !s.caption) return s;
+    const a = resolveLayout(prev, before).margin;
+    const b = resolveLayout(next, s).margin;
+    const own = s.caption.position;
+    if (own) {
+      // 自分の位置: 自分の枠の変わり方に合わせる(位置そのものを直したときは動かさない)
+      if (!eq(own, before.caption?.position) || same(a, b)) return s;
+      return { ...s, caption: { ...s.caption, position: move(own, a, b) } };
+    }
+    // 全体の位置を使っている: 全体の位置の動きと自分の枠の動きが違えば、自分の位置として書く
+    if (!sharedPrev || !sharedMoved || !eq(sharedNext, sharedPrev)) return s;
+    const want = move(sharedPrev, a, b);
+    if (want.x === sharedMoved.x && want.y === sharedMoved.y) return s;
+    return { ...s, caption: { ...s.caption, position: want } };
   });
-  const shared = next.styles?.caption?.position;
-  const steps = next.steps.map((s) =>
-    s.caption?.position ? { ...s, caption: { ...s.caption, position: move(s.caption.position) } } : s,
-  );
-  const changed = shared || steps.some((s, i) => s !== next.steps[i]);
-  if (!changed) return next;
+  const stepsChanged = steps.some((s, i) => s !== next.steps[i]);
+  if (!stepsChanged && eq(sharedMoved, sharedNext)) return next;
   return {
     ...next,
-    styles: shared
-      ? { ...next.styles, caption: { ...next.styles?.caption, position: move(shared) } }
-      : next.styles,
-    steps,
+    styles:
+      sharedMoved && !eq(sharedMoved, sharedNext)
+        ? { ...next.styles, caption: { ...next.styles?.caption, position: sharedMoved } }
+        : next.styles,
+    steps: stepsChanged ? steps : next.steps,
   };
+}
+
+/** ステップの録画の枠を上書きする(patch の項目を書き足す。undefined は消す) */
+export function setStepLayout(project: Project, index: number, patch: Partial<StepLayout>): Project {
+  return updateStep(project, index, (s) => {
+    const merged: StepLayout = { ...s.layout, ...patch };
+    for (const k of Object.keys(merged) as (keyof StepLayout)[])
+      if (merged[k] === undefined) delete merged[k];
+    const { layout: _l, ...rest } = s;
+    return Object.keys(merged).length ? { ...rest, layout: merged } : rest;
+  });
+}
+
+/** ステップの枠の上書きを消し、全体の枠に戻す */
+export function clearStepLayout(project: Project, index: number): Project {
+  return updateStep(project, index, (s) => {
+    const { layout: _l, ...rest } = s;
+    return rest;
+  });
+}
+
+/** ステップの枠を全体の枠にし、このステップの上書きを消す(ほかのステップの上書きはそのまま) */
+export function makeStepLayoutCommon(project: Project, index: number): Project {
+  const step = project.steps[index];
+  if (!step?.layout) return project;
+  const l = resolveLayout(project, step);
+  const p: Project = {
+    ...project,
+    layout: {
+      ...project.layout,
+      margin: l.margin,
+      fit: l.fit === "contain" ? undefined : l.fit,
+      shadow: l.shadow,
+    },
+  };
+  if (p.layout && p.layout.fit === undefined) delete p.layout.fit;
+  return clearStepLayout(p, index);
 }
