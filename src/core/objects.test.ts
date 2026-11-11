@@ -21,7 +21,7 @@ import type { Pointer, Project, Shape, Step } from "./schema";
 import { parseProject } from "./validate";
 
 const base: Project = {
-  format: "screen-annotator.project",
+  format: "stepcut.project",
   version: 1,
   sources: [{ id: "a", path: "a.mp4" }],
   steps: [],

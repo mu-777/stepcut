@@ -6,10 +6,10 @@ import { clearRecovery, readRecovery, recoveryKey, writeRecovery } from "./recov
 
 describe("recoveryKey", () => {
   it("同じパスは同じ名前、16 桁の 16 進数", () => {
-    const k = recoveryKey("/p/a.sanno.json", "linux");
+    const k = recoveryKey("/p/a.stepcut.json", "linux");
     expect(k).toMatch(/^[0-9a-f]{16}$/);
-    expect(recoveryKey("/p/./a.sanno.json", "linux")).toBe(k);
-    expect(recoveryKey("/p/b.sanno.json", "linux")).not.toBe(k);
+    expect(recoveryKey("/p/./a.stepcut.json", "linux")).toBe(k);
+    expect(recoveryKey("/p/b.stepcut.json", "linux")).not.toBe(k);
   });
   it("Windows では大文字小文字を区別しない。POSIX では区別する", () => {
     expect(recoveryKey("C:\\Proj\\A.json", "win32")).toBe(recoveryKey("c:\\proj\\a.JSON", "win32"));
@@ -28,20 +28,20 @@ describe("recovery files", () => {
   afterEach(() => rmSync(path.dirname(dir), { recursive: true, force: true }));
 
   it("書いて読んで消せる(フォルダーがなくても作る)", async () => {
-    await writeRecovery(dir, "/p/a.sanno.json", null, "TEXT");
-    const r = await readRecovery(dir, "/p/a.sanno.json");
+    await writeRecovery(dir, "/p/a.stepcut.json", null, "TEXT");
+    const r = await readRecovery(dir, "/p/a.stepcut.json");
     expect(r).toMatchObject({ text: "TEXT", name: null });
     expect(Number.isNaN(Date.parse(r?.savedAt ?? ""))).toBe(false);
-    await clearRecovery(dir, "/p/a.sanno.json");
-    expect(await readRecovery(dir, "/p/a.sanno.json")).toBeNull();
+    await clearRecovery(dir, "/p/a.stepcut.json");
+    expect(await readRecovery(dir, "/p/a.stepcut.json")).toBeNull();
     expect(readdirSync(dir)).toEqual([]);
   });
 
   it("未保存のプロジェクトは名前も残る。別のプロジェクトとは混ざらない", async () => {
     await writeRecovery(dir, null, "手順書", "U");
-    await writeRecovery(dir, "/p/a.sanno.json", null, "A");
+    await writeRecovery(dir, "/p/a.stepcut.json", null, "A");
     expect(await readRecovery(dir, null)).toMatchObject({ text: "U", name: "手順書" });
-    expect((await readRecovery(dir, "/p/a.sanno.json"))?.text).toBe("A");
+    expect((await readRecovery(dir, "/p/a.stepcut.json"))?.text).toBe("A");
   });
 
   it("壊れたファイル・ないファイル・形の違うファイルは null、消すのも失敗しない", async () => {

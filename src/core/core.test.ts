@@ -58,7 +58,7 @@ import { parseProject, parseProjectText } from "./validate";
 
 const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 10, out: 20, ...over });
 const proj = (steps: Step[]): Project => ({
-  format: "screen-annotator.project",
+  format: "stepcut.project",
   version: 1,
   sources: [{ id: "rec", path: "a.mp4" }],
   steps,
@@ -265,7 +265,7 @@ describe("text", () => {
 
 describe("validate", () => {
   const base: Project = {
-    format: "screen-annotator.project",
+    format: "stepcut.project",
     version: 1,
     sources: [{ id: "rec", path: "a.mp4" }],
     steps: [],
@@ -309,7 +309,7 @@ describe("validate", () => {
 
 describe("edit", () => {
   const p: Project = {
-    format: "screen-annotator.project",
+    format: "stepcut.project",
     version: 1,
     sources: [{ id: "rec", path: "a.mp4" }],
     steps: [
@@ -622,7 +622,7 @@ describe("ステップごとの録画の枠", () => {
 describe("録画の枠に合わせてテロップを動かす(followCaptions)", () => {
   const base = (margin: { top: number; right: number; bottom: number; left: number }) =>
     ({
-      format: "screen-annotator.project",
+      format: "stepcut.project",
       version: 1,
       sources: [{ id: "r", path: "a.mp4" }],
       layout: { margin },

@@ -4,7 +4,7 @@
   "properties": {
     "format": {
       "type": "string",
-      "const": "screen-annotator.project"
+      "const": "stepcut.project"
     },
     "version": {
       "type": "number",
@@ -1478,6 +1478,6 @@
     "steps"
   ],
   "additionalProperties": false,
-  "title": "screen-annotator project (version 1)",
+  "title": "stepcut project (version 1)",
   "description": "仕様: docs/project-format.md"
 }

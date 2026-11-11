@@ -1,8 +1,8 @@
 {
-  "name": "screen-annotator",
-  "productName": "Screen Annotator",
+  "name": "stepcut",
+  "productName": "StepCut",
   "version": "0.1.0",
-  "description": "Make step-by-step tutorial videos from screen recordings",
+  "description": "Turn recordings into step-by-step videos, driven by captions",
   "license": "Apache-2.0",
   "author": "mu-777",
   "private": true,
@@ -39,8 +39,8 @@
     "zod": "^4.6.7"
   },
   "build": {
-    "appId": "com.mu777.screenannotator",
-    "productName": "Screen Annotator",
+    "appId": "com.mu777.stepcut",
+    "productName": "StepCut",
     "directories": {
       "output": "dist"
     },

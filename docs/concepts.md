@@ -17,7 +17,7 @@
 ## 2. 全体の流れ
 
 ```
-録画(mp4) ──参照──▶ プロジェクトファイル(.sanno.json)
+録画(mp4) ──参照──▶ プロジェクトファイル(.stepcut.json)
                       │  sources: 録画の一覧
                       │  steps:   録画の区間 + 付ける要素
                       ▼
@@ -160,9 +160,9 @@
 ## 8. AI との往復
 
 1. AI がプロジェクトファイルを編集する(仕様: project-format.md、JSON Schema: project.schema.json)
-2. `screen-annotator validate <file> --json` で検証する(知らないキーはエラー。id 参照・時刻の重なりも調べる)
+2. `stepcut validate <file> --json` で検証する(知らないキーはエラー。id 参照・時刻の重なりも調べる)
 3. 開いているアプリは外部変更を検知して再読み込みする。アプリ側に未保存の変更があれば、どちらを採るか人に確認する
-4. `screen-annotator export <file> --json` で UI なしに書き出す
+4. `stepcut export <file> --json` で UI なしに書き出す
 
 素材のパスは、プロジェクトと同じフォルダかその下なら相対、それ以外は絶対で保存する(区切りは常に `/`)。
 
@@ -179,7 +179,7 @@
 
 | 用語 | 定義 | JSON / コード |
 |---|---|---|
-| プロジェクト | 1 本の出力動画の編集内容。JSON 1 ファイル | `.sanno.json`、`Project` |
+| プロジェクト | 1 本の出力動画の編集内容。JSON 1 ファイル | `.stepcut.json`、`Project` |
 | ソース(素材、録画) | 取り込んだ録画ファイル(mp4) | `sources[]` |
 | ステップ | 出力動画の構成単位。ソースの区間と付ける要素を持つ | `steps[]`、`Step` |
 | In / Out | ステップが使うソースの区間の始まりと終わり(ソース時刻) | `in` / `out` |

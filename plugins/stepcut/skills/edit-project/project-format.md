@@ -2,7 +2,7 @@
 
 # プロジェクトファイル仕様(version 1)
 
-決定記録は [decisions/20261029-project-format.md](decisions/20261029-project-format.md)。機械向けの JSON Schema は [project.schema.json](project.schema.json)(`src/core/schema.ts` から生成)。検証は `screen-annotator validate <file> [--json]`(AI-04)。
+決定記録は [decisions/20261029-project-format.md](decisions/20261029-project-format.md)。機械向けの JSON Schema は [project.schema.json](project.schema.json)(`src/core/schema.ts` から生成)。検証は `stepcut validate <file> [--json]`(AI-04)。
 
 人と AI の両方が直接編集する前提の仕様。この文書だけを読めば、ステップの追加・変更ができることを目標にする(要件 9 章)。
 
@@ -10,7 +10,7 @@
 
 | 項目 | ルール |
 |---|---|
-| 形式 | UTF-8 の JSON。拡張子は `.sanno.json`(仮) |
+| 形式 | UTF-8 の JSON。拡張子は `.stepcut.json` |
 | 時間の単位 | 秒(小数可、ミリ秒まで有効) |
 | ステップ内の時刻 | **ステップ内の出力時刻**。ステップの先頭が 0。保持や早送りを反映した後の時刻 |
 | ソース内の時刻 | `in` / `out` だけはソース(録画ファイル)の時刻 |
@@ -26,7 +26,7 @@
 
 ```json
 {
-  "format": "screen-annotator.project",
+  "format": "stepcut.project",
   "version": 1,
   "output": { ... },
   "layout": { ... },
@@ -41,7 +41,7 @@
 
 | キー | 必須 | 内容 |
 |---|---|---|
-| `format` | ○ | 固定値 `"screen-annotator.project"` |
+| `format` | ○ | 固定値 `"stepcut.project"` |
 | `version` | ○ | 仕様の版。この文書は `1` |
 | `output` | | 出力設定(OUT) |
 | `layout` | | レイアウト(LAY) |
@@ -256,7 +256,7 @@
 
 ```json
 {
-  "format": "screen-annotator.project",
+  "format": "stepcut.project",
   "version": 1,
   "output": { "width": 1920, "height": 1080, "fps": 30, "quality": "high", "srt": true },
   "layout": { "background": { "image": "preset:default" } },

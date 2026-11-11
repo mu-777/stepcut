@@ -33,7 +33,7 @@ import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 import { createVoicevoxEngine } from "./tts/voicevox-engine";
 
-const PROJECT_FILTER = { name: "Screen Annotator Project", extensions: ["json"] };
+const PROJECT_FILTER = { name: "StepCut Project", extensions: ["json"] };
 
 const exists = (p: string) =>
   access(p).then(
@@ -84,7 +84,7 @@ function createWindow(opts: { show: boolean; query?: Record<string, string> }): 
     minWidth: MIN_WINDOW_W,
     minHeight: 560,
     show: opts.show,
-    title: "Screen Annotator",
+    title: "StepCut",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -227,7 +227,7 @@ function registerIpc(): void {
       if (!target) {
         // 新しいプロジェクト: 名前(ヘッダーで入力したもの)で、アプリの設定の保存先に置く。
         // 保存先を決めていない・同じ名前のファイルがあるときは、その名前で保存先を尋ねる
-        const fileName = `${name || "project"}.sanno.json`;
+        const fileName = `${name || "project"}.stepcut.json`;
         const dir = (await loadSettings()).projectDir;
         const direct = dir && name ? path.join(dir, fileName) : null;
         if (direct && !(await exists(direct))) target = direct;
@@ -252,7 +252,7 @@ function registerIpc(): void {
   ipcMain.handle("project:rename", async (_e, from: string, name: string) => {
     acl.assertProject(from);
     if (!isValidProjectName(name)) throw new Error(`この名前は使えません / Invalid name: ${String(name)}`);
-    const ext = /\.sanno\.json$/i.test(from) ? ".sanno.json" : path.extname(from);
+    const ext = /\.stepcut\.json$/i.test(from) ? ".stepcut.json" : path.extname(from);
     const target = path.join(path.dirname(from), `${name}${ext}`);
     if (target === from) return target;
     if (await exists(target)) throw new Error(`同じ名前のファイルがあります / Already exists: ${target}`);

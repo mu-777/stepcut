@@ -1,8 +1,8 @@
 // CLI(AI-02, AI-04, AI-07)。
-//   screen-annotator validate <project.json> [--json]
-//   screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
-//   screen-annotator frame <project.json> (--step <番号|id> [--time <秒>] | --at <秒>) [--source] [--out <file.png>] [--json] [--result <file.json>]
-//   screen-annotator inspect <project.json> [--json] [--result <file.json>]
+//   stepcut validate <project.json> [--json]
+//   stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+//   stepcut frame <project.json> (--step <番号|id> [--time <秒>] | --at <秒>) [--source] [--out <file.png>] [--json] [--result <file.json>]
+//   stepcut inspect <project.json> [--json] [--result <file.json>]
 // --result は結果の JSON をファイルにも書く(Windows の GUI アプリは標準出力がコンソールにつながらないことがあるため)。
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -85,14 +85,14 @@ export function parseCli(
 }
 
 export const HELP = `Usage:
-  screen-annotator validate <project.json> [--json]
-  screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
-  screen-annotator frame <project.json> (--step <number|id> [--time <sec>] | --at <sec>) [--source] [--out <file.png>] [--json] [--result <file.json>]
-  screen-annotator inspect <project.json> [--json] [--result <file.json>]`;
+  stepcut validate <project.json> [--json]
+  stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+  stepcut frame <project.json> (--step <number|id> [--time <sec>] | --at <sec>) [--source] [--out <file.png>] [--json] [--result <file.json>]
+  stepcut inspect <project.json> [--json] [--result <file.json>]`;
 
 /** 書き出し先を省いたときのファイル名(プロジェクトと同じ場所) */
 export function defaultOutPath(args: CliArgs): string {
-  const base = (args.project as string).replace(/(\.sanno)?\.json$/i, "");
+  const base = (args.project as string).replace(/(\.stepcut)?\.json$/i, "");
   if (args.command !== "frame") return `${base}.mp4`;
   const at = args.at !== undefined ? `at${args.at}` : `step${args.step}-${args.time ?? 0}`;
   return `${base}.${at}${args.source ? ".source" : ""}.png`;

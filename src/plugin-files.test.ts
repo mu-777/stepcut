@@ -1,11 +1,11 @@
-// Claude Code のプラグイン(plugins/screen-annotator)のスキルに同梱する仕様の写しが、docs と一致していることを確かめる。
+// Claude Code のプラグイン(plugins/stepcut)のスキルに同梱する仕様の写しが、docs と一致していることを確かめる。
 // スキルはプラグインのフォルダだけが配られるので、docs を参照できず写しを置いている。
 // 更新するときは UPDATE_PLUGIN=1 npx vitest run src/plugin-files.test.ts
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
 const root = new URL("../", import.meta.url);
-const skill = new URL("plugins/screen-annotator/skills/edit-project/", root);
+const skill = new URL("plugins/stepcut/skills/edit-project/", root);
 
 const HEADER =
   "<!-- docs/project-format.md の写し(npm run check で一致を確かめる。直すのは docs 側)。相対リンクの先はリポジトリ https://github.com/mu-777/screen-annotator の docs/ にある -->\n\n";

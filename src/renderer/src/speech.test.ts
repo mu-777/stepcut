@@ -6,7 +6,7 @@ vi.stubGlobal("window", { api: {} });
 const { requestKey, usedSpeechKeys } = await import("./speech");
 
 const project = {
-  format: "screen-annotator.project",
+  format: "stepcut.project",
   version: 1,
   sources: [{ id: "r", path: "a.mp4" }],
   steps: [

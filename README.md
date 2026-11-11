@@ -1,6 +1,8 @@
-# 手順書動画エディタ(仮称) / screen-annotator
+# StepCut
 
-録画済みの画面録画から、PC アプリの手順書動画(mp4)を作るローカルデスクトップアプリ。
+Turn recordings into step-by-step videos, driven by captions.
+
+録画済みの動画(画面録画など)をステップに切り分け、テロップを軸に手順を見せる動画(mp4)を作るローカルデスクトップアプリ。
 
 - 1 本の画面録画をステップ(場面)に切り分け、各ステップにテロップ・読み上げ・ズームと、オブジェクト(ポインター(蛍光ペンを含む)・四角(画像を入れられる)・矢印・テキスト)を付ける
 - 編集内容はテキスト(JSON)のプロジェクトファイルに保存し、人手でも AI でも編集できる
@@ -32,9 +34,9 @@ npm run check      # lint・型チェック・単体テスト・ビルド
 npm run dist:win   # Windows 用のインストーラと portable 版を dist/ に作る(Windows 上で実行)
 ```
 
-main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`screen-annotator-win`)に置く。
+main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。
 
-起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.sanno.json`
+起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.stepcut.json`
 
 ## 操作
 
@@ -96,13 +98,13 @@ main への PR では GitHub Actions が Windows 版をビルドし、run の Ar
 ## CLI
 
 ```bash
-screen-annotator validate <project.json> [--json]
-screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
-screen-annotator frame <project.json> (--step <番号|id> [--time <秒>] | --at <秒>) [--source] [--out <file.png>] [--json] [--result <file.json>]
-screen-annotator inspect <project.json> [--json] [--result <file.json>]
+stepcut validate <project.json> [--json]
+stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+stepcut frame <project.json> (--step <番号|id> [--time <秒>] | --at <秒>) [--source] [--out <file.png>] [--json] [--result <file.json>]
+stepcut inspect <project.json> [--json] [--result <file.json>]
 ```
 
-CLI はアプリの実行ファイルそのもの(Windows のインストーラの既定では `%LOCALAPPDATA%\Programs\Screen Annotator\Screen Annotator.exe`)。アプリを開いたままでも使える。
+CLI はアプリの実行ファイルそのもの(Windows のインストーラの既定では `%LOCALAPPDATA%\Programs\StepCut\StepCut.exe`)。アプリを開いたままでも使える。
 
 - 開発中は `npx electron . validate ...` のように実行する(`npm run build` の後)
 - 終了コード: 0 = 成功、1 = 検証エラーまたは書き出し失敗、2 = 引数の誤り
@@ -115,14 +117,14 @@ CLI はアプリの実行ファイルそのもの(Windows のインストーラ�
 
 ## Claude Code から使う
 
-このリポジトリは Claude Code のプラグインのマーケットプレイスを兼ねる。Claude Code で次を実行すると、スキル `/screen-annotator:edit-project` が入る(プロジェクトの編集を頼むと自動でも使われる)。
+このリポジトリは Claude Code のプラグインのマーケットプレイスを兼ねる。Claude Code で次を実行すると、スキル `/stepcut:edit-project` が入る(プロジェクトの編集を頼むと自動でも使われる)。
 
 ```text
 /plugin marketplace add mu-777/screen-annotator
-/plugin install screen-annotator@screen-annotator
+/plugin install stepcut@stepcut
 ```
 
-- スキルは CLI を自動で探す(環境変数 `SCREEN_ANNOTATOR_CLI` → 前に覚えた場所 → インストーラの既定の場所 → PATH)。見つからなければ場所を聞き、次からはそれを使う
+- スキルは CLI を自動で探す(環境変数 `STEPCUT_CLI` → 前に覚えた場所 → インストーラの既定の場所 → PATH)。見つからなければ場所を聞き、次からはそれを使う
 - スキルは同梱のスクリプト(`scripts/run-cli.sh`)経由で CLI を呼ぶ。読むだけの `validate` と `frame` は確認なしで実行し、`inspect` と `export` は確認が出る
 - プロジェクトファイルがまだないときは、録画全体を 1 ステップにした仮のプロジェクトを書いてから `frame --source` で区切りを探す
 - スキルは `inspect` で時刻、`frame --source` で座標を決めてから JSON を書き、`validate` と `frame` で確かめる

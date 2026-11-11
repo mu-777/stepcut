@@ -1,13 +1,13 @@
 ---
 name: edit-project
-description: Screen Annotator のプロジェクトファイル(*.sanno.json)を読んで直す。画面録画をステップに分け、テロップ・読み上げ・ズーム・ポインター・図形を付けた手順書動画を作る・直す依頼で使う。フレーム画像(frame)と計算後の時間(inspect)を CLI で取り、座標と時刻を決めてから JSON を書き、validate で確かめる。
-when_to_use: ユーザーが Screen Annotator・.sanno.json・手順書動画のテロップ / 読み上げ / ズーム / ポインター / 図形の編集・書き出しに触れたとき
+description: StepCut のプロジェクトファイル(*.stepcut.json)を読んで直す。画面録画をステップに分け、テロップ・読み上げ・ズーム・ポインター・図形を付けた手順書動画を作る・直す依頼で使う。フレーム画像(frame)と計算後の時間(inspect)を CLI で取り、座標と時刻を決めてから JSON を書き、validate で確かめる。
+when_to_use: ユーザーが StepCut・.stepcut.json・手順書動画のテロップ / 読み上げ / ズーム / ポインター / 図形の編集・書き出しに触れたとき
 allowed-tools: Bash(bash ${CLAUDE_SKILL_DIR}/scripts/find-cli.sh *) Bash(bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh validate *) Bash(bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh frame *)
 ---
 
-# Screen Annotator のプロジェクトを編集する
+# StepCut のプロジェクトを編集する
 
-Screen Annotator は、画面録画(と画像)をステップに切り分け、テロップ・読み上げ・ズーム・ポインター・図形を付けて mp4 の手順書動画を作るデスクトップアプリ。編集内容は JSON のプロジェクトファイル(`*.sanno.json`)にすべて入っていて、アプリは外部の変更を検知して読み直す。だから **JSON を直接書けば編集できる**。CLI は、JSON だけでは分からないこと(画、計算後の時刻)を知るためと、検証・書き出しのために使う。
+StepCut は、画面録画(と画像)をステップに切り分け、テロップ・読み上げ・ズーム・ポインター・図形を付けて mp4 の手順書動画を作るデスクトップアプリ。編集内容は JSON のプロジェクトファイル(`*.stepcut.json`)にすべて入っていて、アプリは外部の変更を検知して読み直す。だから **JSON を直接書けば編集できる**。CLI は、JSON だけでは分からないこと(画、計算後の時刻)を知るためと、検証・書き出しのために使う。
 
 - 書き方の全仕様: [project-format.md](project-format.md)(必ず先に、触る要素の節を読む)
 - 機械向けのスキーマ: [project.schema.json](project.schema.json)
@@ -17,12 +17,12 @@ Screen Annotator は、画面録画(と画像)をステップに切り分け、�
 CLI はアプリの実行ファイルそのもの。同梱のスクリプトが場所を探して実行し、結果の JSON を標準出力に出す(`--json` と `--result` は付けなくてよい)。終了コードは成功 0、失敗 1、引数の誤り 2、CLI が見つからない 3。
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA} <project.sanno.json> [オプション...]
+bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA} <project.stepcut.json> [オプション...]
 ```
 
 - `validate` と `frame` は読むだけ(`frame` は PNG を書く)なので、上の形のまま書けば確認なしで実行できる。パイプや `&&` でほかのコマンドをつなぐと確認が出る。パスに空白があって引用符が要るときも確認が出ることがある
 - `inspect`(読み上げを実際に作る)と `export` は、ユーザーが有効にした外部の読み上げエンジンに文を送ることがあるので、確認が出る
-- 終了コード 3 なら CLI が見つかっていない。ユーザーに Screen Annotator の実行ファイル(またはインストールしたフォルダ)の場所を聞く。インストーラの既定は Windows なら `%LOCALAPPDATA%\Programs\Screen Annotator\Screen Annotator.exe`(すべてのユーザーに入れたなら `C:\Program Files\Screen Annotator\`)、ポータブル版はユーザーが置いた場所。聞いたら覚えさせる(次から聞かずに済む):
+- 終了コード 3 なら CLI が見つかっていない。ユーザーに StepCut の実行ファイル(またはインストールしたフォルダ)の場所を聞く。インストーラの既定は Windows なら `%LOCALAPPDATA%\Programs\StepCut\StepCut.exe`(すべてのユーザーに入れたなら `C:\Program Files\StepCut\`)、ポータブル版はユーザーが置いた場所。聞いたら覚えさせる(次から聞かずに済む):
 
   ```bash
   bash ${CLAUDE_SKILL_DIR}/scripts/find-cli.sh ${CLAUDE_PLUGIN_DATA} --save "<聞いたパス>"
@@ -65,7 +65,7 @@ bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA}
 
    ```json
    {
-     "format": "screen-annotator.project",
+     "format": "stepcut.project",
      "version": 1,
      "sources": [{ "id": "rec1", "path": "録画.mp4" }],
      "steps": [{ "id": "all", "source": "rec1", "in": 0, "out": 36000 }]

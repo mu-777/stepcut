@@ -1,0 +1,10 @@
+{
+  "name": "stepcut",
+  "description": "StepCut のプロジェクトファイル(.stepcut.json)を編集し、CLI(inspect・frame・validate・export)で確かめるスキル",
+  "author": {
+    "name": "mu-777",
+    "url": "https://github.com/mu-777"
+  },
+  "homepage": "https://github.com/mu-777/screen-annotator",
+  "license": "Apache-2.0"
+}

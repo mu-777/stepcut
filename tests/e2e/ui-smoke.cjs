@@ -53,12 +53,12 @@ if (!fs.existsSync(img)) {
     img,
   ]);
 }
-const projectPath = path.join(outDir, "ui.sanno.json");
+const projectPath = path.join(outDir, "ui.stepcut.json");
 fs.writeFileSync(
   projectPath,
   `${JSON.stringify(
     {
-      format: "screen-annotator.project",
+      format: "stepcut.project",
       version: 1,
       sources: [{ id: "rec1", path: "rec.mp4" }],
       steps: [
@@ -1444,7 +1444,7 @@ function fakeVoicevox() {
     await page.waitForTimeout(300);
   };
   await rename("ui-renamed");
-  const renamed = fs.existsSync(path.join(path.dirname(projectPath), "ui-renamed.sanno.json"));
+  const renamed = fs.existsSync(path.join(path.dirname(projectPath), "ui-renamed.stepcut.json"));
   const renamedTitle = await page.locator(".tb-name").textContent();
   await rename("ui");
   check(
@@ -1460,7 +1460,7 @@ function fakeVoicevox() {
     "右パネルの見出しは真ん中、すべて閉じるボタンは右端",
   );
   check(
-    /ui — Screen Annotator/.test(await page.title()),
+    /ui — StepCut/.test(await page.title()),
     `ウィンドウのタイトルにプロジェクト名 (${await page.title()})`,
   );
   // アプリの設定(言語・プロジェクトの保存先)
@@ -1674,7 +1674,7 @@ function fakeVoicevox() {
   {
     const recDir = path.join(outDir, "user-data-recovery");
     fs.rmSync(recDir, { recursive: true, force: true });
-    const recProject = path.join(outDir, "recover.sanno.json");
+    const recProject = path.join(outDir, "recover.stepcut.json");
     fs.copyFileSync(projectPath, recProject);
     const recFiles = () => {
       try {
@@ -1792,12 +1792,12 @@ function fakeVoicevox() {
     };
 
     // 1) 開けないプロジェクト: 何が開けなかったかを先に書く
-    const badPath = path.join(fixDir, "bad.sanno.json");
-    fs.writeFileSync(badPath, JSON.stringify({ format: "screen-annotator.project", version: 1, steps: "x" }));
+    const badPath = path.join(fixDir, "bad.stepcut.json");
+    fs.writeFileSync(badPath, JSON.stringify({ format: "stepcut.project", version: 1, steps: "x" }));
     let r = await launchWith(badPath);
     const badText = (await r.w.locator(".banner.error pre").textContent()) ?? "";
     check(
-      /^(プロジェクトファイルを開けませんでした|Could not open the project file): bad\.sanno\.json\n/.test(
+      /^(プロジェクトファイルを開けませんでした|Could not open the project file): bad\.stepcut\.json\n/.test(
         badText,
       ) && badText.includes("steps"),
       `開けないプロジェクトは、ファイル名を添えて知らせ、直す場所も出す (${badText.split("\n")[0]})`,
@@ -1805,11 +1805,11 @@ function fakeVoicevox() {
     await kill(r.a);
 
     // 2) 録画が見つからない: 平易な文と「場所を選ぶ…」で選び直す
-    const lostPath = path.join(fixDir, "lost.sanno.json");
+    const lostPath = path.join(fixDir, "lost.stepcut.json");
     fs.writeFileSync(
       lostPath,
       JSON.stringify({
-        format: "screen-annotator.project",
+        format: "stepcut.project",
         version: 1,
         sources: [{ id: "rec1", path: "moved.mp4" }],
         steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],

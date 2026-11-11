@@ -24,7 +24,7 @@ describe("CLI の引数", () => {
   it("frame: ステップと時刻、素材のフレーム", () => {
     const a = parseCli([
       "frame",
-      "p.sanno.json",
+      "p.stepcut.json",
       "--step",
       "intro",
       "--time",
@@ -33,7 +33,7 @@ describe("CLI の引数", () => {
       "--json",
     ]) as CliArgs;
     expect(a).toMatchObject({ command: "frame", step: "intro", time: 1.5, source: true, json: true });
-    expect(a.project).toBe(path.resolve("p.sanno.json"));
+    expect(a.project).toBe(path.resolve("p.stepcut.json"));
   });
 
   it("frame: --step か --at が要る。両方は不可。時刻は 0 以上", () => {
@@ -44,7 +44,7 @@ describe("CLI の引数", () => {
   });
 
   it("書き出し先の既定はプロジェクトの隣", () => {
-    const p = path.resolve("dir/p.sanno.json");
+    const p = path.resolve("dir/p.stepcut.json");
     const base = path.resolve("dir/p");
     expect(defaultOutPath({ command: "export", project: p, json: false })).toBe(`${base}.mp4`);
     expect(defaultOutPath({ command: "frame", project: p, json: false, step: "2", time: 1 })).toBe(
@@ -79,7 +79,7 @@ describe("CLI の引数: 値の欠け", () => {
 describe("validateFile: 画像の存在", () => {
   const project = (extra: object) =>
     JSON.stringify({
-      format: "screen-annotator.project",
+      format: "stepcut.project",
       version: 1,
       sources: [{ id: "rec1", path: "rec.mp4" }],
       steps: [{ id: "s1", source: "rec1", in: 0, out: 1 }],
@@ -91,7 +91,7 @@ describe("validateFile: 画像の存在", () => {
     try {
       writeFileSync(path.join(dir, "rec.mp4"), "x");
       writeFileSync(path.join(dir, "ok.png"), "x");
-      const file = path.join(dir, "p.sanno.json");
+      const file = path.join(dir, "p.stepcut.json");
       writeFileSync(
         file,
         project({
