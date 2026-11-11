@@ -149,6 +149,18 @@ export function locate(timeline: TimelineEntry[], t: number): { entry: TimelineE
   return { entry: last, local: last.duration };
 }
 
+/** 書き出しで音声を一度に作る長さ(秒)。これより長いステップは区切って作る(1 分で約 23MB) */
+export const AUDIO_EXPORT_CHUNK = 60;
+
+/** ステップ(長さ duration 秒)の音声を作る区切り [from, to]。chunk 秒以下なら全体の 1 つ */
+export function audioChunkRanges(duration: number, chunk = AUDIO_EXPORT_CHUNK): [number, number][] {
+  if (!(duration > chunk)) return [[0, duration]];
+  const out: [number, number][] = [];
+  for (let from = 0; from < duration - 1e-9; from += chunk)
+    out.push([from, Math.min(duration, from + chunk)]);
+  return out;
+}
+
 /**
  * from 番目のステップから後ろを「続いた区間」にまとめる(再生で 1 本のデコードで読み続ける単位)。
  * 同じ録画で、前のステップの Out と次のステップの In が同じなら続いているとみなす。start / end は全体の時刻

@@ -66,7 +66,7 @@ import {
   viewOf,
 } from "./inspector";
 import { actionOf, keyLabel, withKey } from "./keymap";
-import { openMedia, type SourceMedia } from "./media";
+import { openMedia, releaseMedia, type SourceMedia } from "./media";
 import { hitObject, ObjectEditor } from "./object-editor";
 import { objectTextInputId } from "./object-panel";
 import {
@@ -248,6 +248,8 @@ export function App() {
   const images = useMemo(() => new ImageStore(() => setImgVersion((v) => v + 1)), []);
   const speech = useMemo(() => new SpeechStore(), []);
   const playerRef = useRef<Player | null>(null);
+  const latestProject = useRef(project);
+  latestProject.current = project;
 
   const dirty = serializeProject(project) !== savedText;
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で読み上げの長さの更新を拾う
@@ -320,9 +322,12 @@ export function App() {
     (async () => {
       const next = new Map<string, SourceMedia>();
       const errors: string[] = [];
+      const used: string[] = [];
       for (const s of project.sources) {
         try {
-          next.set(s.id, await openMedia(await api.resolveSource(filePath, s.path)));
+          const path = await api.resolveSource(filePath, s.path);
+          used.push(path);
+          next.set(s.id, await openMedia(path));
         } catch (e) {
           errors.push(`${s.id}: ${(e as Error).message}`);
         }
@@ -330,17 +335,33 @@ export function App() {
       if (alive) {
         setMedia(next);
         setMediaErrors(errors);
+        // 使わなくなった素材を閉じる。再生中なら止め、閉じた素材のフレームの写しも捨てる
+        // (録画の読み取りは閉じると落ちるが、プレイヤー・サムネイルは失敗を握りつぶす)
+        const keep = used;
+        if (releaseMedia(keep) > 0) {
+          if (playerRef.current?.playing) playerRef.current.stop();
+          playerRef.current?.dropCache();
+        }
+        thumbs.retain(keep);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [project.sources, filePath]);
+  }, [project.sources, filePath, thumbs]);
 
   // 読み上げを用意する(入力が落ち着いてから)
   useEffect(() => {
     const timer = setTimeout(() => {
-      speech.loadAll(project, () => setSpeechVersion((v) => v + 1));
+      speech
+        .loadAll(project, () => setSpeechVersion((v) => v + 1))
+        .then(() => {
+          // 使わなくなった文の音声を捨てる(古い状態の読み込みが後から終わっても、最新の状態でだけ行う)
+          if (latestProject.current === project) {
+            speech.retain(project);
+            setSpeechVersion((v) => v + 1);
+          }
+        });
       setSpeechVersion((v) => v + 1);
     }, 600);
     return () => clearTimeout(timer);
@@ -527,7 +548,7 @@ export function App() {
   }
 
   async function doExport() {
-    if (issues.some((i) => !i.message.includes("M2"))) {
+    if (issues.length > 0) {
       setBanner({ kind: "error", text: issues.map((e) => `${issuePath(e.path)}: ${e.message}`).join("\n") });
       return;
     }

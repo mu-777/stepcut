@@ -78,24 +78,29 @@ describe("TtsService", () => {
         return silentWav(1);
       },
     };
-    vi.useFakeTimers();
+    // 偽の時計は setTimeout だけにし、待つのは setImmediate で行う。vi.waitFor は待つ間に偽の時計を進めるので、
+    // ファイルの読み書きが遅いとタイムアウトまで進んでしまう
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const until = async (cond: () => boolean) => {
+      while (!cond()) await new Promise<void>((r) => setImmediate(r));
+    };
     try {
       const svc = new TtsService(await tmp(), [engine], { timeoutMs: 1000 });
       const first = svc.synthesize(req("a"));
       const second = svc.synthesize(req("b"));
-      await vi.waitFor(() => expect(releases.length).toBe(1));
+      await until(() => releases.length === 1);
       await vi.advanceTimersByTimeAsync(900);
       releases[0]?.();
       await first;
       // 2 つめは待っていた 900ms を数えず、ここから 1000ms
-      await vi.waitFor(() => expect(releases.length).toBe(2));
+      await until(() => releases.length === 2);
       await vi.advanceTimersByTimeAsync(900);
       releases[1]?.();
       await expect(second).resolves.toBeTruthy();
       // 実行が始まってから超えれば、タイムアウトになる
       const third = svc.synthesize(req("c"));
       const caught = third.catch((e: Error) => e);
-      await vi.waitFor(() => expect(releases.length).toBe(3));
+      await until(() => releases.length === 3);
       await vi.advanceTimersByTimeAsync(1100);
       expect(String(await caught)).toMatch(/タイムアウト/);
     } finally {

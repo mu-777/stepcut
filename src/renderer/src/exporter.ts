@@ -16,7 +16,7 @@ import { resolveLayout, resolveOutput } from "../../core/defaults";
 import { objectImages } from "../../core/objects";
 import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
-import { buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
+import { audioChunkRanges, buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
 import type { ExportResult } from "../../shared/api";
 import { api } from "./api";
 import { renderStepAudio } from "./audio";
@@ -49,6 +49,22 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   warnings.push(...speech.notices);
 
   const media = new Map<string, SourceMedia>();
+  try {
+    return await exportWith(opts, media, warnings, out, speech);
+  } finally {
+    // 書き出し専用に開いた素材は、成功・失敗のどちらでも閉じる
+    for (const m of media.values()) m.dispose();
+  }
+}
+
+async function exportWith(
+  opts: ExportOptions,
+  media: Map<string, SourceMedia>,
+  warnings: string[],
+  out: ReturnType<typeof resolveOutput>,
+  speech: SpeechStore,
+): Promise<ExportResult> {
+  const { project, outPath } = opts;
   for (const s of project.sources) {
     if (project.steps.some((st) => st.source === s.id)) {
       media.set(s.id, await openExclusive(await api.resolveSource(opts.projectPath, s.path)));
@@ -133,9 +149,17 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
       for (const entry of timeline) {
         const m = media.get(entry.step.source) ?? null;
         if (audioSource) {
-          await audioSource.add(
-            await renderStepAudio(project, entry.step, entry.duration, m, speech.placed(project, entry.step)),
-          );
+          const placed = speech.placed(project, entry.step);
+          const ranges = audioChunkRanges(entry.duration);
+          if (ranges.length === 1) {
+            await audioSource.add(await renderStepAudio(project, entry.step, entry.duration, m, placed));
+          } else {
+            // 長いステップは 60 秒ずつ作って足す(ステップ全体の音声を一度にメモリへ持たない)
+            for (const [from, to] of ranges)
+              await audioSource.add(
+                await renderStepAudio(project, entry.step, entry.duration, m, placed, from, to),
+              );
+          }
         }
         const endFrame = Math.round((entry.start + entry.duration) * out.fps);
         const frames: number[] = [];

@@ -51,11 +51,14 @@ async function prepare(
   return { speech, timeline: buildTimeline(project.steps, speech.durations(project)), warnings };
 }
 
-async function openSources(project: Project, projectPath: string, warnings: string[]) {
+/** 素材を専用に開く。開いたものは opened にも入れる(呼び側が finally で閉じる) */
+async function openSources(project: Project, projectPath: string, warnings: string[], opened: SourceMedia[]) {
   const media = new Map<string, SourceMedia>();
   for (const s of project.sources) {
     try {
-      media.set(s.id, await openExclusive(await api.resolveSource(projectPath, s.path)));
+      const m = await openExclusive(await api.resolveSource(projectPath, s.path));
+      opened.push(m);
+      media.set(s.id, m);
     } catch (e) {
       warnings.push(`${s.id}: ${(e as Error).message}`);
     }
@@ -89,6 +92,21 @@ export async function runFrame(
   outPath: string,
   req: FrameRequest,
 ): Promise<CliJobResult> {
+  const opened: SourceMedia[] = [];
+  try {
+    return await frameJob(project, projectPath, outPath, req, opened);
+  } finally {
+    for (const m of opened) m.dispose();
+  }
+}
+
+async function frameJob(
+  project: Project,
+  projectPath: string,
+  outPath: string,
+  req: FrameRequest,
+  opened: SourceMedia[],
+): Promise<CliJobResult> {
   const { timeline, warnings } = await prepare(project);
   if (timeline.length === 0) return { ok: false, warnings, error: "ステップがありません / No steps" };
   let entry: TimelineEntry | null;
@@ -105,7 +123,7 @@ export async function runFrame(
   // 終わりちょうどは最後のフレーム
   local = Math.min(Math.max(0, local), Math.max(0, entry.duration - 1e-3));
   const step = entry.step;
-  const media = await openSources(project, projectPath, warnings);
+  const media = await openSources(project, projectPath, warnings, opened);
   const m = media.get(step.source) ?? null;
   const srcT = sourceTimeAt(step, local);
   const wc = m ? await m.video.getCanvas(srcT) : null;
@@ -217,10 +235,11 @@ function stepInfo(
 
 export async function runInspect(project: Project, projectPath: string): Promise<CliJobResult> {
   const { speech, timeline, warnings } = await prepare(project);
-  const media = await openSources(project, projectPath, warnings);
+  const opened: SourceMedia[] = [];
+  const media = await openSources(project, projectPath, warnings, opened);
   const out = resolveOutput(project);
   const durations = speech.durations(project);
-  return {
+  const result: CliJobResult = {
     ok: true,
     warnings,
     output: { width: out.width, height: out.height, fps: out.fps },
@@ -229,4 +248,6 @@ export async function runInspect(project: Project, projectPath: string): Promise
       stepInfo(project, e, durations.get(e.step.id) ?? [], media.get(e.step.source)),
     ),
   };
+  for (const m of opened) m.dispose();
+  return result;
 }
