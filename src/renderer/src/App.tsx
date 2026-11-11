@@ -111,7 +111,7 @@ const isTyping = () => {
 /** ヘッダーのボタンの文字は「…」を付けない(押すとダイアログが開くことはアイコンで足りる) */
 const bare = (label: string) => label.replace(/…$/, "");
 /** プロジェクトの名前(ファイル名から拡張子を除く) */
-const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.sanno)?\.json$/i, "");
+const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.stepcut)?\.json$/i, "");
 
 function issuePath(path: string): string {
   const m = /^steps\[(\d+)\]/.exec(path);
@@ -267,7 +267,7 @@ export function App() {
   const projectName = filePath ? baseName(filePath) : (pendingName ?? t("untitled"));
   // ウィンドウのタイトル(タスクバー)にもプロジェクトの名前を出す
   useEffect(() => {
-    document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
+    document.title = `${dirty ? "● " : ""}${projectName} — StepCut`;
   }, [dirty, projectName]);
 
   useEffect(() => {
@@ -438,7 +438,7 @@ export function App() {
       return;
     }
     const outPath = await api.pickExportPath(
-      filePath ? filePath.replace(/(\.sanno)?\.json$/i, ".mp4") : "output.mp4",
+      filePath ? filePath.replace(/(\.stepcut)?\.json$/i, ".mp4") : "output.mp4",
     );
     if (!outPath) return;
     playerRef.current?.stop();

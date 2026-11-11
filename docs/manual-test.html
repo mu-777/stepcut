@@ -297,7 +297,7 @@ const SECTIONS = [
     ["設定パネルの見出しの右の山形のボタン", "欄がすべて閉じる"],
   ]},
   { id: "file", title: "保存・開く・外部の変更", items: [
-    ["まだ保存していないプロジェクトで保存する", "名前を入れたうえで、アプリの設定の保存先に `.sanno.json` が保存される"],
+    ["まだ保存していないプロジェクトで保存する", "名前を入れたうえで、アプリの設定の保存先に `.stepcut.json` が保存される"],
     ["保存したあとで名前をクリックして変える", "ファイル名も変わる"],
     ["未保存の状態で新規・開くを押す", "「保存していない変更を破棄しますか?」と確認が出る"],
     ["アプリを閉じ、`npx electron . <保存したファイル>` で起動する", "そのプロジェクトが開く"],
@@ -315,8 +315,8 @@ const SECTIONS = [
     ["4K・60fps・画質 高で書き出す {実機}", "書き出せる。ハードウェアエンコーダーがなければ、ソフトウェアで書き出した旨の警告が出る"],
   ]},
   { id: "cli", title: "CLI", note: "`npm run build` のあと、リポジトリ直下で実行します。", items: [
-    ["`npx electron . validate <project.sanno.json> --json`", "問題がなければ終了コード 0 と JSON が出る。わざと壊したファイルでは 1 とエラーの一覧"],
-    ["`npx electron . export <project.sanno.json> --out test.mp4 --json` {実機}", "ウィンドウを出さずに書き出し、結果が JSON で出る。終了コード 0"],
+    ["`npx electron . validate <project.stepcut.json> --json`", "問題がなければ終了コード 0 と JSON が出る。わざと壊したファイルでは 1 とエラーの一覧"],
+    ["`npx electron . export <project.stepcut.json> --out test.mp4 --json` {実機}", "ウィンドウを出さずに書き出し、結果が JSON で出る。終了コード 0"],
     ["`--result result.json` を付けて実行する", "同じ JSON がファイルにも書かれる"],
     ["引数を間違える(例: `npx electron . export`)", "終了コード 2"],
   ]},
@@ -326,7 +326,7 @@ const SECTIONS = [
   ]},
 ];
 
-const KEY = "screen-annotator-manual-test-v1";
+const KEY = "stepcut-manual-test-v1";
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };

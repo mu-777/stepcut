@@ -1,6 +1,8 @@
-# 手順書動画エディタ(仮称) / screen-annotator
+# StepCut
 
-録画済みの画面録画から、PC アプリの手順書動画(mp4)を作るローカルデスクトップアプリ。
+Turn recordings into step-by-step videos, driven by captions.
+
+録画済みの動画(画面録画など)をステップに切り分け、テロップを軸に手順を見せる動画(mp4)を作るローカルデスクトップアプリ。
 
 - 1 本の画面録画をステップ(場面)に切り分け、各ステップにテロップ・読み上げ・ズームと、オブジェクト(ポインター(蛍光ペンを含む)・四角(画像を入れられる)・矢印・テキスト)を付ける
 - 編集内容はテキスト(JSON)のプロジェクトファイルに保存し、人手でも AI でも編集できる
@@ -32,9 +34,9 @@ npm run check      # lint・型チェック・単体テスト・ビルド
 npm run dist:win   # Windows 用のインストーラと portable 版を dist/ に作る(Windows 上で実行)
 ```
 
-main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`screen-annotator-win`)に置く。
+main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。
 
-起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.sanno.json`
+起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.stepcut.json`
 
 ## 操作
 
@@ -95,8 +97,8 @@ main への PR では GitHub Actions が Windows 版をビルドし、run の Ar
 ## CLI
 
 ```bash
-screen-annotator validate <project.json> [--json]
-screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+stepcut validate <project.json> [--json]
+stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
 ```
 
 - 開発中は `npx electron . validate ...` のように実行する(`npm run build` の後)

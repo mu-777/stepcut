@@ -36,12 +36,12 @@ if (!fs.existsSync(rec)) {
     rec,
   ]);
 }
-const projectPath = path.join(outDir, "ui.sanno.json");
+const projectPath = path.join(outDir, "ui.stepcut.json");
 fs.writeFileSync(
   projectPath,
   `${JSON.stringify(
     {
-      format: "screen-annotator.project",
+      format: "stepcut.project",
       version: 1,
       sources: [{ id: "rec1", path: "rec.mp4" }],
       steps: [
@@ -1330,7 +1330,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     await page.waitForTimeout(300);
   };
   await rename("ui-renamed");
-  const renamed = fs.existsSync(path.join(path.dirname(projectPath), "ui-renamed.sanno.json"));
+  const renamed = fs.existsSync(path.join(path.dirname(projectPath), "ui-renamed.stepcut.json"));
   const renamedTitle = await page.locator(".tb-name").textContent();
   await rename("ui");
   check(
@@ -1346,7 +1346,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     "右パネルの見出しは真ん中、すべて閉じるボタンは右端",
   );
   check(
-    /ui — Screen Annotator/.test(await page.title()),
+    /ui — StepCut/.test(await page.title()),
     `ウィンドウのタイトルにプロジェクト名 (${await page.title()})`,
   );
   // アプリの設定(言語・プロジェクトの保存先)
@@ -1399,7 +1399,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.keyboard.press("Escape");
 
   {
-    await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/ }).click();
+    await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/i }).click();
     await page.getByRole("button", { name: /Change keys|キー操作を変更/ }).click();
     await page.waitForTimeout(200);
     const splitKey = page.getByRole("button", {

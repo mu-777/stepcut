@@ -11,7 +11,7 @@ Windows 向け配布物の作り方と、開発中の動作確認用バイナリ
 ## 決定
 
 - パッケージ化は electron-builder(MIT)。Windows はインストーラ(nsis)と portable の 2 種類。コード署名はしない(NF-08)
-- `.github/workflows/build.yml` が base=main の PR(と手動実行)で windows-latest 上でビルドし、Artifacts `screen-annotator-win` に置く。PR 本文には run のリンクを貼る(スキル `/pr-build`)
+- `.github/workflows/build.yml` が base=main の PR(と手動実行)で windows-latest 上でビルドし、Artifacts `stepcut-win` に置く。PR 本文には run のリンクを貼る(スキル `/pr-build`)
 - lint・型チェック・テストは同じワークフローの Linux ジョブで回す
 
 ## 理由

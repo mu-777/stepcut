@@ -66,7 +66,7 @@ function run(cmd: string, args: string[], signal?: AbortSignal): Promise<string>
 }
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "sanno-tts-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "stepcut-tts-"));
   try {
     return await fn(dir);
   } finally {

@@ -1,6 +1,6 @@
 // CLI(AI-02, AI-04, AI-07)。
-//   screen-annotator validate <project.json> [--json]
-//   screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+//   stepcut validate <project.json> [--json]
+//   stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
 // --result は結果の JSON をファイルにも書く(Windows の GUI アプリは標準出力がコンソールにつながらないことがあるため)。
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -41,8 +41,8 @@ export function parseCli(args: string[]): CliArgs | { error: string } | null {
 }
 
 export const HELP = `Usage:
-  screen-annotator validate <project.json> [--json]
-  screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]`;
+  stepcut validate <project.json> [--json]
+  stepcut export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]`;
 
 export interface ValidateOutput {
   ok: boolean;

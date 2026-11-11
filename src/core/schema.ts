@@ -5,7 +5,7 @@ import { z } from "zod";
 // レンダラーの CSP は eval を許さない。zod が eval の可否を試して CSP 違反を出さないようにする
 z.config({ jitless: true });
 
-export const PROJECT_FORMAT = "screen-annotator.project";
+export const PROJECT_FORMAT = "stepcut.project";
 export const PROJECT_VERSION = 1;
 
 const time = z.number().min(0);
