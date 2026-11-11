@@ -4,21 +4,21 @@
 2026-11-11
 
 ## ブランチ
-main(image-source をマージ済み。画像の素材・文言の統一・ステップごとの録画の枠)
+main(ai-integration をマージ済み。CLI の frame・inspect と Claude Code のプラグイン)
 
 ## ゴール
-映像に画像も置けるようにし、録画の枠(余白・切り取り・影)をステップごとに上書きできるようにする
+AI(Claude Code)がプロジェクトを編集できるよう、CLI(frame・inspect)とスキルを用意して配る
 
 ## 現在地
-- 画像の素材: sources に録画と同じ形で入れ、拡張子で見分ける(core/defaults の isImageSource)。どの時刻も同じ 1 枚(media.ts の stillSink)、in/out は長さだけ。足すと 3 秒。左端のドラッグは resizeImageStepStart。設定パネルは長さだけ。追加はサムネイル列の ＋・ドロップ・映像レーンの右クリック(末尾)・クリップの右クリック(この後に)。決定 docs/decisions/20261111-image-source.md
-- ステップごとの録画の枠: steps[].layout(margin / fit / shadow)が全体の layout を上書き(resolveLayout(p, step))。プレビューの枠の操作は再生位置のステップだけ(選択は { kind: "video", step })。設定パネルの「録画の枠」の欄に「この枠を共通にする」「全体の枠に戻す」。テロップは枠の変わったステップだけ追従(followCaptions)
-- 文言: 作るものは「＋ 名詞」に統一(.claude/rules/renderer-wording.md)
-- 確認: npm run check、ui-smoke(171 項目)、CLI 書き出し(画像だけ余白なし + 録画のステップ)は通過
-- main までの到達点(7747723): プレビューの音・保持中のフェードの修正、キー操作の変更、録画の音の切り替え、コピー・切り取りの拡張、知らせの帯のまとめなど(詳細は git log)
+- CLI: frame(AI-03。書き出しと同じ見た目 / --source で素材のフレーム)と inspect(AI-08。計算後の時間と読み上げの実長)。main の runCli → 非表示ウィンドウの cli-jobs.ts。決定 docs/decisions/20261111-ai-integration.md
+- Claude Code のプラグイン(AI-09): リポジトリ直下 .claude-plugin/marketplace.json、plugins/screen-annotator/skills/edit-project(SKILL.md・find-cli.sh・仕様の写し。写しは src/plugin-files.test.ts で一致を確認)
+- 確認: npm run check(単体 101)、CLI の frame・inspect・export・validate を実行して確認
+- main までの到達点(c5fe9cc): 画像の素材・ステップごとの録画の枠・文言の統一ほか(詳細は git log)
 
 ## 次にやること
+- ユーザーの確認: Claude Code でプラグインを入れてスキルを試す(/plugin marketplace add mu-777/screen-annotator → /plugin install screen-annotator@screen-annotator)
 - ユーザーの実機確認(手順書 docs/manual-test.html。画像の項目を追加済み)。NG があれば直す
-- M2 の残り: フレーム画像の書き出し(AI-03)、クラッシュ復旧(PRJ-06)、PRJ-03
+- M2 の残り: クラッシュ復旧(PRJ-06)、PRJ-03
 
 ## 課題・ブロッカー
 - なし

@@ -48,10 +48,30 @@ export interface OpenedProject {
   text: string;
 }
 
+/** CLI の frame の指定。step(1 始まりの番号か id)と time(ステップ内の出力時刻)か、at(全体の時刻) */
+export interface FrameRequest {
+  step?: string;
+  time?: number;
+  at?: number;
+  /** 素材のフレームをそのまま(ズーム・テロップなし、素材の大きさ)で出す */
+  source?: boolean;
+}
+
+/** CLI から非表示のウィンドウに渡す仕事(export・frame・inspect) */
 export interface ExportJob {
+  kind: "export" | "frame" | "inspect";
   projectPath: string;
   projectText: string;
   outPath: string;
+  frame?: FrameRequest;
+}
+
+/** frame・inspect の結果(中身はコマンドごと。README の CLI 節) */
+export interface CliJobResult {
+  ok: boolean;
+  warnings: string[];
+  error?: string;
+  [key: string]: unknown;
 }
 
 export interface ExportResult {
@@ -114,5 +134,5 @@ export interface Api {
   // CLI からの書き出し(非表示ウィンドウ)
   getExportJob(): Promise<ExportJob | null>;
   reportExportProgress(done: number, total: number): void;
-  finishExport(result: ExportResult): void;
+  finishExport(result: ExportResult | CliJobResult): void;
 }

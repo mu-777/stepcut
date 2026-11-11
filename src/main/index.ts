@@ -14,13 +14,22 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOpti
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
 import {
   type AppSettings,
+  type CliJobResult,
   type ExportJob,
   type ExportResult,
   MIN_WINDOW_W,
   type OpenedProject,
   type TtsRequest,
 } from "../shared/api";
-import { type CliArgs, formatValidate, HELP, parseCli, validateFile } from "./cli";
+import {
+  type CliArgs,
+  defaultOutPath,
+  formatJobResult,
+  formatValidate,
+  HELP,
+  parseCli,
+  validateFile,
+} from "./cli";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
 import { loadSettings, saveSettings } from "./settings";
@@ -38,7 +47,7 @@ const exists = (p: string) =>
 let mainWindow: BrowserWindow | null = null;
 let dirty = false;
 let exportJob: ExportJob | null = null;
-let exportDone: ((r: ExportResult) => void) | null = null;
+let exportDone: ((r: ExportResult | CliJobResult) => void) | null = null;
 let cliJson = false;
 
 const tts = () => new TtsService(path.join(app.getPath("userData"), "tts-cache"), [createOsEngine()]);
@@ -258,7 +267,7 @@ function registerIpc(): void {
   ipcMain.on("export:progress", (_e, done: number, total: number) => {
     if (!cliJson && total > 0) process.stderr.write(`\rexport ${Math.round((done / total) * 100)}%`);
   });
-  ipcMain.on("export:finish", (_e, result: ExportResult) => exportDone?.(result));
+  ipcMain.on("export:finish", (_e, result: ExportResult | CliJobResult) => exportDone?.(result));
 }
 
 async function writeResult(args: CliArgs, payload: unknown): Promise<void> {
@@ -279,21 +288,21 @@ async function runCli(args: CliArgs): Promise<number> {
     return v.ok ? 0 : 1;
   }
   exportJob = {
+    kind: args.command === "frame" || args.command === "inspect" ? args.command : "export",
     projectPath,
     projectText: await readFile(projectPath, "utf8"),
-    outPath: args.out ?? projectPath.replace(/(\.sanno)?\.json$/i, "") + ".mp4",
+    outPath: args.out ?? defaultOutPath(args),
+    frame: { step: args.step, time: args.time, at: args.at, source: args.source },
   };
-  const result = await new Promise<ExportResult>((resolve) => {
+  const result = await new Promise<ExportResult | CliJobResult>((resolve) => {
     exportDone = resolve;
     const win = createWindow({ show: false, query: { mode: "export" } });
     win.webContents.on("render-process-gone", (_e, d) =>
       resolve({ ok: false, warnings: [], error: `renderer exited: ${d.reason}` }),
     );
   });
-  if (!args.json) process.stderr.write("\n");
-  process.stdout.write(
-    `${args.json ? JSON.stringify(result) : result.ok ? `OK ${result.outPath}` : `NG ${result.error}`}\n`,
-  );
+  if (!args.json && exportJob.kind === "export") process.stderr.write("\n");
+  process.stdout.write(`${args.json ? JSON.stringify(result) : formatJobResult(exportJob.kind, result)}\n`);
   if (!args.json) for (const w of result.warnings) process.stdout.write(`warn   ${w}\n`);
   await writeResult(args, result);
   return result.ok ? 0 : 1;
