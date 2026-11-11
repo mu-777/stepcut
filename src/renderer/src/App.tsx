@@ -41,7 +41,13 @@ import {
 import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
 import { baseDuration, buildTimeline, locate, speechTimes, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
-import { CENTER_MIN_W, PANEL_MIN_W, RAIL_MIN_W, type Voice } from "../../shared/api";
+import {
+  CENTER_MIN_W,
+  PANEL_MIN_W,
+  RAIL_MIN_W,
+  type SpeechEngineSettings,
+  type Voice,
+} from "../../shared/api";
 import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
@@ -141,7 +147,32 @@ export function App() {
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** アプリの設定を開いているか("shortcuts" ならキー操作の欄まで送る) */
-  const [settingsOpen, setSettingsOpen] = useState<false | true | "shortcuts">(false);
+  const [settingsOpen, setSettingsOpen] = useState<false | true | "shortcuts" | "engines">(false);
+  // 読み上げのエンジン(ユーザーが有効にしたもの)と、プロジェクトのエンジンの声の一覧
+  const [speechEngines, setSpeechEngines] = useState<SpeechEngineSettings | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const engineName = project.speech?.engine ?? "os";
+  // アプリの設定を閉じたときに読み直す(エンジンを有効にした・場所を変えた)
+  useEffect(() => {
+    if (settingsOpen) return;
+    void api.getSettings().then((s) => setSpeechEngines(s.engines));
+  }, [settingsOpen]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: エンジンとその設定が変わったら読み直す
+  useEffect(() => {
+    let alive = true;
+    setVoiceError(null);
+    api.ttsVoices(engineName).then(
+      (v) => alive && setVoices(v),
+      (e: Error) => {
+        if (!alive) return;
+        setVoices([]);
+        setVoiceError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [engineName, speechEngines]);
   /** ヘッダーのプロジェクト名を入力中 */
   const [titleEdit, setTitleEdit] = useState(false);
   /** まだ保存していないプロジェクトに付けた名前(保存するときのファイル名) */
@@ -272,10 +303,6 @@ export function App() {
   useEffect(() => {
     document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
   }, [dirty, projectName]);
-
-  useEffect(() => {
-    api.ttsVoices("os").then(setVoices, () => setVoices([]));
-  }, []);
 
   // 素材を開く
   useEffect(() => {
@@ -1999,6 +2026,9 @@ ${t("renameTip")}`}
                   project={project}
                   update={update}
                   voices={voices}
+                  speechEngines={speechEngines}
+                  voiceError={voiceError}
+                  onOpenSettings={() => setSettingsOpen("engines")}
                   focusShared={sharedFocus}
                   backgroundError={(() => {
                     const bg = resolveLayout(project).background;
@@ -2118,7 +2148,7 @@ ${t("renameTip")}`}
       )}
       {settingsOpen && (
         <SettingsDialog
-          focus={settingsOpen === "shortcuts" ? "shortcuts" : undefined}
+          focus={settingsOpen === true ? undefined : settingsOpen}
           onClose={() => setSettingsOpen(false)}
           onLanguage={() => setLangVersion((v) => v + 1)}
           onKeys={() => setLangVersion((v) => v + 1)}

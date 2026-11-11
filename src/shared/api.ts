@@ -39,9 +39,64 @@ export interface AppSettings {
   projectDir: string | null;
   /** キー操作の割り当てのうち、既定から変えたもの(操作の名前 → "Ctrl+Shift+S" の形。空文字は割り当てなし) */
   shortcuts: Record<string, string>;
+  /** ユーザーが有効にする読み上げエンジン */
+  engines: SpeechEngineSettings;
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { language: "auto", projectDir: null, shortcuts: {} };
+/**
+ * ユーザーが自分で有効にする読み上げエンジン(TTS-12, TTS-13)。既定は使えない。有効にするときに規約・費用の確認に
+ * 同意してもらい(agreedAt)、エンジン・声・鍵はユーザーが用意する(docs/decisions/20261111-external-tts.md)
+ */
+export interface VoicevoxSettings {
+  enabled: boolean;
+  /** 同意して有効にした日時(ISO 8601)。無効にすると null */
+  agreedAt: string | null;
+  /** エンジンの HTTP API の場所 */
+  url: string;
+  /** つながらないときに起動するエンジンの実行ファイル */
+  exePath: string | null;
+  autoStart: boolean;
+}
+
+export interface AzureSpeechSettings {
+  enabled: boolean;
+  agreedAt: string | null;
+  /** リージョン(例: japaneast) */
+  region: string;
+  /** 鍵を保存しているか。鍵そのものはメインプロセスで暗号化して持ち、画面には渡さない */
+  hasKey: boolean;
+}
+
+export interface SpeechEngineSettings {
+  voicevox: VoicevoxSettings;
+  azure: AzureSpeechSettings;
+}
+
+export const DEFAULT_ENGINE_SETTINGS: SpeechEngineSettings = {
+  voicevox: {
+    enabled: false,
+    agreedAt: null,
+    url: "http://127.0.0.1:50021",
+    exePath: null,
+    autoStart: false,
+  },
+  azure: { enabled: false, agreedAt: null, region: "", hasKey: false },
+};
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  language: "auto",
+  projectDir: null,
+  shortcuts: {},
+  engines: DEFAULT_ENGINE_SETTINGS,
+};
+
+/** 設定の変更。エンジンの設定は項目ごとに書き足す(hasKey は鍵の保存・削除で変わる) */
+export type SettingsPatch = Partial<Omit<AppSettings, "engines">> & {
+  engines?: {
+    voicevox?: Partial<VoicevoxSettings>;
+    azure?: Partial<Omit<AzureSpeechSettings, "hasKey">>;
+  };
+};
 
 export interface OpenedProject {
   filePath: string;
@@ -106,7 +161,13 @@ export interface Api {
   pickSources(): Promise<string[]>;
   // アプリの設定
   getSettings(): Promise<AppSettings>;
-  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  setSettings(patch: SettingsPatch): Promise<AppSettings>;
+  /** Azure AI Speech の鍵を暗号化して保存する(null で消す) */
+  setAzureKey(key: string | null): Promise<AppSettings>;
+  /** 実行ファイルを選ぶ(VOICEVOX のエンジン) */
+  pickExecutable(): Promise<string | null>;
+  /** ブラウザーで開く(https のみ。規約の案内) */
+  openExternal(url: string): Promise<void>;
   /** フォルダーを選ぶ(絶対パス) */
   pickDirectory(defaultPath: string | null): Promise<string | null>;
   /** ドラッグ&ドロップされたファイルの絶対パス */

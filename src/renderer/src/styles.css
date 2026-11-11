@@ -2050,3 +2050,34 @@ button.obj-group-title.toggle {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* アプリの設定の読み上げエンジン */
+.engine-settings {
+  margin-top: 12px;
+}
+
+.engine-block {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engine-block .engine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.engine-block > button.small {
+  align-self: flex-start;
+}
+
+.engine-block .dir-row input {
+  flex: 1;
+  min-width: 0;
+}

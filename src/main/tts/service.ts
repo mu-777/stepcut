@@ -24,8 +24,27 @@ export class TtsService {
     return e;
   }
 
-  voices(name: string): Promise<Voice[]> {
-    return this.engine(name).voices();
+  async voices(name: string): Promise<Voice[]> {
+    const e = this.engine(name);
+    const reason = await e.unavailable?.();
+    if (reason) throw new Error(reason);
+    return e.voices();
+  }
+
+  /**
+   * 使うエンジン。指定したエンジンが使えない(アプリの設定で有効にしていない)ときは OS 標準で代わりに読み、
+   * そのことを知らせる(ほかの人のプロジェクトを開いても書き出しが止まらないように)
+   */
+  private async pick(req: TtsRequest): Promise<{ e: TtsEngine; req: TtsRequest; fallback: string | null }> {
+    const e = this.engine(req.engine);
+    const reason = await e.unavailable?.();
+    if (!reason) return { e, req, fallback: null };
+    const os = this.engine("os");
+    return {
+      e: os,
+      req: { ...req, engine: "os", voice: null },
+      fallback: `${reason}。OS 標準の声で代わりに読みました / Used the OS voice instead`,
+    };
   }
 
   cacheKey(e: TtsEngine, req: TtsRequest): string {
@@ -35,8 +54,8 @@ export class TtsService {
       .digest("hex");
   }
 
-  async synthesize(req: TtsRequest): Promise<TtsResult> {
-    const e = this.engine(req.engine);
+  async synthesize(request: TtsRequest): Promise<TtsResult> {
+    const { e, req, fallback } = await this.pick(request);
     const file = path.join(this.cacheDir, `${this.cacheKey(e, req)}.wav`);
     let wav: Uint8Array;
     try {
@@ -57,6 +76,6 @@ export class TtsService {
       await mkdir(this.cacheDir, { recursive: true });
       await writeFile(file, wav);
     }
-    return { wav, duration: wavDuration(wav), notice: e.notice };
+    return { wav, duration: wavDuration(wav), notice: fallback ?? e.notice };
   }
 }

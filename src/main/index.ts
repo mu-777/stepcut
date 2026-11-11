@@ -13,12 +13,12 @@ import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
 import {
-  type AppSettings,
   type CliJobResult,
   type ExportJob,
   type ExportResult,
   MIN_WINDOW_W,
   type OpenedProject,
+  type SettingsPatch,
   type TtsRequest,
 } from "../shared/api";
 import {
@@ -32,9 +32,11 @@ import {
 } from "./cli";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
-import { loadSettings, saveSettings } from "./settings";
+import { azureKey, loadSettings, saveSettings, setAzureKey } from "./settings";
+import { createAzureEngine } from "./tts/azure-engine";
 import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
+import { createVoicevoxEngine } from "./tts/voicevox-engine";
 
 const PROJECT_FILTER = { name: "Screen Annotator Project", extensions: ["json"] };
 
@@ -50,7 +52,13 @@ let exportJob: ExportJob | null = null;
 let exportDone: ((r: ExportResult | CliJobResult) => void) | null = null;
 let cliJson = false;
 
-const tts = () => new TtsService(path.join(app.getPath("userData"), "tts-cache"), [createOsEngine()]);
+const tts = () =>
+  new TtsService(path.join(app.getPath("userData"), "tts-cache"), [
+    createOsEngine(),
+    // ユーザーが自分で有効にするエンジン(既定は使えない)
+    createVoicevoxEngine(async () => (await loadSettings()).engines.voicevox),
+    createAzureEngine(async () => (await loadSettings()).engines.azure, azureKey),
+  ]);
 let ttsService: TtsService | null = null;
 
 const watcher = new ProjectWatcher((filePath, text) => {
@@ -139,7 +147,19 @@ let nextHandle = 1;
 
 function registerIpc(): void {
   ipcMain.handle("settings:get", () => loadSettings());
-  ipcMain.handle("settings:set", (_e, patch: Partial<AppSettings>) => saveSettings(patch));
+  ipcMain.handle("settings:set", (_e, patch: SettingsPatch) => saveSettings(patch));
+  ipcMain.handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
+  ipcMain.handle("dialog:pick-exe", async () => {
+    const r = await dialog.showOpenDialog({
+      filters: process.platform === "win32" ? [{ name: "Program", extensions: ["exe"] }] : [],
+      properties: ["openFile"],
+    });
+    return r.canceled ? null : (r.filePaths[0] ?? null);
+  });
+  // 規約の案内を開く。https だけ
+  ipcMain.handle("shell:open-external", async (_e, url: string) => {
+    if (url.startsWith("https://")) await shell.openExternal(url);
+  });
   ipcMain.handle("dialog:pick-dir", async (_e, defaultPath: string | null) => {
     const r = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
