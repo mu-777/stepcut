@@ -4,27 +4,26 @@
 2026-11-11
 
 ## ブランチ
-claude/vigilant-archimedes-osom10(main 24a5618 から。実装レビューの指摘への対応。未マージ・PR なし)
+ccr-f1009c33-k0274q(main b9f3a3e から。ユーザー観点・Claude Code 観点のレビューの残件への対応。未マージ・PR なし)
 
 ## ゴール
-レビューの指摘 #1〜#18(#17・#19 を除く)を直す
+レビューの残件を直す: 書き出しの中止、見つからない録画の選び直し、開けないファイルの知らせ、保持で伸びた長さの表示、レーン名の折り返し、CLI の打ち間違い・範囲外の時刻、スキルの新規作成の手順と確認の省略
 
 ## 現在地
-- 指摘への対応は実装済み。読み上げ(tts/service.ts): エンジンごとの同時数・同じ鍵の共有・VOICEVOX の起動 1 回と失敗の扱い・キャッシュの上限
-- 書き出しは .part に書いて成功時に置き換え(main/output-files.ts)。素材のファイルは 10 秒使わなければ閉じる(main/file-readers.ts)
-- IPC はパスの許可リスト(main/access.ts、決定 docs/decisions/20261111-ipc-restrictions.md)。ページの移動を禁止
-- クラッシュ復旧(PRJ-06): main/recovery.ts と use-project-file.ts。閉じるときに「保存して閉じる」
-- 使わない素材・読み上げ・サムネイルを解放。60 秒を超えるステップの音声は区切って書き出す。App.tsx から use-project-file.ts・use-export.ts・use-clipboard.ts を分けた(挙動は同じ)
-- 確認: npm run check(単体 152)、ui-smoke(193 項目)、CLI の export・frame・inspect。実機(Windows)は未確認
+- 画面: 書き出し中はボタンが「中止 n%」(use-export.ts)。問題の帯に「録画・画像が見つかりません」と「場所を選ぶ…」(App.tsx の relinkSource)。開けないプロジェクトはファイル名を添える(use-project-file.ts)。「録画・速度」の見出しはステップ全体の長さ(保持を含む。inspector.tsx の recordingSummary)。タイムラインの見出しの列を 84px に
+- CLI: 知らないコマンドは画面を開かず終了コード 2(cli.ts の parseCli)。frame の --time がステップを超えたら warnings
+- スキル: scripts/run-cli.sh 経由で CLI を呼ぶ。validate・frame は allowed-tools で確認なし。「録画から新しく作るとき」の節。決定は docs/decisions/20261111-ai-integration.md
+- 確認: npm run check(単体 153)、ui-smoke(203 項目)、CLI と run-cli.sh を開発ビルドで実行。実機(Windows)と実際の Claude Code は未確認
 
 ## 次にやること
-- ユーザーの実機確認(docs/manual-test.html): 今回の分は、閉じるときの確認・強制終了からの復元・録画のドロップ・書き出しの上書き・書き出し後に録画を消せるか。前回からの分は VOICEVOX・Azure
-- 確認が済んだら main へ PR(Windows バイナリは /pr-build)。M2 の残り: PRJ-03
+- ユーザーの実機確認(docs/manual-test.html の「保存・開く」「書き出し」「CLI」に足した項目)と、Claude Code にプラグインを入れて validate・frame で確認が出ないかを見る
+- 確認が済んだら main へ PR(Windows バイナリは /pr-build)。前回からの実機確認(VOICEVOX・Azure・復旧)も残っている
+- M2 の残り: PRJ-03
 
 ## 課題・ブロッカー
-- なし
+- ui-smoke は全項目のあと、最後の app.close() で終わらないことがある(原因は未確認。項目はすべて通る)
 
 ## 未決事項
-- 仮決め(今回): 読み上げのキャッシュの上限 500MB、同時数は OS 2・VOICEVOX 1・Azure 3、復旧の保存は変更の 5 秒後、sandbox は false のまま
-- 配布前にやる: 移行の判定を version の番号にする(#17)、CI で ui-smoke を回す(#19)。ユーザーに聞いている: フェード以外の切り替え、アプリの設定に足す項目
-- 仮決め(以前から): ズームの帯のダブルクリック、画面に固定した図形の単位、HW/AAC の代替(T-02)。要件の未決 U-01, U-04。法務 T-03, T-04, T-08
+- 保留(ユーザーが検討中): 初回の案内・チュートリアル。エンドユーザー向けの説明は別の Web ページで作る(README は開発者向けのまま)
+- 見送り: frame の複数時刻(--every)、録画の長さを返すコマンド。設定パネルの内部の表現(0〜1 など)と操作の見つけにくさ
+- 仮決め(以前から): 読み上げのキャッシュ 500MB ほか、移行の判定(#17)、CI で ui-smoke(#19)、T-02・U-01・U-04・T-03・T-04・T-08

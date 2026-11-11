@@ -1769,6 +1769,119 @@ function fakeVoicevox() {
     await r.a.close();
   }
 
+  // 読めない録画の選び直し・開けないプロジェクトの知らせ・保持で伸びた長さ・書き出しの中止(別のフォルダーで起動し直す)
+  {
+    const fixDir = path.join(outDir, "fix");
+    fs.rmSync(fixDir, { recursive: true, force: true });
+    fs.mkdirSync(fixDir, { recursive: true });
+    const launchWith = async (file) => {
+      const a = await electron.launch({
+        executablePath: require(path.join(root, "node_modules/electron")),
+        args: [root, "--no-sandbox", `--user-data-dir=${path.join(fixDir, "user-data")}`, file],
+        cwd: root,
+      });
+      const w = await a.firstWindow();
+      await w.setViewportSize({ width: 1400, height: 860 });
+      await w.waitForTimeout(2000);
+      return { a, w };
+    };
+    // 閉じるときの「保存していない変更」の確認で止まらないよう、プロセスごと止める
+    const kill = async (a) => {
+      a.process().kill("SIGKILL");
+      await new Promise((res) => setTimeout(res, 500));
+    };
+
+    // 1) 開けないプロジェクト: 何が開けなかったかを先に書く
+    const badPath = path.join(fixDir, "bad.sanno.json");
+    fs.writeFileSync(badPath, JSON.stringify({ format: "screen-annotator.project", version: 1, steps: "x" }));
+    let r = await launchWith(badPath);
+    const badText = (await r.w.locator(".banner.error pre").textContent()) ?? "";
+    check(
+      /^(プロジェクトファイルを開けませんでした|Could not open the project file): bad\.sanno\.json\n/.test(
+        badText,
+      ) && badText.includes("steps"),
+      `開けないプロジェクトは、ファイル名を添えて知らせ、直す場所も出す (${badText.split("\n")[0]})`,
+    );
+    await kill(r.a);
+
+    // 2) 録画が見つからない: 平易な文と「場所を選ぶ…」で選び直す
+    const lostPath = path.join(fixDir, "lost.sanno.json");
+    fs.writeFileSync(
+      lostPath,
+      JSON.stringify({
+        format: "screen-annotator.project",
+        version: 1,
+        sources: [{ id: "rec1", path: "moved.mp4" }],
+        steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],
+      }),
+    );
+    r = await launchWith(lostPath);
+    const lost = r.w.locator(".issues li.error");
+    const lostText = (await lost.first().textContent()) ?? "";
+    check(
+      /(録画・画像が見つかりません|Recording or image not found): moved\.mp4/.test(lostText) &&
+        !/ENOENT|remote method/.test(lostText),
+      `見つからない録画は、内部のエラー文ではなく平易な文で知らせる (${lostText})`,
+    );
+    await r.a.evaluate(
+      ({ dialog }, ps) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ps });
+      },
+      [rec],
+    );
+    await lost
+      .first()
+      .getByRole("button", { name: /^(場所を選ぶ…|Locate…)$/ })
+      .click();
+    await r.w.waitForTimeout(2500);
+    check(
+      (await r.w.locator(".issues li.error").count()) === 0 && (await r.w.locator(".tb-dirty").count()) === 1,
+      "「場所を選ぶ…」で録画を選び直すと問題が消え、未保存の変更になる",
+    );
+    check((await r.w.locator(".tl-tile canvas").count()) > 0, "選び直した録画のサムネイルが出る");
+
+    // 3) ズーム(映像を止める)で伸びた長さを「録画・速度」の見出しに出す
+    await r.w.locator(".rail-thumb").first().click();
+    const summary = () => r.w.locator(".fold-summary").first().textContent();
+    check((await summary()) === "4.0s", `保持がなければ録画の長さ (${await summary()})`);
+    await r.w.keyboard.press("ArrowRight");
+    await r.w.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
+    await r.w.keyboard.press("Escape");
+    await r.w.waitForTimeout(300);
+    const held = (await summary()) ?? "";
+    const railLen = (await r.w.locator(".rail-thumb").first().locator(".rail-text").textContent()) ?? "";
+    check(
+      held === "6.0s" && railLen.includes("6.0s"),
+      `ズームで伸びたら、見出しも左の列と同じ伸びた後の長さ (${held} / ${railLen})`,
+    );
+
+    // 4) 書き出しの中止: ボタンが中止になり、押すと知らせが出て、途中のファイルを残さない
+    const outMp4 = path.join(fixDir, "cancel.mp4");
+    await r.a.evaluate(({ dialog }, p) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: p });
+    }, outMp4);
+    const exportButton = r.w.locator(".tb-btn.primary");
+    await exportButton.click();
+    await r.w.waitForFunction(() =>
+      /中止|Cancel/.test(document.querySelector(".tb-btn.primary")?.textContent ?? ""),
+    );
+    check(true, "書き出し中は書き出しのボタンが「中止 n%」になる");
+    await exportButton.click();
+    await r.w.waitForSelector(".banner.info");
+    const canceled = (await r.w.locator(".banner.info pre").textContent()) ?? "";
+    await r.w.waitForTimeout(500);
+    check(/書き出しを中止しました|Export canceled/.test(canceled), `中止すると知らせが出る (${canceled})`);
+    check(
+      fs.readdirSync(fixDir).filter((f) => f.startsWith("cancel")).length === 0,
+      "中止した書き出しは、書き出し先にも途中のファイルにも残らない",
+    );
+    check(
+      /^(書き出し|Export)$/.test((await exportButton.textContent()) ?? ""),
+      "中止のあとは書き出しのボタンに戻る",
+    );
+    await kill(r.a);
+  }
+
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);
   await app.close();
 })().catch(async (e) => {

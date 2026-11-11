@@ -2,7 +2,7 @@
 name: edit-project
 description: Screen Annotator のプロジェクトファイル(*.sanno.json)を読んで直す。画面録画をステップに分け、テロップ・読み上げ・ズーム・ポインター・図形を付けた手順書動画を作る・直す依頼で使う。フレーム画像(frame)と計算後の時間(inspect)を CLI で取り、座標と時刻を決めてから JSON を書き、validate で確かめる。
 when_to_use: ユーザーが Screen Annotator・.sanno.json・手順書動画のテロップ / 読み上げ / ズーム / ポインター / 図形の編集・書き出しに触れたとき
-allowed-tools: Bash(bash ${CLAUDE_SKILL_DIR}/scripts/find-cli.sh *)
+allowed-tools: Bash(bash ${CLAUDE_SKILL_DIR}/scripts/find-cli.sh *) Bash(bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh validate *) Bash(bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh frame *)
 ---
 
 # Screen Annotator のプロジェクトを編集する
@@ -12,29 +12,27 @@ Screen Annotator は、画面録画(と画像)をステップに切り分け、�
 - 書き方の全仕様: [project-format.md](project-format.md)(必ず先に、触る要素の節を読む)
 - 機械向けのスキーマ: [project.schema.json](project.schema.json)
 
-## 1. CLI を見つける
+## 1. CLI を呼ぶ
+
+CLI はアプリの実行ファイルそのもの。同梱のスクリプトが場所を探して実行し、結果の JSON を標準出力に出す(`--json` と `--result` は付けなくてよい)。終了コードは成功 0、失敗 1、引数の誤り 2、CLI が見つからない 3。
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/find-cli.sh" "${CLAUDE_PLUGIN_DATA}"
+bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA} <project.sanno.json> [オプション...]
 ```
 
-- パスが 1 行出たら、それが CLI(アプリの実行ファイルそのもの)。以下 `$CLI` と書く。パスに空白が入るので必ず `"$CLI"` と引用する
-- 何も出ず終了コード 1 なら見つかっていない。ユーザーに Screen Annotator の実行ファイル(またはインストールしたフォルダ)の場所を聞く。インストーラの既定は Windows なら `%LOCALAPPDATA%\Programs\Screen Annotator\Screen Annotator.exe`(すべてのユーザーに入れたなら `C:\Program Files\Screen Annotator\`)、ポータブル版はユーザーが置いた場所。聞いたら覚えさせる(次から聞かずに済む):
+- `validate` と `frame` は読むだけ(`frame` は PNG を書く)なので、上の形のまま書けば確認なしで実行できる。パイプや `&&` でほかのコマンドをつなぐと確認が出る。パスに空白があって引用符が要るときも確認が出ることがある
+- `inspect`(読み上げを実際に作る)と `export` は、ユーザーが有効にした外部の読み上げエンジンに文を送ることがあるので、確認が出る
+- 終了コード 3 なら CLI が見つかっていない。ユーザーに Screen Annotator の実行ファイル(またはインストールしたフォルダ)の場所を聞く。インストーラの既定は Windows なら `%LOCALAPPDATA%\Programs\Screen Annotator\Screen Annotator.exe`(すべてのユーザーに入れたなら `C:\Program Files\Screen Annotator\`)、ポータブル版はユーザーが置いた場所。聞いたら覚えさせる(次から聞かずに済む):
 
   ```bash
-  bash "${CLAUDE_SKILL_DIR}/scripts/find-cli.sh" "${CLAUDE_PLUGIN_DATA}" --save "<聞いたパス>"
+  bash ${CLAUDE_SKILL_DIR}/scripts/find-cli.sh ${CLAUDE_PLUGIN_DATA} --save "<聞いたパス>"
   ```
 
-- `"$CLI" help` に `frame` と `inspect` がなければアプリが古い。ユーザーに更新を頼む(validate・export だけは使える)
+- `frame`・`inspect` が引数の誤り(2)で「コマンドが違います」になる、または画面が開いて終わらないなら、アプリが古い。ユーザーに更新を頼む(validate・export だけは使える)
 
-## 2. CLI の使い方
+## 2. コマンド
 
-いつも `--json --result <一時ファイル>` を付け、標準エラーは捨て、結果は一時ファイルから読む(Windows の GUI アプリは標準出力が届かないことがあり、Chromium のログが標準エラーに出るため)。終了コードは成功 0、失敗 1、引数の誤り 2。
-
-```bash
-tmp="$(mktemp -d)"
-"$CLI" inspect project.sanno.json --json --result "$tmp/inspect.json" 2>/dev/null; cat "$tmp/inspect.json"
-```
+以下の表は `run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA}` に続く部分だけを書く。
 
 | コマンド | 使いどころ | 結果 |
 |---|---|---|
@@ -47,6 +45,9 @@ tmp="$(mktemp -d)"
 
 `--step` は 1 始まりの番号かステップの `id`。`--time` はステップ内の出力時刻(秒)。出した PNG は Read で見る。
 
+- `--time` がステップの長さを超えると、末尾のフレームを出して `warnings` で知らせる(成功のまま)
+- 結果の `warnings` は毎回読む
+
 ## 3. 進め方
 
 1. プロジェクトファイルを読み、`inspect` で時間の全体像をつかむ
@@ -55,6 +56,25 @@ tmp="$(mktemp -d)"
 4. JSON を書く。書いたら `validate`
 5. `frame`(`--source` なし)で仕上がりを見て、ずれていれば直す。読み上げを変えたら `inspect` で時刻を取り直す
 6. ユーザーにどこをどう変えたか伝える。アプリを開いていれば自動で読み直される(アプリ側に保存していない変更があると、どちらを使うかユーザーに聞く)
+
+### 録画から新しく作るとき
+
+プロジェクトファイルがまだないときは、先に最小のプロジェクトを書く。CLI はプロジェクトを通してしか録画を読めない。
+
+1. 録画と同じフォルダーに、録画全体を 1 ステップにした仮のプロジェクトを書く(`out` は長めの仮の値でよい)
+
+   ```json
+   {
+     "format": "screen-annotator.project",
+     "version": 1,
+     "sources": [{ "id": "rec1", "path": "録画.mp4" }],
+     "steps": [{ "id": "all", "source": "rec1", "in": 0, "out": 36000 }]
+   }
+   ```
+
+2. `frame --step 1 --time 0 --source` の結果の `sourceSize` で録画の大きさを知る。録画の長さは、`--time` を大きくしていって画が変わらなくなる所で見当を付ける(`out` が録画より長くても、最後のフレームが出るだけでエラーにはならない)。ユーザーが長さを知っていれば聞く方が早い
+3. 一定の間隔(5〜10 秒)で `frame --source` を見て、操作の区切りを探す。区切りの前後は間隔を詰めて、`in` / `out` を決める
+4. 仮のステップを、決めた `in` / `out` のステップに置き換え、テロップ・読み上げを書く。ここからは上の 1〜6 と同じ
 
 ## 4. 間違えやすいところ
 

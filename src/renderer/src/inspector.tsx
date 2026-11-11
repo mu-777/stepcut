@@ -160,6 +160,12 @@ function Fold(props: {
   );
 }
 
+/** 「録画・速度」の見出しに添える長さ。左の列・タイムラインと同じ、保持を含むステップ全体の長さ */
+function recordingSummary(step: Step, stepDuration: number): string {
+  const speed = step.speed ?? 1;
+  return `${stepDuration.toFixed(1)}s${speed > 1 ? ` ×${speed}` : ""}`;
+}
+
 /** ステップの詳細: 録画・速度 / 文(テロップと読み上げ)/ ズーム を開け閉めできる欄で並べる */
 export function StepDetail(props: {
   project: Project;
@@ -205,7 +211,7 @@ export function StepDetail(props: {
       <Fold
         id="recording"
         title={t("sectionRecording")}
-        summary={`${(step.out - step.in).toFixed(1)}s${speed > 1 ? ` ×${speed}` : ""}`}
+        summary={recordingSummary(step, props.stepDuration)}
         defaultOpen={false}
       >
         <StepRecording {...props} />
