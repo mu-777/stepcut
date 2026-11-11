@@ -8,6 +8,17 @@ describe("CLI の引数", () => {
   it("コマンドがなければ GUI の起動", () => {
     expect(parseCli([])).toBeNull();
     expect(parseCli(["a.json"])).toBeNull();
+    // 既存のパス(開発時のアプリのフォルダーなど)は GUI 起動のまま
+    expect(parseCli(["/app"], () => true)).toBeNull();
+    expect(parseCli(["missing.JSON"], () => false)).toBeNull();
+  });
+
+  it("コマンドの打ち間違いは引数の誤りにする(GUI を開かない)", () => {
+    expect(parseCli(["inspct", "p.json"], () => false)).toEqual({
+      error: "コマンドが違います / Unknown command: inspct",
+    });
+    expect(parseCli(["--no-sandbox", "bogus"], () => false)).toHaveProperty("error");
+    expect(parseCli(["bogus", "--help"], () => false)).toEqual({ command: "help", json: false });
   });
 
   it("frame: ステップと時刻、素材のフレーム", () => {

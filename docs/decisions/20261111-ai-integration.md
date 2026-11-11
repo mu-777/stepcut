@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-11-11
+updated: 2026-11-11
 tags: [ai, cli, distribution]
 ---
 
@@ -17,7 +18,10 @@ Claude Code・Codex などのコーディングエージェントに、手順書
 - 手引きは Claude Code のスキルだけを用意し、プラグインとして配る(AI-09)。このリポジトリのルートに `.claude-plugin/marketplace.json` を置いてマーケットプレイスにし、プラグインは `plugins/screen-annotator/`(スキル `edit-project`)。ユーザーは `/plugin marketplace add mu-777/screen-annotator` → `/plugin install screen-annotator@screen-annotator` で入れる。`plugin.json` に `version` は書かず、main のコミットがそのまま更新として届く
 - スキルには仕様の写し(project-format.md・project.schema.json)を同梱する。プラグインはそのフォルダだけが配られ、docs を参照できないため。写しは単体テスト(`src/plugin-files.test.ts`)で docs と一致を確かめる
 - CLI はアプリの実行ファイルそのもの。スキルに同梱した `find-cli.sh` が探す: 環境変数 `SCREEN_ANNOTATOR_CLI` → 前に覚えた場所(`${CLAUDE_PLUGIN_DATA}/cli-path`)→ インストーラの既定の場所(Windows: `%LOCALAPPDATA%\Programs\Screen Annotator\` と `Program Files`、Mac: `/Applications`)→ PATH。見つからなければスキルがユーザーに場所を聞き、`--save` で覚える。名前が Screen Annotator らしいファイルだけを `help` で確かめる(ほかのアプリを起動しない)
-- CLI の結果は `--json --result <file>` でファイルから読ませる(Windows の GUI アプリは標準出力が届かないことがあり、標準エラーには Chromium のログが出る)
+- スキルは同梱の `run-cli.sh <コマンド> <覚えておく場所> <プロジェクト> …` 経由で CLI を呼ぶ。スクリプトが `find-cli.sh` で場所を探し、`--json --result <file>` を付けて実行し、結果のファイルを標準出力に出す(Windows の GUI アプリは標準出力が届かないことがあり、標準エラーには Chromium のログが出る)
+- スキルの `allowed-tools` で、読むだけの `validate` と `frame` を確認なしにする。`inspect`(読み上げを実際に作る)と `export` は確認を残す。ユーザーが有効にした外部の読み上げエンジンに文を送り、料金がかかることがあるため
+- プロジェクトファイルがまだない録画から作る手順は、スキルに書く(録画全体を 1 ステップにした仮のプロジェクトを書き、`frame --source` で大きさ・長さ・区切りを調べる)。CLI にコマンドは足さない
+- CLI は、コマンドの名前が違うとき画面を開かず引数の誤り(終了コード 2)で終わる。最初の引数がコマンドでも `.json` でも既存のパスでもないときをそう扱う
 
 ## 理由
 
@@ -32,10 +36,14 @@ Claude Code・Codex などのコーディングエージェントに、手順書
 - **Codex 向けの手引き(AGENTS.md の雛形)も配る** — ユーザーの指定で Claude Code のスキルだけにした
 - **スキルを `~/.claude/skills/` へコピーしてもらう** — 手作業で、更新が届かない
 - **スキルから docs を参照する(写しを置かない)** — インストールされたプラグインからリポジトリの docs は見えない
+- **`allowed-tools` に CLI そのもの(`"$CLI" validate *`)を書く** — 許可の規則はコマンドの文字列全体に当たる。実行ファイルの場所はパソコンごとに違って規則に書けず、変数に入れる形(`CLI=… ; "$CLI" …`)は代入をまたいで当たらない([Configure permissions](https://code.claude.com/docs/en/permissions))。場所が決まっている同梱のスクリプトを挟み、コマンドの名前を先頭の引数にして規則に書けるようにした
+- **録画の長さ・大きさを返すコマンド(`probe`)を CLI に足す** — 手順は素直になるが、仮のプロジェクトと `frame` で同じことができる。機能を増やさない(C7)。長い録画で遅いと分かったら見直す
+- **`frame` で複数の時刻をまとめて出す(`--every`)** — 同上。`frame` は 1 回 1 秒弱で、繰り返しで足りる
 - **インストール時に CLI を PATH に登録する** — インストーラの変更と OS ごとの対応が要り、ポータブル版では効かない。探索 + 聞いて覚える方が単純
 
 ## 前提と再検討の条件
 
+- `allowed-tools` が実際の Claude Code で効くか(スキルのフォルダーのパスに空白があるときを含む)は実機で未確認。効かなければ確認が出るだけで、動作は変わらない
 - CLI の引数・結果の形はスキルが頼りにしている。変えるときは SKILL.md も同じ作業で直す
 - Mac 版の配布の形が決まったら、`find-cli.sh` の既定の場所を確かめる
 - 公開範囲を広げる(Anthropic のディレクトリへの申請など)ときは、このリポジトリ全体を clone させている点(マーケットプレイスの追加はリポジトリの clone)を見直す

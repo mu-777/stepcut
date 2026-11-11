@@ -29,11 +29,20 @@ export interface CliArgs {
 
 const COMMANDS = ["validate", "export", "frame", "inspect", "help"] as const;
 
-/** コマンドがなければ null(通常の GUI 起動)。Chromium のスイッチ(--no-sandbox など)は無視する */
-export function parseCli(args: string[]): CliArgs | { error: string } | null {
+/**
+ * コマンドがなければ null(通常の GUI 起動)。Chromium のスイッチ(--no-sandbox など)は無視する。
+ * 最初の引数がコマンドでも .json でも既存のパスでもなければ、コマンドの打ち間違いとして引数の誤りにする
+ * (GUI を開くと、呼んだ側(AI・スクリプト)が終わるのを待ち続けるため)。exists は既存のパスかを調べる
+ */
+export function parseCli(
+  args: string[],
+  exists: (p: string) => boolean = () => true,
+): CliArgs | { error: string } | null {
   const first = args.find((a) => !a.startsWith("-"));
   if (!first || !(COMMANDS as readonly string[]).includes(first)) {
     if (args.includes("--help")) return { command: "help", json: false };
+    if (first && !/\.json$/i.test(first) && !exists(first))
+      return { error: `コマンドが違います / Unknown command: ${first}` };
     return null;
   }
   const out: CliArgs = { command: first as CliArgs["command"], json: false };

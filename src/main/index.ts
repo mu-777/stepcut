@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
@@ -402,7 +403,7 @@ async function runCli(args: CliArgs): Promise<number> {
 }
 
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
-const cli = parseCli(argv);
+const cli = parseCli(argv, existsSync);
 // コマンドなしで .json を渡されたら、そのプロジェクトを開いて起動する
 const initialArg = cli ? undefined : argv.find((a) => !a.startsWith("-") && /\.json$/i.test(a));
 const initialProject = initialArg ? path.resolve(initialArg) : null;

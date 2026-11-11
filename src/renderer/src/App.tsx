@@ -120,7 +120,10 @@ export function App() {
   const project = hist.present;
   const [selection, setSelection] = useState<Selection>({ kind: "project" });
   const [media, setMedia] = useState<Map<string, SourceMedia>>(new Map());
-  const [mediaErrors, setMediaErrors] = useState<string[]>([]);
+  /** 読めなかった素材(録画・画像)。missing はファイルがない */
+  const [mediaErrors, setMediaErrors] = useState<
+    { id: string; path: string; message: string; missing: boolean }[]
+  >([]);
   const [speechVersion, setSpeechVersion] = useState(0);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -233,8 +236,18 @@ export function App() {
   }, [project]);
   /** 上端に出すプロジェクトの問題。閉じたときの中身(problemKey)を覚え、中身が変わるまで出さない */
   const problemLines = [
-    ...mediaErrors.map((m) => ({ text: m, error: true })),
-    ...issues.map((i) => ({ text: `${issuePath(i.path)}: ${i.message}`, error: false })),
+    ...mediaErrors.map((m) => ({
+      text: m.missing
+        ? `${t("sourceMissing")}: ${m.path}`
+        : `${t("sourceUnreadable")}: ${m.path} (${m.message})`,
+      error: true,
+      relink: m.id as string | undefined,
+    })),
+    ...issues.map((i) => ({
+      text: `${issuePath(i.path)}: ${i.message}`,
+      error: false,
+      relink: undefined as string | undefined,
+    })),
   ];
   const problemKey = problemLines.map((p) => p.text).join("\n");
   const [dismissedProblems, setDismissedProblems] = useState<string | null>(null);
@@ -283,7 +296,7 @@ export function App() {
     let alive = true;
     (async () => {
       const next = new Map<string, SourceMedia>();
-      const errors: string[] = [];
+      const errors: typeof mediaErrors = [];
       const used: string[] = [];
       for (const s of project.sources) {
         try {
@@ -291,7 +304,8 @@ export function App() {
           used.push(path);
           next.set(s.id, await openMedia(path));
         } catch (e) {
-          errors.push(`${s.id}: ${(e as Error).message}`);
+          const message = (e as Error).message;
+          errors.push({ id: s.id, path: s.path, message, missing: /ENOENT/.test(message) });
         }
       }
       if (alive) {
@@ -340,7 +354,7 @@ export function App() {
     if (selected !== null && selected >= project.steps.length) setSelection({ kind: "project" });
   }, [selected, project.steps.length]);
 
-  const { exporting, doExport } = useExport({
+  const { exporting, doExport, cancelExport } = useExport({
     project,
     filePath,
     issues,
@@ -357,7 +371,10 @@ export function App() {
     save: fileActions.save,
     addSource: async () => addSourcePaths(await api.pickSources()),
     saveAndClose: fileActions.saveAndClose,
-    export: () => doExport(),
+    // 書き出し中の Ctrl+E は重ねて始めない(中止はボタンで)
+    export: () => {
+      if (!exporting) void doExport();
+    },
     shortcuts: () => setShortcutsOpen(true),
     undo: () => (isTyping() ? document.execCommand("undo") : setHist(undo)),
     redo: () => (isTyping() ? document.execCommand("redo") : setHist(redo)),
@@ -401,6 +418,13 @@ export function App() {
     if (at === first) return;
     update(() => p);
     setSelection({ kind: "step", step: at - 1 });
+  }
+
+  /** 読めない素材の場所を選び直す(素材のパスだけを差し替える。ステップはそのまま) */
+  async function relinkSource(id: string) {
+    const [path] = await api.pickSources();
+    if (!path) return;
+    update((p) => ({ ...p, sources: p.sources.map((s) => (s.id === id ? { ...s, path } : s)) }));
   }
 
   useEffect(() => api.onMenu((cmd) => actions.current[cmd]?.()), []);
@@ -1209,15 +1233,16 @@ ${t("renameTip")}`}
           <button
             type="button"
             className="tb-btn primary"
-            title={`${t("export")} (Ctrl+E)`}
-            aria-label={bare(t("export"))}
-            onClick={() => doExport()}
-            disabled={exporting !== null || project.steps.length === 0}
+            title={exporting ? t("cancelExportTip") : `${t("export")} (Ctrl+E)`}
+            aria-label={exporting ? t("cancelExport") : bare(t("export"))}
+            onClick={() => (exporting ? cancelExport() : doExport())}
+            disabled={project.steps.length === 0}
           >
             <Icon name="exportVideo" />
+            {/* 書き出し中は中止のボタンになる(進み具合を添える) */}
             <span>
               {exporting
-                ? `${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
+                ? `${t("cancelExport")} ${Math.round((exporting.done / Math.max(1, exporting.total)) * 100)}%`
                 : bare(t("export"))}
             </span>
           </button>
@@ -1250,6 +1275,15 @@ ${t("renameTip")}`}
               {problemLines.map((p) => (
                 <li key={p.text} className={p.error ? "error" : undefined}>
                   {p.text}
+                  {p.relink && (
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => void relinkSource(p.relink as string)}
+                    >
+                      {t("relinkSource")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

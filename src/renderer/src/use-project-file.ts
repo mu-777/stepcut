@@ -71,7 +71,14 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
     (path: string, text: string, keepHistory: boolean) => {
       const r = parseProjectText(text);
       if (!r.ok) {
-        setBanner({ kind: "error", text: r.errors.map((e) => `${e.path}: ${e.message}`).join("\n") });
+        // 何が開けなかったかを先に書く(下の行は直す場所。手で直す人・AI のためにそのまま出す)
+        setBanner({
+          kind: "error",
+          text: [
+            `${t("openFailed")}: ${path.replace(/^.*[\\/]/, "")}`,
+            ...r.errors.map((e) => `${e.path}: ${e.message}`),
+          ].join("\n"),
+        });
         return false;
       }
       setHist((h) => (keepHistory ? commit(h, r.project) : initHistory(r.project)));

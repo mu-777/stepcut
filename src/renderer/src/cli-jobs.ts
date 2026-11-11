@@ -120,6 +120,11 @@ async function frameJob(
     local = req.time ?? 0;
   }
   if (!entry) return { ok: false, warnings, error: `ステップが見つかりません / Step not found: ${req.step}` };
+  // ステップの長さを超える時刻は末尾に丸め、丸めたことを知らせる(黙って別のフレームを返さない)
+  if (req.at === undefined && local > entry.duration + 1e-6)
+    warnings.push(
+      `--time ${local} はステップの長さ(${r3(entry.duration)} 秒)を超えるので、末尾のフレームにしました / --time is past the end of the step; used the last frame`,
+    );
   // 終わりちょうどは最後のフレーム
   local = Math.min(Math.max(0, local), Math.max(0, entry.duration - 1e-3));
   const step = entry.step;
