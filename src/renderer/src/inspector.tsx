@@ -9,6 +9,9 @@ import {
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
   DEFAULT_SOLID_BACKGROUND,
+  hasStepLayout,
+  isImageSource,
+  type ResolvedLayout,
   resolveAudio,
   resolveCaptionStyle,
   resolveLayout,
@@ -20,6 +23,7 @@ import {
   zoomHoldMode,
   zoomTransition,
 } from "../../core/defaults";
+import { clearStepLayout, makeStepLayoutCommon, setStepLayout } from "../../core/edit";
 import {
   computeLayout,
   type Rect,
@@ -90,14 +94,14 @@ export type PanelView = "project" | "step";
 
 /** 選んだ要素を直す画面。プロジェクトを選んだだけ(Esc・削除の後など)では切り替えない */
 export function viewOf(s: Selection): PanelView | null {
-  if (s.kind === "video") return "project";
+  if (s.kind === "video") return "step";
   if (s.kind === "project") return null;
   return "step";
 }
 
 /** 選んだ要素を直す欄の id。この欄だけを開き、ほかの欄を閉じる */
 export function foldOf(s: Selection): string | null {
-  if (s.kind === "video") return "p.layout";
+  if (s.kind === "video") return "frame";
   if (s.kind === "caption" || s.kind === "speech") return "text";
   if (s.kind === "zoom") return "zoom";
   if (s.kind === "hold") return "recording";
@@ -202,6 +206,14 @@ export function StepDetail(props: {
       >
         <StepRecording {...props} />
       </Fold>
+      <Fold
+        id="frame"
+        title={t("sectionFrame")}
+        summary={t(hasStepLayout(step) ? "frameOwn" : "frameCommon")}
+        defaultOpen={false}
+      >
+        <StepFrame project={project} index={index} update={props.update} focused={focus.kind === "video"} />
+      </Fold>
       <Fold id="text" defaultOpen title={t("sectionText")} summary={step.caption?.text || "—"}>
         <StepText {...props} />
       </Fold>
@@ -277,7 +289,7 @@ function StepRecording(props: {
   const step = project.steps[index];
   if (!step) return null;
   const set = (key: string) => patchStep(update, index, key);
-  const audio = step.audio ?? {};
+  const image = isImageSource(project.sources.find((s) => s.id === step.source)?.path ?? "");
 
   return (
     <>
@@ -289,31 +301,64 @@ function StepRecording(props: {
           options={project.sources.map((s) => ({ value: s.id, label: `${s.id} — ${s.path}` }))}
           onChange={(v) => set("source")((s) => ({ ...s, source: v }))}
         />
-        <div className="row">
+        {image ? (
+          // 画像はどの時刻も同じ 1 枚。長さだけを決める(in は 0 にそろえる)
           <NumField
-            label={t("in")}
-            value={step.in}
-            min={0}
-            onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
+            label={t("stepLength")}
+            value={Math.round(((step.out - step.in) / (step.speed ?? 1)) * 1000) / 1000}
+            min={0.1}
+            step={0.5}
+            onChange={(v) =>
+              set("length")((s) => ({ ...s, in: 0, out: Math.max(0.1, v ?? 0.1) * (s.speed ?? 1) }))
+            }
           />
-          <NumField
-            label={t("out")}
-            value={step.out}
-            min={0}
-            onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
-          />
-        </div>
-        <NumField
-          label={t("speed")}
-          value={step.speed ?? 1}
-          min={1}
-          step={0.5}
-          onChange={(v) =>
-            set("speed")((s) => ({ ...s, speed: v === undefined || v === 1 ? undefined : Math.max(1, v) }))
-          }
-        />
+        ) : (
+          <>
+            <div className="row">
+              <NumField
+                label={t("in")}
+                value={step.in}
+                min={0}
+                onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
+              />
+              <NumField
+                label={t("out")}
+                value={step.out}
+                min={0}
+                onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
+              />
+            </div>
+            <NumField
+              label={t("speed")}
+              value={step.speed ?? 1}
+              min={1}
+              step={0.5}
+              onChange={(v) =>
+                set("speed")((s) => ({
+                  ...s,
+                  speed: v === undefined || v === 1 ? undefined : Math.max(1, v),
+                }))
+              }
+            />
+          </>
+        )}
       </Section>
 
+      {!image && <StepSourceAudio {...props} />}
+      <StepFadeHolds {...props} />
+    </>
+  );
+}
+
+/** 録画の音声(画像のステップでは出さない) */
+function StepSourceAudio(props: { project: Project; index: number; update: Update }) {
+  const { project, index, update } = props;
+  const step = project.steps[index];
+  if (!step) return null;
+  const set = (key: string) => patchStep(update, index, key);
+  const audio = step.audio ?? {};
+  return (
+    <>
       <h4>{t("sourceAudio")}</h4>
       <div className="row">
         <CheckField
@@ -356,7 +401,24 @@ function StepRecording(props: {
           }
         />
       )}
+    </>
+  );
+}
 
+/** フェードと保持 */
+function StepFadeHolds(props: {
+  project: Project;
+  index: number;
+  update: Update;
+  focus: Selection;
+  playheadLocal: number;
+}) {
+  const { project, index, update, focus } = props;
+  const step = project.steps[index];
+  if (!step) return null;
+  const set = (key: string) => patchStep(update, index, key);
+  return (
+    <>
       <h4>{t("fade")}</h4>
       <div className="row">
         {(["fadeIn", "fadeOut"] as const).map((key) => (
@@ -955,7 +1017,7 @@ function ZoomSection(props: {
   const set = (key: string) => patchStep(update, index, key);
   const src = props.srcSizeOf(index) ?? { w: 1920, h: 1080 };
   const out = resolveOutput(project);
-  const crop = computeLayout(out.width, out.height, resolveLayout(project), src.w, src.h).crop;
+  const crop = computeLayout(out.width, out.height, resolveLayout(project, step), src.w, src.h).crop;
   const setZoomFn = (key: string, fn: (z: Zoom) => Zoom) =>
     set(`zoom${k}.${key}`)((s) => ({ ...s, zooms: (s.zooms ?? []).map((x, i) => (i === k ? fn(x) : x)) }));
   const setZoom = (key: string, patch: Partial<Zoom>) =>
@@ -1193,7 +1255,98 @@ function Section(props: { focused: boolean; className?: string; children: ReactN
 let lockedAspect: number | null = null;
 
 /** 「余白なし」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
-let savedMargin: { margin: Margin | undefined; fit: "contain" | "cover" | undefined } | null = null;
+const savedMargins = new Map<string, { margin: Margin; fit: "contain" | "cover" }>();
+
+type FramePatch = { margin?: Margin; fit?: "contain" | "cover"; shadow?: boolean };
+
+/**
+ * 録画の枠の欄(余白・余白なし・切り取り・影)。全体の設定とステップの上書きで共通。
+ * memo は「余白なし」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
+ */
+function FrameFields(props: {
+  layout: ResolvedLayout;
+  outW: number;
+  outH: number;
+  focused: boolean;
+  memo: string;
+  onChange: (patch: FramePatch, key?: string) => void;
+}) {
+  const { layout, onChange } = props;
+  const noMargin = layout.fit === "contain" && Object.values(layout.margin).every((v) => Math.abs(v) < 1e-9);
+  return (
+    <>
+      <Section focused={props.focused}>
+        <MarginField
+          margin={layout.margin}
+          outW={props.outW}
+          outH={props.outH}
+          onChange={(m, key) => onChange({ margin: m }, key)}
+        />
+        <CheckField
+          label={t("noMargin")}
+          value={noMargin}
+          onChange={(v) => {
+            if (v) {
+              // 直前の余白と置き方を覚えておき、外したら戻す(アプリを閉じるまで)
+              savedMargins.set(props.memo, { margin: layout.margin, fit: layout.fit });
+              onChange({ margin: { top: 0, right: 0, bottom: 0, left: 0 }, fit: "contain" });
+            } else {
+              const back = savedMargins.get(props.memo) ?? {
+                margin: DEFAULT_MARGIN,
+                fit: "contain" as const,
+              };
+              savedMargins.delete(props.memo);
+              onChange(back);
+            }
+          }}
+        />
+        <CheckField
+          label={t("fitCover")}
+          value={layout.fit === "cover"}
+          onChange={(v) => onChange({ fit: v ? "cover" : "contain" })}
+        />
+      </Section>
+      <CheckField label={t("shadow")} value={layout.shadow} onChange={(v) => onChange({ shadow: v })} />
+    </>
+  );
+}
+
+/** ステップの録画の枠。変えるとこのステップだけの上書きになる。共通にする・全体に戻すボタン付き */
+function StepFrame(props: { project: Project; index: number; update: Update; focused: boolean }) {
+  const { project, index, update } = props;
+  const step = project.steps[index];
+  if (!step) return null;
+  const out = resolveOutput(project);
+  const own = hasStepLayout(step);
+  return (
+    <>
+      <p className="hint">{t(own ? "frameOwnHint" : "frameCommonHint")}</p>
+      <FrameFields
+        layout={resolveLayout(project, step)}
+        outW={out.width}
+        outH={out.height}
+        focused={props.focused}
+        memo={`step:${step.id}`}
+        onChange={(patch, key) => update((p) => setStepLayout(p, index, patch), key ?? `frame${index}`)}
+      />
+      {own && (
+        <div className="row">
+          <button
+            type="button"
+            className="small"
+            title={t("frameUseAsCommonHint")}
+            onClick={() => update((p) => makeStepLayoutCommon(p, index))}
+          >
+            {t("frameUseAsCommon")}
+          </button>
+          <button type="button" className="small" onClick={() => update((p) => clearStepLayout(p, index))}>
+            {t("frameBackToCommon")}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
 
 /** 解像度の候補。かっこの中は通称 */
 const RESOLUTIONS = [
@@ -1211,8 +1364,6 @@ export function ProjectPanel(props: {
   project: Project;
   update: Update;
   voices: Voice[];
-  /** プレビューで録画の枠を選んでいる。余白の欄を強調する */
-  focusVideo: boolean;
   /** ステップの「共通の設定 ›」から来た。テロップの見た目の欄を強調する */
   focusShared: boolean;
   backgroundError: string | null;
@@ -1222,7 +1373,7 @@ export function ProjectPanel(props: {
   const layout = resolveLayout(project);
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
-  const noMargin = layout.fit === "contain" && Object.values(layout.margin).every((v) => Math.abs(v) < 1e-9);
+  const overridden = project.steps.filter(hasStepLayout).length;
   const even = (v: number | undefined) => (v === undefined ? undefined : Math.max(16, Math.round(v / 2) * 2));
   // 縦横比の固定。固定したときの比(幅 ÷ 高さ)を保つ(入力の途中の値で比が崩れないように)。アプリを閉じるまで覚える
   const [aspect, setAspect] = useState<number | null>(() => lockedAspect);
@@ -1314,46 +1465,19 @@ export function ProjectPanel(props: {
           error={props.backgroundError}
           onChange={(bg, key) => set("layout", { ...project.layout, background: bg }, key)}
         />
-        <Section focused={props.focusVideo}>
-          <MarginField
-            margin={layout.margin}
-            outW={out.width}
-            outH={out.height}
-            onChange={(m, key) => set("layout", { ...project.layout, margin: m }, key)}
-          />
-          <CheckField
-            label={t("noMargin")}
-            value={noMargin}
-            onChange={(v) => {
-              if (v) {
-                // 直前の余白と置き方を覚えておき、外したら戻す(アプリを閉じるまで)
-                savedMargin = { margin: project.layout?.margin, fit: project.layout?.fit };
-                set(
-                  "layout",
-                  prune({
-                    ...project.layout,
-                    margin: { top: 0, right: 0, bottom: 0, left: 0 },
-                    fit: undefined,
-                  }),
-                );
-              } else {
-                const back = savedMargin ?? { margin: DEFAULT_MARGIN, fit: undefined };
-                savedMargin = null;
-                set("layout", prune({ ...project.layout, margin: back.margin, fit: back.fit }));
-              }
-            }}
-          />
-          <CheckField
-            label={t("fitCover")}
-            value={layout.fit === "cover"}
-            onChange={(v) => set("layout", prune({ ...project.layout, fit: v ? "cover" : undefined }))}
-          />
-        </Section>
-        <CheckField
-          label={t("shadow")}
-          value={layout.shadow}
-          onChange={(v) => set("layout", { ...project.layout, shadow: v })}
+        <FrameFields
+          layout={layout}
+          outW={out.width}
+          outH={out.height}
+          focused={false}
+          memo="project"
+          onChange={(patch, key) => {
+            // 全体の置き方は既定(contain)なら書かない
+            const fit = "fit" in patch ? (patch.fit === "cover" ? "cover" : undefined) : project.layout?.fit;
+            set("layout", prune({ ...project.layout, ...patch, fit }), key);
+          }}
         />
+        {overridden > 0 && <p className="hint">{`${t("frameOverriddenSteps")}: ${overridden}`}</p>}
       </Fold>
 
       <TextDefaults project={project} update={update} voices={props.voices} focused={props.focusShared} />
@@ -1551,7 +1675,7 @@ function BackgroundField(props: {
                   )
                 }
               >
-                {t("addColor")}
+                ＋ {t("addColor")}
               </button>
             )}
           </div>

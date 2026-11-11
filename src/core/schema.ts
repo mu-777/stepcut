@@ -210,6 +210,16 @@ export const speechPieceSchema = z.strictObject({
   params: speechParams.optional(),
 });
 
+/** 録画の周りの余白。上下は出力の高さ、左右は出力の幅に対する割合 */
+const marginSchema = z.strictObject({
+  top: z.number().min(-1).max(1),
+  right: z.number().min(-1).max(1),
+  bottom: z.number().min(-1).max(1),
+  left: z.number().min(-1).max(1),
+});
+/** 余白の内側への録画の置き方。contain = 全体を収める、cover = 枠に合わせて端を切り取る */
+const fitSchema = z.enum(["contain", "cover"]);
+
 export const holdSchema = z.strictObject({ at: time, duration: z.number().positive() });
 
 export const stepSchema = z.strictObject({
@@ -222,6 +232,14 @@ export const stepSchema = z.strictObject({
   fadeIn: z.number().positive().optional(),
   /** ステップの終わりで黒へ消える長さ(秒) */
   fadeOut: z.number().positive().optional(),
+  /** このステップだけの録画の枠(余白・置き方・影)。書いた項目だけ全体の layout を上書きする */
+  layout: z
+    .strictObject({
+      margin: marginSchema.optional(),
+      fit: fitSchema.optional(),
+      shadow: z.boolean().optional(),
+    })
+    .optional(),
   caption: z
     .strictObject({
       text: z.string(),
@@ -255,17 +273,8 @@ export const projectSchema = z.strictObject({
   layout: z
     .strictObject({
       background: backgroundSchema.optional(),
-      /** 録画の周りの余白。上下は出力の高さ、左右は出力の幅に対する割合 */
-      margin: z
-        .strictObject({
-          top: z.number().min(-1).max(1),
-          right: z.number().min(-1).max(1),
-          bottom: z.number().min(-1).max(1),
-          left: z.number().min(-1).max(1),
-        })
-        .optional(),
-      /** 余白の内側への録画の置き方。contain = 全体を収める、cover = 枠に合わせて端を切り取る */
-      fit: z.enum(["contain", "cover"]).optional(),
+      margin: marginSchema.optional(),
+      fit: fitSchema.optional(),
       shadow: z.boolean().optional(),
     })
     .optional(),
@@ -308,4 +317,5 @@ export type ArrowStyle = z.infer<typeof arrowStyleSchema>;
 export type TextStyle = z.infer<typeof textStyleSchema>;
 export type Transition = z.infer<typeof transitionKind>;
 export type TransitionSpec = z.infer<typeof transitionSchema>;
-export type Margin = NonNullable<NonNullable<Project["layout"]>["margin"]>;
+export type Margin = z.infer<typeof marginSchema>;
+export type StepLayout = NonNullable<Step["layout"]>;

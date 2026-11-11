@@ -36,6 +36,22 @@ if (!fs.existsSync(rec)) {
     rec,
   ]);
 }
+// 素材にする画像(赤一色)
+const img = path.join(outDir, "red.png");
+if (!fs.existsSync(img)) {
+  execFileSync("ffmpeg", [
+    "-loglevel",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=red:s=640x360",
+    "-frames:v",
+    "1",
+    img,
+  ]);
+}
 const projectPath = path.join(outDir, "ui.sanno.json");
 fs.writeFileSync(
   projectPath,
@@ -158,9 +174,9 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await thumbs.first().click();
   check(
     /^(Step|ステップ) 1$/.test((await panelTitle()).trim()) &&
-      (await page.locator(".fold").count()) === 4 &&
+      (await page.locator(".fold").count()) === 5 &&
       (await page.locator(".rail-thumb.on").count()) === 1,
-    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 文 / ズーム / オブジェクト)",
+    "サムネイルを選ぶとパネルはそのステップの詳細(録画・速度 / 録画の枠 / 文 / ズーム / オブジェクト)",
   );
   check(
     (await page.locator(".fold.open").count()) === 3 &&
@@ -178,7 +194,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       "ステップの見出しは真ん中で、左右に前後のステップへの矢印",
     );
   }
-  await page.getByRole("button", { name: /Add zoom|ズームを追加/ }).click();
+  await page.getByRole("button", { name: /Zoom at playhead|再生位置にズーム/ }).click();
   const box = await page.locator(".draw-layer").boundingBox();
   await drag(
     page,
@@ -268,7 +284,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 置いた保持はドラッグで位置を動かせる
   await page.mouse.click(c1.x + pxPerSec, c1.y + c1.height / 2, { button: "right" });
-  await page.getByRole("menuitem", { name: /Freeze here|ここで静止/ }).click();
+  await page.getByRole("menuitem", { name: /Hold here|ここに保持/ }).click();
   await page.waitForTimeout(200);
   // 再生ヘッドに吸着しないよう、再生ヘッドを末尾へ離しておく
   await page.keyboard.press("End");
@@ -560,7 +576,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   check(tStart === tBefore, `タイムラインのズームの帯のクリックでは再生位置を動かさない (${tBefore})`);
   await page.mouse.click(zb.x + zb.width * 0.9, rulerBox.y + rulerBox.height / 2);
   await page.waitForTimeout(300);
-  await page.getByRole("button", { name: /Add area at playhead|再生位置に枠を追加/ }).click();
+  await page.getByRole("button", { name: /Area at playhead|再生位置に枠/ }).click();
   await page.waitForTimeout(300);
   check((await page.locator(".tl-key").count()) === 2, "再生位置に枠を足すとタイムラインに ◆ が 2 つ出る");
   check((await page.locator(".box-ghost").count()) === 1, "ほかの枠は点線で出る");
@@ -616,8 +632,10 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const vb = await page.locator(".box-outline").boundingBox();
   check(vb !== null, "プレビューの録画をクリックすると枠とハンドルが出る");
   check(
-    (await page.locator(".rail-project.on").count()) === 1 && /Project|全体/.test(await panelTitle()),
-    "録画の枠を選ぶとパネルは全体の設定(全ステップに効く)",
+    (await page.locator(".rail-project.on").count()) === 0 &&
+      !/Project|全体/.test(await panelTitle()) &&
+      (await page.locator(".fold.open", { hasText: /Recording frame|録画の枠/ }).count()) === 1,
+    "録画の枠を選ぶとパネルはそのステップの「録画の枠」の欄",
   );
   check(
     (await page.locator(".preview-tools .seg").count()) === 1,
@@ -668,13 +686,40 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   await page.waitForTimeout(300);
   await shot(page, "06-video-box");
 
+  // 枠の変更はそのステップだけ(ステップ 2 は全体の枠のまま)
+  await saveProject();
+  await page.waitForTimeout(800);
+  const savedOwn = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+  check(
+    savedOwn.steps[0].layout?.margin?.top > 0.04 &&
+      savedOwn.steps[0].layout?.fit === "cover" &&
+      savedOwn.steps[1].layout === undefined &&
+      savedOwn.layout?.margin === undefined,
+    `プレビューで動かした枠はそのステップだけに保存される (上 ${savedOwn.steps[0].layout?.margin?.top})`,
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  await page.getByRole("button", { name: /^(Use this frame for all steps|この枠を共通にする)$/ }).click();
+  await page.waitForTimeout(200);
+
   // 背景をプリセット「ミント」に変える
+  await openProject();
+  {
+    const layoutFold = page
+      .locator(".fold")
+      .filter({ has: page.locator(".fold-title", { hasText: /^(Layout|レイアウト)$/ }) });
+    if (!(await layoutFold.evaluate((el) => el.classList.contains("open"))))
+      await layoutFold.locator(".fold-head").click();
+  }
   await page.locator(".swatch").nth(2).click();
   await page.waitForTimeout(500);
   await saveProject();
   await page.waitForTimeout(800);
   const saved2 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
-  check(saved2.layout?.margin?.top > 0.04, `録画の余白が保存される (上 ${saved2.layout?.margin?.top})`);
+  check(
+    saved2.layout?.margin?.top > 0.04 && saved2.steps[0].layout === undefined,
+    `「この枠を共通にする」で全体の枠になり、ステップの個別の枠は消える (上 ${saved2.layout?.margin?.top})`,
+  );
   check(saved2.layout.fit === "cover", "辺のハンドルで縦横比を変えると切り取りになる");
   check(saved2.layout.background?.image === "preset:mint", "背景のプリセットを選べる");
   await page.keyboard.press("Escape");
@@ -698,6 +743,43 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     after[0] === before[0] && after[1] === before[1],
     `余白なしを外すと元の余白に戻る (${before} → ${after})`,
   );
+
+  // ステップ 2 だけ余白なしにする(設定パネルの「録画の枠」)
+  {
+    await thumbs.nth(1).click();
+    await page.waitForTimeout(200);
+    const frameFold = page.locator(".fold", { hasText: /Recording frame|録画の枠/ });
+    if (!(await frameFold.evaluate((el) => el.classList.contains("open"))))
+      await frameFold.locator(".fold-head").click();
+    await frameFold.getByLabel(/No margins|余白なし/).check();
+    await page.waitForTimeout(200);
+    await saveProject();
+    await page.waitForTimeout(800);
+    const saved3 = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+    const m = saved3.steps[1].layout?.margin;
+    check(
+      m &&
+        m.top === 0 &&
+        m.left === 0 &&
+        saved3.steps[1].layout.fit === "contain" &&
+        saved3.layout.margin.top > 0.04,
+      "ステップ 2 だけ余白なしにできる(全体の余白はそのまま)",
+    );
+    check(
+      /This step uses its own frame|このステップだけの枠/.test(
+        await frameFold.locator(".fold-body .hint").first().textContent(),
+      ),
+      "個別の枠を使うステップは欄に「このステップだけの枠」と出る",
+    );
+    await page.getByRole("button", { name: /^(Back to the shared frame|全体の枠に戻す)$/ }).click();
+    await page.waitForTimeout(200);
+    check(
+      /Uses the shared frame|全体の枠を使っています/.test(
+        await frameFold.locator(".fold-body .hint").first().textContent(),
+      ),
+      "「全体の枠に戻す」で全体の枠に戻る",
+    );
+  }
 
   // テロップをプレビュー上でドラッグする(全体の設定を開いていても、そのステップの個別の値になる)
   await thumbs.first().click();
@@ -787,7 +869,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
   // 読み上げを追加すると読み上げが 2 つになる
   await thumbs.first().click();
-  await page.getByRole("button", { name: /(Add speech|読み上げを追加)$/ }).click();
+  await page.getByRole("button", { name: /^＋ (Speech|読み上げ)$/ }).click();
   await page.waitForTimeout(200);
   check((await page.locator(".tl-bar.speech").count()) >= 2, "読み上げを 1 ステップに 2 つ置ける");
 
@@ -1170,7 +1252,7 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     const lane = await page.locator(".tl-lane").nth(2).boundingBox();
     const clip1 = await page.locator(".tl-clip").nth(1).boundingBox();
     await page.mouse.click(clip1.x + clip1.width - 6, lane.y + lane.height / 2, { button: "right" });
-    await page.getByRole("menuitem", { name: /Speech here|ここに読み上げ/ }).click();
+    await page.getByRole("menuitem", { name: /^(\+|＋) (Speech|読み上げ)$/ }).click();
     await page.waitForTimeout(200);
     check((await speechBars.count()) === s0 + 1, "読み上げのレーンの右クリックで読み上げを足す");
     await speechBars.nth(0).click({ button: "right" });
@@ -1430,6 +1512,68 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
       ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize()[0],
     );
     check(minW >= 700, `ウィンドウの最小幅を決めている (${minW}px)`);
+  }
+
+  // 画像を素材に足す(ファイル選択のダイアログは差し替える)
+  {
+    const pickReturns = (paths) =>
+      app.evaluate(({ dialog }, ps) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ps });
+      }, paths);
+    await pickReturns([img]);
+    await page.locator(".rail-add").click();
+    await page.waitForTimeout(600);
+    const recFold = page.locator(".fold").filter({ hasText: /Recording|録画・速度/ });
+    if (!(await recFold.evaluate((el) => el.classList.contains("open"))))
+      await recFold.locator(".fold-head").click();
+    const len = page.getByLabel(/^(Length \(s\)|長さ\(秒\))$/);
+    check(
+      (await page.locator(".tl-clip").count()) === 1 &&
+        (await len.count()) === 1 &&
+        (await len.inputValue()) === "3" &&
+        (await page.getByLabel(/^(Speed|速度)/).count()) === 0,
+      "画像を足すと 3 秒のステップになり、設定は長さだけ(速度・In/Out はない)",
+    );
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(400);
+    const stage = await page.locator(".preview-stage canvas").first().boundingBox();
+    const [pr, pg] = await pixelAt({ x: stage.x + stage.width / 2, y: stage.y + stage.height * 0.4 });
+    check(pr > 180 && pg < 80, `プレビューに画像を描く (${pr},${pg})`);
+    // 左端を左へ引くと長さが伸びる(in は 0 のまま)
+    await page.keyboard.press("End");
+    const clip = await page.locator(".tl-clip").first().boundingBox();
+    const hl = await page.locator(".tl-clip .tl-handle.left").first().boundingBox();
+    await drag(page, center(hl), { x: center(hl).x + clip.width / 3, y: center(hl).y });
+    const shorter = Number(await len.inputValue());
+    const hl2 = await page.locator(".tl-clip .tl-handle.left").first().boundingBox();
+    await drag(page, center(hl2), { x: center(hl2).x - clip.width, y: center(hl2).y });
+    const longer = Number(await len.inputValue());
+    check(
+      shorter < 3 && longer > shorter,
+      `画像のクリップは左端で縮めても伸ばしてもよい (${shorter} → ${longer})`,
+    );
+    // 画像のクリップの右クリックに録画の音の項目はない
+    await page.locator(".tl-clip").first().click({ button: "right" });
+    await page.waitForTimeout(150);
+    check(
+      (await page.getByRole("menuitem", { name: /recording audio|録画の音/ }).count()) === 0 &&
+        (await page.getByRole("menuitem", { name: /after this step|この後に録画・画像/ }).count()) === 1,
+      "画像のクリップの右クリック: 録画の音の項目はなく、「この後に録画・画像」がある",
+    );
+    await page.keyboard.press("Escape");
+    // 映像のレーンの空いた所の右クリックで末尾に足す
+    await pickReturns([rec]);
+    // 伸ばしたクリップの後ろが見えるよう、タイムラインを右端まで送る
+    await page.locator(".tl-scroll").evaluate((el) => {
+      el.scrollLeft = el.scrollWidth;
+    });
+    await page.waitForTimeout(150);
+    const c1 = await page.locator(".tl-clip").first().boundingBox();
+    const lane = await page.locator(".tl-video-lane").boundingBox();
+    await page.mouse.click(c1.x + c1.width + 15, lane.y + lane.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: /at the end|末尾に録画・画像/ }).click();
+    await page.waitForTimeout(600);
+    check((await page.locator(".tl-clip").count()) === 2, "映像のレーンの右クリックで録画を末尾に足す");
   }
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);

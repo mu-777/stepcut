@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
+import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
 import {
   type AppSettings,
   type ExportJob,
@@ -188,7 +189,11 @@ function registerIpc(): void {
   });
   ipcMain.handle("sources:pick", async () => {
     const r = await dialog.showOpenDialog({
-      filters: [{ name: "MP4", extensions: ["mp4"] }],
+      filters: [
+        { name: "MP4 / Image", extensions: ["mp4", ...IMAGE_SOURCE_EXTENSIONS] },
+        { name: "MP4", extensions: ["mp4"] },
+        { name: "Image", extensions: [...IMAGE_SOURCE_EXTENSIONS] },
+      ],
       properties: ["openFile", "multiSelections"],
     });
     return r.filePaths;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { captionWindow } from "../../core/captions";
 import {
+  DEFAULT_IMAGE_STEP_SECONDS,
+  isImageSource,
   resolveLayout,
   resolveOutput,
   speechPieces,
@@ -15,6 +17,7 @@ import {
   mergeSteps,
   moveStep,
   newProject,
+  setStepLayout,
   splitStep,
   uniqueStepId,
 } from "../../core/edit";
@@ -35,7 +38,7 @@ import {
   reanchorShape,
   shapeOutsideVideo,
 } from "../../core/objects";
-import type { Project, Zoom, ZoomKey } from "../../core/schema";
+import type { Project, Step, Zoom, ZoomKey } from "../../core/schema";
 import { baseDuration, buildTimeline, locate, speechTimes, totalDuration } from "../../core/timeline";
 import { parseProject, parseProjectText, serializeProject } from "../../core/validate";
 import { CENTER_MIN_W, PANEL_MIN_W, RAIL_MIN_W, type Voice } from "../../shared/api";
@@ -368,39 +371,44 @@ export function App() {
     redo: () => (isTyping() ? document.execCommand("redo") : setHist(redo)),
   };
 
-  /** 録画を末尾のステップとして足す(選んだファイル・ドロップしたファイル) */
-  async function addSourcePaths(paths: string[]) {
+  /**
+   * 録画・画像をステップとして足す(選んだファイル・ドロップしたファイル)。after を渡すとそのステップの後ろ、
+   * 省略すると末尾に入れる。画像は DEFAULT_IMAGE_STEP_SECONDS 秒のステップにする
+   */
+  async function addSourcePaths(paths: string[], after?: number) {
     if (!paths.length) return;
     let p = project;
+    let at = after === undefined ? p.steps.length : after + 1;
+    const first = at;
     for (const path of paths) {
       try {
         const m = await openMedia(path);
         let n = p.sources.length + 1;
         while (p.sources.some((s) => s.id === `rec${n}`)) n++;
         const id = `rec${n}`;
+        const step: Step = {
+          id: uniqueStepId(p, "step"),
+          source: id,
+          in: 0,
+          out: m.kind === "image" ? DEFAULT_IMAGE_STEP_SECONDS : Math.round(m.duration * 1000) / 1000,
+          // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
+          caption: { text: "" },
+          // 読み上げは、書き換えるまでテロップの文を読む
+          speech: {},
+        };
         p = {
           ...p,
           sources: [...p.sources, { id, path }],
-          steps: [
-            ...p.steps,
-            {
-              id: uniqueStepId(p, "step"),
-              source: id,
-              in: 0,
-              out: Math.round(m.duration * 1000) / 1000,
-              // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
-              caption: { text: "" },
-              // 読み上げは、書き換えるまでテロップの文を読む
-              speech: {},
-            },
-          ],
+          steps: [...p.steps.slice(0, at), step, ...p.steps.slice(at)],
         };
+        at++;
       } catch (e) {
         setBanner({ kind: "error", text: (e as Error).message });
       }
     }
+    if (at === first) return;
     update(() => p);
-    setSelection({ kind: "step", step: p.steps.length - 1 });
+    setSelection({ kind: "step", step: at - 1 });
   }
 
   async function save(path: string | null, name?: string) {
@@ -549,7 +557,7 @@ export function App() {
     if (e.key === "Escape") {
       setDrawingZoom(null);
       stopSpeech();
-      if (selection.kind === "video") setSelection({ kind: "project" });
+      if (selection.kind === "video") setSelection({ kind: "step", step: selection.step });
       if (selObject) setSelection({ kind: "step", step: selObject.step });
       e.preventDefault();
       return;
@@ -611,7 +619,7 @@ export function App() {
   const endBoxEditRef = useRef(() => {});
   endBoxEditRef.current = () => {
     if (drawingZoom) setDrawingZoom(null);
-    if (selection.kind === "video") setSelection({ kind: "project" });
+    if (selection.kind === "video") setSelection({ kind: "step", step: selection.step });
   };
   useEffect(() => {
     if (playing) endBoxEditRef.current();
@@ -634,6 +642,13 @@ export function App() {
   }, []);
 
   const loc = locate(timeline, time);
+  // 録画の枠を編集中に再生位置が別のステップへ移ったら、そのステップの枠の編集にする(枠はステップごと)
+  const locIndex = loc?.entry.index ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 再生位置のステップが変わったときだけ見る
+  useEffect(() => {
+    if (selection.kind === "video" && locIndex !== null && locIndex !== selection.step)
+      setSelection({ kind: "video", step: locIndex });
+  }, [locIndex]);
   const selStep = selected !== null ? project.steps[selected] : undefined;
   const selMedia = selStep ? media.get(selStep.source) : undefined;
   // パネルで直すステップ。選んだ要素のステップ、なければ再生位置のステップ
@@ -692,22 +707,20 @@ export function App() {
       return true;
     }
     if (selection.kind === "video" && !playing) {
-      const src = locMedia ?? [...media.values()][0];
+      const i = selection.step;
+      const src = media.get(project.steps[i]?.source ?? "") ?? locMedia;
       const v = computeLayout(
         out.width,
         out.height,
-        resolveLayout(project),
+        resolveLayout(project, project.steps[i]),
         src?.width ?? 1920,
         src?.height ?? 1080,
       ).video;
       update(
-        (p) => ({
-          ...p,
-          layout: {
-            ...p.layout,
+        (p) =>
+          setStepLayout(p, i, {
             margin: marginOf({ ...v, x: v.x + dx * n, y: v.y + dy * n }, out.width, out.height),
-          },
-        }),
+          }),
         "nudge-video",
       );
       return true;
@@ -1025,7 +1038,7 @@ export function App() {
       const geo = computeLayout(
         out.width,
         out.height,
-        resolveLayout(project),
+        resolveLayout(project, step),
         locMedia.width,
         locMedia.height,
       );
@@ -1056,11 +1069,14 @@ export function App() {
         })),
       );
     }
-    items.push({
-      label: t("editVideoBox"),
-      separator: true,
-      action: () => setSelection({ kind: "video" }),
-    });
+    if (loc) {
+      const i = loc.entry.index;
+      items.push({
+        label: t("editVideoBox"),
+        separator: true,
+        action: () => setSelection({ kind: "video", step: i }),
+      });
+    }
     setMenu({ x, y, items });
   };
 
@@ -1515,7 +1531,9 @@ ${t("renameTip")}`}
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
           onDropFiles={(files) => {
-            const paths = files.filter((f) => /\.mp4$/i.test(f.name)).map((f) => api.pathForFile(f));
+            const paths = files
+              .filter((f) => /\.mp4$/i.test(f.name) || isImageSource(f.name))
+              .map((f) => api.pathForFile(f));
             if (paths.length) void addSourcePaths(paths);
             else setBanner({ kind: "error", text: t("dropMp4Only") });
           }}
@@ -1531,6 +1549,7 @@ ${t("renameTip")}`}
             outW={out.width}
             outH={out.height}
             project={project}
+            step={loc?.entry.step ?? null}
             stateRef={stateRef}
             playerRef={playerRef}
             onTime={(tm, pl) => {
@@ -1576,17 +1595,14 @@ ${t("renameTip")}`}
             videoEdit={
               selection.kind === "video" && !drawingZoom && !playing
                 ? {
-                    // 枠をちょうど囲む余白にする。縦横比を変えたら、枠に合わせて録画の端を切り取る
+                    // 枠をちょうど囲む余白にする(そのステップだけの上書き)。縦横比を変えたら、枠に合わせて録画の端を切り取る
                     onRect: (rect, key, shapeChanged) =>
                       update(
-                        (p) => ({
-                          ...p,
-                          layout: {
-                            ...p.layout,
+                        (p) =>
+                          setStepLayout(p, selection.step, {
                             margin: marginOf(rect, out.width, out.height),
                             ...(shapeChanged ? { fit: "cover" as const } : {}),
-                          },
-                        }),
+                          }),
                         key,
                       ),
                   }
@@ -1594,8 +1610,8 @@ ${t("renameTip")}`}
             }
             onVideoClick={(inside) => {
               if (playing) return;
-              if (inside) setSelection({ kind: "video" });
-              else if (selection.kind === "video") setSelection({ kind: "project" });
+              if (inside && loc) setSelection({ kind: "video", step: loc.entry.index });
+              else if (selection.kind === "video") setSelection({ kind: "step", step: selection.step });
             }}
             onContextMenu={previewMenu}
             tools={
@@ -1940,6 +1956,7 @@ ${t("renameTip")}`}
             onSeek={(tm) => playerRef.current?.seek(tm)}
             update={update}
             onTrimPreview={setTrimPreview}
+            onAddSource={async (after) => addSourcePaths(await api.pickSources(), after)}
             openMenu={(x, y, items) => setMenu({ x, y, items })}
             onEditZoomRect={(st, z, k) => editZoomRect(st, z, k, false)}
             editingKey={drawingZoom}
@@ -1982,7 +1999,6 @@ ${t("renameTip")}`}
                   project={project}
                   update={update}
                   voices={voices}
-                  focusVideo={selection.kind === "video"}
                   focusShared={sharedFocus}
                   backgroundError={(() => {
                     const bg = resolveLayout(project).background;

@@ -1,7 +1,6 @@
 // 縮小フレームのキャッシュ。タイムラインのサムネイルと、シーク中の仮表示に使う。
 // プレビューとは別のデコーダーで、要求された時刻を昇順にまとめてデコードする(同じパケットを 2 度デコードしない)。
-import { CanvasSink } from "mediabunny";
-import type { SourceMedia } from "./media";
+import type { FrameSink, SourceMedia } from "./media";
 
 export const THUMB_WIDTH = 160;
 /** 持つ枚数の上限(1 枚 約 60KB)。超えたら古いものから捨てる */
@@ -10,7 +9,7 @@ const MAX_ENTRIES = 1500;
 type Thumb = CanvasImageSource & { width: number; height: number };
 
 interface PerSource {
-  sink: Promise<CanvasSink | null>;
+  sink: Promise<FrameSink | null>;
   frames: Map<number, Thumb>;
   /** frames のキーを昇順に並べたもの(近い時刻を探すため) */
   sorted: number[] | null;
@@ -33,10 +32,7 @@ export class ThumbCache {
     let e = this.sources.get(m.path);
     if (!e) {
       e = {
-        sink: m.input
-          .getPrimaryVideoTrack()
-          .then((track) => (track ? new CanvasSink(track, { width: THUMB_WIDTH }) : null))
-          .catch(() => null),
+        sink: m.thumbSink(THUMB_WIDTH).catch(() => null),
         frames: new Map(),
         sorted: null,
         wanted: new Set(),

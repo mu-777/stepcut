@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { captionWindow } from "../../core/captions";
 import {
   DEFAULT_ZOOM_LENGTH,
+  isImageSource,
   resolveLayout,
   resolveOutput,
   speechPieces,
@@ -14,7 +15,14 @@ import {
   zoomHoldMode,
   zoomTransition,
 } from "../../core/defaults";
-import { addHold, canMergeSteps, deleteStep, splitStep, trimStep } from "../../core/edit";
+import {
+  addHold,
+  canMergeSteps,
+  deleteStep,
+  resizeImageStepStart,
+  splitStep,
+  trimStep,
+} from "../../core/edit";
 import { computeLayout, retimeZoom, sortedKeys, zoomScale } from "../../core/layout";
 import {
   type AnyObject,
@@ -47,7 +55,7 @@ import { quantize, type ThumbCache } from "./thumbs";
 export type Selection =
   | { kind: "project" }
   /** プレビュー上の録画を選んだ(位置と大きさの編集) */
-  | { kind: "video" }
+  | { kind: "video"; step: number }
   | { kind: "step" | "caption"; step: number }
   | { kind: "zoom" | "hold" | "speech"; step: number; index: number }
   /** ポインター・図形(index は種類ごとの配列の番号) */
@@ -332,6 +340,8 @@ export function Timeline(props: {
   /** クリップ端のドラッグ中に、新しい In/Out のフレームを表示する(null で解除) */
   onTrimPreview: (v: { step: number; time: number } | null) => void;
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
+  /** 録画・画像を選んでステップとして足す(after を渡すとそのステップの後ろ、省略すると末尾) */
+  onAddSource: (after?: number) => void;
   /** ズームの枠 key(時刻の順の番号。省略すると最初の枠)の編集を始める */
   onEditZoomRect: (step: number, zoom: number, key?: number) => void;
   /** 読み上げだけを鳴らす */
@@ -603,16 +613,25 @@ export function Timeline(props: {
         action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
       },
       { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => props.onMergeNext(i) },
-      {
-        // ステップの録画の音(全体で消しているときは、全体の切り替えが先)
-        label: t(stepSourceEnabled(entry.step) ? "muteStepAudio" : "unmuteStepAudio"),
-        disabled: !projectSound,
-        action: () =>
-          patchStep(update, i, (s) => setStepSourceEnabled(s, !stepSourceEnabled(s)), "step-audio"),
-      },
+      // ステップの録画の音(全体で消しているときは、全体の切り替えが先)。画像には音がない
+      ...(isImageStep(entry.step)
+        ? []
+        : [
+            {
+              label: t(stepSourceEnabled(entry.step) ? "muteStepAudio" : "unmuteStepAudio"),
+              disabled: !projectSound,
+              action: () =>
+                patchStep(update, i, (s) => setStepSourceEnabled(s, !stepSourceEnabled(s)), "step-audio"),
+            },
+          ]),
+      { label: t("addSourceAfter"), action: () => props.onAddSource(i) },
       { label: t("deleteStep"), shortcut: keyLabel("delete"), action: () => update((p) => deleteStep(p, i)) },
     ]);
   };
+
+  /** ステップの素材が画像か(画像はどの時刻も同じ 1 枚。長さは自由に変えられ、音はない) */
+  const isImageStep = (step: Step) =>
+    isImageSource(project.sources.find((s) => s.id === step.source)?.path ?? "");
 
   /** ラインのダブルクリック: その時刻のステップを返す */
   const entryAt = (clientX: number) => {
@@ -784,8 +803,19 @@ export function Timeline(props: {
         <div className="tl-inner" style={{ width: innerW }} onPointerDown={scrubFrom}>
           <div className="tl-ruler">{ticks}</div>
 
-          {/* 映像 */}
-          <div className="tl-lane" style={{ height: VIDEO_H }}>
+          {/* 映像。クリップの後ろの空いた所の右クリックで録画・画像を末尾に足す */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。追加はステップ一覧のボタンでもできる */}
+          <div
+            className="tl-lane tl-video-lane"
+            style={{ height: VIDEO_H }}
+            onContextMenu={(e) => {
+              if (e.target !== e.currentTarget) return;
+              e.preventDefault();
+              props.openMenu(e.clientX, e.clientY, [
+                { label: t("addSourceEnd"), action: () => props.onAddSource() },
+              ]);
+            }}
+          >
             {timeline.map((entry) => {
               const { step, index: i } = entry;
               const x0 = entry.start * scale;
@@ -938,14 +968,21 @@ export function Timeline(props: {
                       title={t(edge === "in" ? "in" : "out")}
                       onPointerDown={(e) => {
                         const v0 = edge === "in" ? step.in : step.out;
+                        const out0 = step.out;
                         const dur = m?.duration ?? Number.POSITIVE_INFINITY;
+                        // 画像は左端を動かしても長さだけが変わる(in は 0 のまま。左へも伸ばせる)
+                        const image = isImageStep(step);
+                        const trim = (p: Project, v: number) =>
+                          image && edge === "in"
+                            ? resizeImageStepStart(p, i, out0 - v)
+                            : trimStep(p, i, edge, v, dur);
                         props.onSelect({ kind: "step", step: i });
                         startDrag(
                           e,
                           (dx, key) => {
                             const v = v0 + (dx / scale) * stepSpeed(step);
-                            update((p) => trimStep(p, i, edge, v, dur), key);
-                            const s2 = trimStep(project, i, edge, v, dur).steps[i];
+                            update((p) => trim(p, v), key);
+                            const s2 = trim(project, v).steps[i];
                             if (s2)
                               props.onTrimPreview({ step: i, time: edge === "in" ? s2.in : s2.out - 0.001 });
                           },
@@ -1122,7 +1159,7 @@ export function Timeline(props: {
               const crop = computeLayout(
                 out.width,
                 out.height,
-                resolveLayout(project),
+                resolveLayout(project, step),
                 zm?.width ?? 1920,
                 zm?.height ?? 1080,
               ).crop;

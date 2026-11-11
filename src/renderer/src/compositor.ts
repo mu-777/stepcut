@@ -64,7 +64,7 @@ export function frameGeometry(
   srcH: number,
   ignoreZoom = false,
 ): FrameGeometry {
-  const layout = resolveLayout(project);
+  const layout = resolveLayout(project, step);
   const geo = computeLayout(outW, outH, layout, srcW, srcH);
   const view = step && !ignoreZoom ? viewRectAt(step, local, srcW, srcH, geo.crop) : geo.crop;
   // 枠どおりに映すズームでは、録画を描く領域の形が変わる
@@ -92,7 +92,7 @@ export function toSource(g: FrameGeometry, x: number, y: number): { x: number; y
 }
 
 export function drawFrame(ctx: Ctx, f: FrameInput): void {
-  const layout: ResolvedLayout = resolveLayout(f.project);
+  const layout: ResolvedLayout = resolveLayout(f.project, f.step);
   const scale = f.outH / 1080;
   ctx.save();
   if (!drawSimpleBackground(ctx, f.outW, f.outH, layout.background)) {
@@ -246,6 +246,7 @@ function drawCaption(ctx: Ctx, f: FrameInput, video: Rect): void {
 /** プレビュー上の点(出力のピクセル)をソースの座標に変換する(ズームなしの表示で)。ズーム範囲の指定に使う */
 export function outputToSource(
   project: Project,
+  step: Step | null,
   outW: number,
   outH: number,
   srcW: number,
@@ -253,7 +254,7 @@ export function outputToSource(
   px: number,
   py: number,
 ): { x: number; y: number } {
-  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project), srcW, srcH);
+  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project, step), srcW, srcH);
   return {
     x: Math.min(srcW, Math.max(0, c.x + ((px - v.x) / v.w) * c.w)),
     y: Math.min(srcH, Math.max(0, c.y + ((py - v.y) / v.h) * c.h)),
@@ -262,6 +263,7 @@ export function outputToSource(
 
 export function sourceToOutput(
   project: Project,
+  step: Step | null,
   outW: number,
   outH: number,
   srcW: number,
@@ -269,6 +271,6 @@ export function sourceToOutput(
   sx: number,
   sy: number,
 ): { x: number; y: number } {
-  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project), srcW, srcH);
+  const { video: v, crop: c } = computeLayout(outW, outH, resolveLayout(project, step), srcW, srcH);
   return { x: v.x + ((sx - c.x) / c.w) * v.w, y: v.y + ((sy - c.y) / c.h) * v.h };
 }
