@@ -98,12 +98,30 @@ main への PR では GitHub Actions が Windows 版をビルドし、run の Ar
 ```bash
 screen-annotator validate <project.json> [--json]
 screen-annotator export <project.json> [--out <file.mp4>] [--json] [--result <file.json>]
+screen-annotator frame <project.json> (--step <番号|id> [--time <秒>] | --at <秒>) [--source] [--out <file.png>] [--json] [--result <file.json>]
+screen-annotator inspect <project.json> [--json] [--result <file.json>]
 ```
+
+CLI はアプリの実行ファイルそのもの(Windows のインストーラの既定では `%LOCALAPPDATA%\Programs\Screen Annotator\Screen Annotator.exe`)。アプリを開いたままでも使える。
 
 - 開発中は `npx electron . validate ...` のように実行する(`npm run build` の後)
 - 終了コード: 0 = 成功、1 = 検証エラーまたは書き出し失敗、2 = 引数の誤り
 - `--json` は結果を JSON で標準出力に出す。`--result` は同じ JSON をファイルにも書く
 - `export` はウィンドウを表示せずに書き出す。`--out` を省くとプロジェクトと同じ場所に `.mp4` を作る。`output.srt` が true なら SRT も書く
+- `frame` は 1 フレームを PNG にする。`--step`(1 始まりの番号かステップの id)と `--time`(ステップ内の出力時刻、既定 0)か、`--at`(全体の時刻)で指定する。既定は書き出しと同じ見た目で、結果の `geometry` で画像の点を映像側の座標に直せる(`x = view.x + (px − box.x) / scale`)。`--source` は素材のフレームをそのままの大きさで出す(画像のピクセル = 映像側の座標)。`--out` を省くとプロジェクトと同じ場所に作る
+- `inspect` は計算後の時間を出す: ステップごとの開始・長さ・自動の保持・保持、読み上げの文と実際の長さ・開始・終わり、テロップ・ズーム・オブジェクトの出ている間、素材の大きさ。読み上げは実際に生成して測る(失敗したものは長さ 0 として警告)
+
+## Claude Code から使う
+
+このリポジトリは Claude Code のプラグインのマーケットプレイスを兼ねる。Claude Code で次を実行すると、スキル `/screen-annotator:edit-project` が入る(プロジェクトの編集を頼むと自動でも使われる)。
+
+```text
+/plugin marketplace add mu-777/screen-annotator
+/plugin install screen-annotator@screen-annotator
+```
+
+- スキルは CLI を自動で探す(環境変数 `SCREEN_ANNOTATOR_CLI` → 前に覚えた場所 → インストーラの既定の場所 → PATH)。見つからなければ場所を聞き、次からはそれを使う
+- スキルは `inspect` で時刻、`frame --source` で座標を決めてから JSON を書き、`validate` と `frame` で確かめる
 
 ## 書き出し
 

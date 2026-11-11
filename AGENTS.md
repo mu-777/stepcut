@@ -23,7 +23,8 @@
 <!-- 検証コマンドを実行順に。前提条件(dev サーバ必須等)も書く -->
 - `npm run check`(Biome の lint・format 確認、tsc の型チェック、Vitest の単体テスト、electron-vite のビルド)が通ること
 - UI・描画・書き出しを触ったら `xvfb-run -a node tests/e2e/ui-smoke.cjs`(GUI の操作確認)と CLI 書き出し(README の CLI 節)も通す。手順は [.claude/rules/e2e.md](.claude/rules/e2e.md)
-- プロジェクトファイルの形(`src/core/schema.ts`)を変えたら `UPDATE_SCHEMA=1 npx vitest run src/core/schema-file.test.ts` で docs/project.schema.json を更新し、docs/project-format.md も直す
+- プロジェクトファイルの形(`src/core/schema.ts`)を変えたら `UPDATE_SCHEMA=1 npx vitest run src/core/schema-file.test.ts` で docs/project.schema.json を更新し、docs/project-format.md も直す。続けて `UPDATE_PLUGIN=1 npx vitest run src/plugin-files.test.ts` で Claude Code のスキル(plugins/screen-annotator)の写しも更新する
+- CLI の引数・結果の形を変えたら、スキルの SKILL.md(plugins/screen-annotator/skills/edit-project/)も同じ作業で直す
 - 仕様に関わる変更は docs/requirements.md・docs/decisions/ と矛盾しないこと。仕様を変えたら同じ作業内で要件定義書も更新する
 
 ## 完了報告

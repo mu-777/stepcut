@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { Api, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
+import type { Api, CliJobResult, ExportResult, OpenedProject, TtsRequest } from "../shared/api";
 
 const api: Api = {
   platform: process.platform,
@@ -39,7 +39,7 @@ const api: Api = {
   ttsSynthesize: (req: TtsRequest) => ipcRenderer.invoke("tts:synthesize", req),
   getExportJob: () => ipcRenderer.invoke("export:job"),
   reportExportProgress: (done, total) => ipcRenderer.send("export:progress", done, total),
-  finishExport: (result: ExportResult) => ipcRenderer.send("export:finish", result),
+  finishExport: (result: ExportResult | CliJobResult) => ipcRenderer.send("export:finish", result),
 };
 
 contextBridge.exposeInMainWorld("api", api);

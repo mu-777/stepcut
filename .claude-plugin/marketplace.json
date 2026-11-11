@@ -1,0 +1,15 @@
+{
+  "name": "screen-annotator",
+  "description": "Screen Annotator(画面録画から手順書動画を作るアプリ)を Claude Code から使うためのプラグイン",
+  "owner": {
+    "name": "mu-777",
+    "url": "https://github.com/mu-777"
+  },
+  "plugins": [
+    {
+      "name": "screen-annotator",
+      "source": "./plugins/screen-annotator",
+      "description": "プロジェクトファイル(.sanno.json)を編集し、フレーム画像・時間の一覧・書き出しの CLI で確かめるスキル"
+    }
+  ]
+}
