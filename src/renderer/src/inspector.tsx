@@ -37,7 +37,7 @@ import {
 import { type ObjectRef, shapeOutsideVideo, stepObjects } from "../../core/objects";
 import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
 import { speechTimes } from "../../core/timeline";
-import type { Voice } from "../../shared/api";
+import type { SpeechEngineSettings, Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
 import {
@@ -64,6 +64,10 @@ function patchStep(update: Update, index: number, key: string) {
   return (fn: (s: Step) => Step) =>
     update((p) => ({ ...p, steps: p.steps.map((s, i) => (i === index ? fn(s) : s)) }), `step${index}.${key}`);
 }
+
+/** 選べる読み上げエンジン。os 以外はユーザーがアプリの設定で有効にしたときだけ選べる */
+const SPEECH_ENGINES = ["os", "voicevox", "azure"] as const;
+const ENGINE_LABEL = { os: "engineOs", voicevox: "engineVoicevox", azure: "engineAzure" } as const;
 
 function VoiceSelect(props: {
   label: string;
@@ -813,8 +817,21 @@ function StepText(props: {
 }
 
 /** 全ステップ共通のテロップの見た目と位置、読み上げの声・音量・辞書 */
-function TextDefaults(props: { project: Project; update: Update; voices: Voice[]; focused: boolean }) {
+function TextDefaults(props: {
+  project: Project;
+  update: Update;
+  voices: Voice[];
+  focused: boolean;
+  speechEngines: SpeechEngineSettings | null;
+  voiceError: string | null;
+  onOpenSettings: () => void;
+}) {
   const { project, update, voices } = props;
+  const engine = project.speech?.engine ?? "os";
+  const enabled = (e: string) =>
+    e === "os" ||
+    (e === "voicevox" && !!props.speechEngines?.voicevox.enabled) ||
+    (e === "azure" && !!props.speechEngines?.azure.enabled);
   const capStyle = project.styles?.caption ?? {};
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
@@ -949,11 +966,48 @@ function TextDefaults(props: { project: Project; update: Update; voices: Voice[]
       </Fold>
 
       <Fold id="p.speech" title={t("speech")} defaultOpen>
+        <Field label={t("speechEngine")}>
+          <select
+            value={engine}
+            onChange={(e) => {
+              const next = e.target.value;
+              // 声の名前はエンジンごとに違うので、エンジンを替えたら全体とステップの声の指定を外す(元に戻すで戻せる)
+              update(
+                (p) => ({
+                  ...p,
+                  speech: prune({ ...p.speech, engine: next === "os" ? undefined : next, voice: undefined }),
+                  steps: p.steps.map((s) =>
+                    withSpeechPieces(
+                      s,
+                      speechPieces(s).map((piece) => prune({ ...piece, voice: undefined }) ?? {}),
+                    ),
+                  ),
+                }),
+                "speech.engine",
+              );
+            }}
+          >
+            {SPEECH_ENGINES.map((e) => (
+              <option key={e} value={e} disabled={!enabled(e) && e !== engine}>
+                {t(ENGINE_LABEL[e])}
+                {enabled(e) ? "" : ` ${t("engineNotEnabled")}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {engine !== "os" && !enabled(engine) && <p className="hint warn">{t("engineFallbackHint")}</p>}
+        {(engine === "voicevox" || engine === "azure") && (
+          <p className="hint">{t(engine === "voicevox" ? "voicevoxTermsHint" : "azureTermsHint")}</p>
+        )}
+        {props.voiceError && enabled(engine) && <p className="hint warn">{props.voiceError}</p>}
+        <button type="button" className="small" onClick={props.onOpenSettings}>
+          {t("openEngineSettings")}
+        </button>
         <VoiceSelect
           label={t("voice")}
           voices={voices}
           value={project.speech?.voice}
-          emptyLabel={t("osDefault")}
+          emptyLabel={t(engine === "os" ? "osDefault" : "engineDefaultVoice")}
           onChange={(v) => set("speech", prune({ ...project.speech, voice: v }))}
         />
         <div className="row">
@@ -1364,6 +1418,11 @@ export function ProjectPanel(props: {
   project: Project;
   update: Update;
   voices: Voice[];
+  /** ユーザーが有効にした読み上げエンジン(読み込み前は null) */
+  speechEngines: SpeechEngineSettings | null;
+  /** 声の一覧を取れなかった理由 */
+  voiceError: string | null;
+  onOpenSettings: () => void;
   /** ステップの「共通の設定 ›」から来た。テロップの見た目の欄を強調する */
   focusShared: boolean;
   backgroundError: string | null;
@@ -1480,7 +1539,15 @@ export function ProjectPanel(props: {
         {overridden > 0 && <p className="hint">{`${t("frameOverriddenSteps")}: ${overridden}`}</p>}
       </Fold>
 
-      <TextDefaults project={project} update={update} voices={props.voices} focused={props.focusShared} />
+      <TextDefaults
+        project={project}
+        update={update}
+        voices={props.voices}
+        focused={props.focusShared}
+        speechEngines={props.speechEngines}
+        voiceError={props.voiceError}
+        onOpenSettings={props.onOpenSettings}
+      />
       <Fold id="p.objects" title={t("objectDefaults")} defaultOpen={false}>
         <ObjectDefaults project={project} update={update} />
       </Fold>

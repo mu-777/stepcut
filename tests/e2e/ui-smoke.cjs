@@ -5,6 +5,7 @@
 const { _electron: electron } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
@@ -91,10 +92,41 @@ const drag = async (page, from, to) => {
 };
 const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
+// アプリの設定(settings.json)は開発者のものを使わず、テスト用のフォルダーに置く(毎回まっさらにする)
+const userDataDir = path.join(outDir, "user-data");
+fs.rmSync(userDataDir, { recursive: true, force: true });
+
+// VOICEVOX のエンジンの代わり(声 1 つ、無音の WAV を返す)
+function fakeVoicevox() {
+  const wav = Buffer.alloc(44 + 24000 * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + 48000, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(24000, 24);
+  wav.writeUInt32LE(48000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(48000, 40);
+  const server = http.createServer((req, res) => {
+    if (req.url === "/version") return res.end(JSON.stringify("0.0.0-test"));
+    if (req.url === "/speakers")
+      return res.end(JSON.stringify([{ name: "テスト", styles: [{ name: "ノーマル", id: 7 }] }]));
+    if (req.url?.startsWith("/audio_query")) return res.end(JSON.stringify({ speedScale: 1 }));
+    if (req.url?.startsWith("/synthesis")) return res.end(wav);
+    res.statusCode = 404;
+    res.end();
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+}
+
 (async () => {
   const app = await electron.launch({
     executablePath: require(path.join(root, "node_modules/electron")),
-    args: [root, "--no-sandbox", projectPath],
+    args: [root, "--no-sandbox", `--user-data-dir=${userDataDir}`, projectPath],
     cwd: root,
   });
   const page = await app.firstWindow();
@@ -1574,6 +1606,67 @@ const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
     await page.getByRole("menuitem", { name: /at the end|末尾に録画・画像/ }).click();
     await page.waitForTimeout(600);
     check((await page.locator(".tl-clip").count()) === 2, "映像のレーンの右クリックで録画を末尾に足す");
+  }
+
+  // 読み上げエンジン: 既定では選べず、アプリの設定で同意して有効にすると選べる(VOICEVOX はテスト用のサーバー)
+  {
+    const server = await fakeVoicevox();
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await openProject();
+    const speechFold = page
+      .locator(".fold")
+      .filter({ has: page.locator(".fold-title", { hasText: /^(Speech|読み上げ)$/ }) });
+    if (!(await speechFold.evaluate((el) => el.classList.contains("open"))))
+      await speechFold.locator(".fold-head").click();
+    const engineSel = speechFold
+      .locator(".field", { hasText: /^(Speech engine|読み上げエンジン)/ })
+      .locator("select");
+    check(
+      (await engineSel.locator('option[value="voicevox"]').isDisabled()) &&
+        (await engineSel.locator('option[value="azure"]').isDisabled()),
+      "VOICEVOX・Azure は既定では選べない",
+    );
+    await page.getByRole("button", { name: /Speech engine settings|読み上げエンジンの設定/ }).click();
+    await page.waitForTimeout(200);
+    let confirmText = "";
+    page.once("dialog", (d) => {
+      confirmText = d.message();
+      void d.accept();
+    });
+    // 確認の後に設定を保存してから入るので、check() ではなく click() で押す
+    await page.locator('.engine-block[data-engine="voicevox"] .engine-head input[type="checkbox"]').click();
+    await page.waitForTimeout(200);
+    check(/利用規約|terms/.test(confirmText), "有効にするときに規約の確認を求める");
+    const vvBlock = page.locator('.engine-block[data-engine="voicevox"]');
+    const urlInput = vvBlock.locator(".field", { hasText: /Engine URL|エンジンの場所/ }).locator("input");
+    await urlInput.fill(url);
+    await urlInput.blur();
+    await page.waitForTimeout(200);
+    await vvBlock.getByRole("button", { name: /Test connection|接続を確かめる/ }).click();
+    await page.waitForTimeout(800);
+    check(
+      /1/.test((await vvBlock.locator(".hint").last().textContent()) ?? ""),
+      `接続を確かめると声の数が出る (${await vvBlock.locator(".hint").last().textContent()})`,
+    );
+    await shot(page, "21-engines");
+    const saved = JSON.parse(fs.readFileSync(path.join(userDataDir, "settings.json"), "utf8"));
+    check(
+      saved.engines.voicevox.enabled && typeof saved.engines.voicevox.agreedAt === "string",
+      "同意した日時をアプリの設定に残す",
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await engineSel.selectOption("voicevox");
+    await page.waitForTimeout(800);
+    const voiceOpts = await speechFold
+      .locator(".field", { hasText: /^(Voice|声)/ })
+      .locator("option")
+      .allTextContents();
+    check(
+      voiceOpts.some((o) => o.includes("テスト(ノーマル)")),
+      `VOICEVOX を選ぶと声の一覧がエンジンの声になる (${voiceOpts.join(" / ")})`,
+    );
+    server.close();
   }
 
   check(errors.length === 0, `コンソールエラーなし ${errors.join(" | ")}`);

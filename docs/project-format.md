@@ -103,8 +103,8 @@
 "audio":  { "source": { "enabled": true, "volume": 1.0, "keepPitch": true }, "speech": { "volume": 1.0 } }
 ```
 
-- `engine`: 読み上げエンジンの名前。`"os"` が内蔵の OS 標準音声
-- `voice`: エンジンが返す声の ID。`null` は OS の既定の声
+- `engine`: 読み上げエンジンの名前。`"os"`(既定)が内蔵の OS 標準音声、`"voicevox"` が VOICEVOX 互換エンジン、`"azure"` が Azure AI Speech。`voicevox` / `azure` は、プロジェクトを開いたパソコンのアプリの設定で有効にしていなければ OS 標準の声で代わりに読む(TTS-14)。鍵や接続先はプロジェクトには書かない(アプリの設定にある)
+- `voice`: エンジンが返す声の ID。`null` はエンジンの既定の声(VOICEVOX は声のスタイル ID の数字の文字列、Azure は `ja-JP-NanamiNeural` のような名前)
 - `params`: エンジンが返すパラメータ一覧(TTS-04)のうち、変える項目だけを書く
 - `volume`: 0〜2(1 が等倍)
 - `source.enabled`: 元の音声を鳴らすか。全体で `false` にすると、どのステップも鳴らさない(ステップ側の `true` より優先。タイムラインの映像の段の見出しのボタン)。全体で消していなければステップの設定に従い、既定は通常ステップで `true`、早送りステップで `false`(早送りステップはステップ側で `true` にしたときだけ鳴る)

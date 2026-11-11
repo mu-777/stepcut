@@ -1,7 +1,8 @@
-// アプリの設定(プロジェクトによらない): 画面の言語、プロジェクトの保存先、キー操作。変えたらすぐ保存する。
+// アプリの設定(プロジェクトによらない): 画面の言語、プロジェクトの保存先、読み上げエンジン、キー操作。変えたらすぐ保存する。
 import { useEffect, useRef, useState } from "react";
-import type { AppSettings } from "../../shared/api";
+import type { AppSettings, SettingsPatch } from "../../shared/api";
 import { api } from "./api";
+import { EngineSettings } from "./engine-settings";
 import { Field } from "./fields";
 import { setLanguage, t } from "./i18n";
 import {
@@ -17,16 +18,18 @@ import {
 } from "./keymap";
 
 /**
- * focus に "shortcuts" を渡すと、キー操作の欄まで送って開く(キー操作の一覧から来たとき)
+ * focus に "shortcuts" を渡すと、キー操作の欄まで送って開く(キー操作の一覧から来たとき)。
+ * "engines" なら読み上げエンジンの欄まで送る(全体の設定の読み上げから来たとき)
  */
 export function SettingsDialog(props: {
   onClose: () => void;
   onLanguage: () => void;
   onKeys?: () => void;
-  focus?: "shortcuts";
+  focus?: "shortcuts" | "engines";
 }) {
   const { onClose } = props;
   const keysRef = useRef<HTMLDivElement>(null);
+  const enginesRef = useRef<HTMLDivElement>(null);
   /** キーを待っている操作 */
   const [capturing, setCapturing] = useState<KeyAction | null>(null);
   const [keyNote, setKeyNote] = useState("");
@@ -36,6 +39,7 @@ export function SettingsDialog(props: {
   }, []);
   useEffect(() => {
     if (settings && props.focus === "shortcuts") keysRef.current?.scrollIntoView({ block: "start" });
+    if (settings && props.focus === "engines") enginesRef.current?.scrollIntoView({ block: "start" });
   }, [settings, props.focus]);
   const setKey = async (action: KeyAction, combo: string) => {
     const cur = settings?.shortcuts ?? {};
@@ -82,7 +86,7 @@ export function SettingsDialog(props: {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   });
-  const change = async (patch: Partial<AppSettings>) => {
+  const change = async (patch: SettingsPatch) => {
     const next = await api.setSettings(patch);
     setSettings(next);
     if (patch.language) {
@@ -130,6 +134,9 @@ export function SettingsDialog(props: {
               )}
             </div>
             <p className="hint">{t("projectDirHint")}</p>
+            <div ref={enginesRef}>
+              <EngineSettings settings={settings} onChange={change} onSettings={setSettings} />
+            </div>
             <div ref={keysRef} className="keys-section">
               <p className="field-label">{t("keyBindings")}</p>
               <table className="shortcut-table keys-table">

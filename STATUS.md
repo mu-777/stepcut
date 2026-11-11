@@ -4,20 +4,20 @@
 2026-11-11
 
 ## ブランチ
-main(ai-integration をマージ済み。CLI の frame・inspect と Claude Code のプラグイン)
+main(external-tts をマージ済み。VOICEVOX・Azure AI Speech の対応)
 
 ## ゴール
-AI(Claude Code)がプロジェクトを編集できるよう、CLI(frame・inspect)とスキルを用意して配る
+VOICEVOX・Azure AI Speech をユーザーの責任で使えるようにする(既定は使えず、同意して有効にする)
 
 ## 現在地
-- CLI: frame(AI-03。書き出しと同じ見た目 / --source で素材のフレーム)と inspect(AI-08。計算後の時間と読み上げの実長)。main の runCli → 非表示ウィンドウの cli-jobs.ts。決定 docs/decisions/20261111-ai-integration.md
-- Claude Code のプラグイン(AI-09): リポジトリ直下 .claude-plugin/marketplace.json、plugins/screen-annotator/skills/edit-project(SKILL.md・find-cli.sh・仕様の写し。写しは src/plugin-files.test.ts で一致を確認)
-- 確認: npm run check(単体 101)、CLI の frame・inspect・export・validate を実行して確認
-- main までの到達点(c5fe9cc): 画像の素材・ステップごとの録画の枠・文言の統一ほか(詳細は git log)
+- 読み上げエンジン(TTS-12〜14): main の tts/voicevox-engine.ts・azure-engine.ts。アプリの設定の「読み上げエンジン」(engine-settings.tsx)で同意して有効に。Azure の鍵は safeStorage で暗号化(settings.ts)。無効なエンジンは OS 標準で代読(service.ts の pick)。全体の設定の読み上げでエンジンを選ぶ。決定 docs/decisions/20261111-external-tts.md、C1 を読み替え
+- AI 連携(main に入済み): CLI の frame・inspect と Claude Code のプラグイン(docs/decisions/20261111-ai-integration.md)
+- 確認: npm run check(単体 111)、ui-smoke(176 項目。テスト用の VOICEVOX サーバーで接続まで)。実機の VOICEVOX・Azure は未確認
+- main までの到達点(6384412): AI 連携・画像の素材・ステップごとの録画の枠ほか(詳細は git log)
 
 ## 次にやること
-- ユーザーの確認: Claude Code でプラグインを入れてスキルを試す(/plugin marketplace add mu-777/screen-annotator → /plugin install screen-annotator@screen-annotator)
-- ユーザーの実機確認(手順書 docs/manual-test.html。画像の項目を追加済み)。NG があれば直す
+- ユーザーの実機確認(手順書 docs/manual-test.html。特に VOICEVOX の起動・自動起動・声・書き出しと Azure の鍵の保存・声・書き出し)。NG があれば直す
+- ユーザーの確認: Claude Code のプラグインを入れてスキルを試す(README の「Claude Code から使う」)
 - M2 の残り: クラッシュ復旧(PRJ-06)、PRJ-03
 
 ## 課題・ブロッカー
