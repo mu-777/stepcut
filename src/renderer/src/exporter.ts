@@ -38,7 +38,7 @@ export interface ExportOptions {
 }
 
 export async function exportProject(opts: ExportOptions): Promise<ExportResult> {
-  const { project, outPath } = opts;
+  const { project } = opts;
   const warnings: string[] = [];
   const out = resolveOutput(project);
   const speech = opts.speech ?? new SpeechStore();
