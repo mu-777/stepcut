@@ -27,6 +27,17 @@ export const DEFAULT_BACKGROUND: Background = { image: "preset:default" };
  */
 export const DEFAULT_SOLID_BACKGROUND = "#475569";
 
+/** 素材にできる画像の拡張子。画像の素材はどの時刻でも同じ 1 枚で、ステップの in / out は長さだけを表す */
+export const IMAGE_SOURCE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const;
+/** 画像の素材を足したときのステップの長さ(秒) */
+export const DEFAULT_IMAGE_STEP_SECONDS = 3;
+
+/** 素材のパスが画像か(拡張子で決める) */
+export function isImageSource(path: string): boolean {
+  const ext = /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+  return (IMAGE_SOURCE_EXTENSIONS as readonly string[]).includes(ext);
+}
+
 export type ResolvedCaptionStyle = Required<CaptionStyle>;
 
 export interface ResolvedAudio {
@@ -75,14 +86,24 @@ export function resolveOutput(p: Project): ResolvedOutput {
   };
 }
 
-export function resolveLayout(p: Project): ResolvedLayout {
+/**
+ * 録画の置き方(継承: ステップの layout → 全体の layout → 既定)。背景は全体だけ。
+ * step を省くと全体の設定(全体の設定パネル・ステップのないとき)
+ */
+export function resolveLayout(p: Project, step?: Step | null): ResolvedLayout {
   const l = p.layout ?? {};
+  const s = step?.layout ?? {};
   return {
     background: l.background ?? DEFAULT_BACKGROUND,
-    margin: l.margin ?? DEFAULT_MARGIN,
-    fit: l.fit ?? "contain",
-    shadow: l.shadow ?? true,
+    margin: s.margin ?? l.margin ?? DEFAULT_MARGIN,
+    fit: s.fit ?? l.fit ?? "contain",
+    shadow: s.shadow ?? l.shadow ?? true,
   };
+}
+
+/** ステップが録画の枠を上書きしているか */
+export function hasStepLayout(step: Step): boolean {
+  return !!step.layout && Object.keys(step.layout).length > 0;
 }
 
 export function resolveCaptionStyle(p: Project, step: Step): ResolvedCaptionStyle {
