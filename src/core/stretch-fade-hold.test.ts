@@ -7,7 +7,7 @@ import { fadeLevel, stepHolds } from "./timeline";
 const RATE = 48000;
 const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 0, out: 10, ...over });
 const proj = (steps: Step[], over: Partial<Project> = {}): Project => ({
-  format: "screen-annotator.project",
+  format: "stepcut.project",
   version: 1,
   sources: [{ id: "rec", path: "a.mp4" }],
   steps,

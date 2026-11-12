@@ -85,7 +85,7 @@ export function createAzureEngine(
           "Ocp-Apim-Subscription-Key": key,
           "Content-Type": "application/ssml+xml",
           "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm",
-          "User-Agent": "screen-annotator",
+          "User-Agent": "stepcut",
         },
         body: azureSsml(input, input.voice ?? AZURE_DEFAULT_VOICE),
         signal,

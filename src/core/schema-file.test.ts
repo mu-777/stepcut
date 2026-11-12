@@ -10,7 +10,7 @@ const file = new URL("../../docs/project.schema.json", import.meta.url);
 it("docs/project.schema.json が最新", () => {
   const schema = {
     ...z.toJSONSchema(projectSchema),
-    title: "screen-annotator project (version 1)",
+    title: "stepcut project (version 1)",
     description: "仕様: docs/project-format.md",
   };
   const text = `${JSON.stringify(schema, null, 2)}\n`;

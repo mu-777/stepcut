@@ -34,7 +34,7 @@ export function useExport({ project, filePath, issues, issuePath, playerRef, spe
       return;
     }
     const outPath = await api.pickExportPath(
-      filePath ? filePath.replace(/(\.sanno)?\.json$/i, ".mp4") : "output.mp4",
+      filePath ? filePath.replace(/(\.stepcut)?\.json$/i, ".mp4") : "output.mp4",
     );
     if (!outPath) return;
     playerRef.current?.stop();

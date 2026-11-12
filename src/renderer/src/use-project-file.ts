@@ -20,7 +20,7 @@ import type { Selection } from "./timeline";
 export type Banner = { kind: "info" | "error"; text: string; reveal?: string };
 
 /** プロジェクトの名前(ファイル名から拡張子を除く) */
-const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.sanno)?\.json$/i, "");
+const baseName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/(\.stepcut)?\.json$/i, "");
 
 /** 復旧ファイルを書くまでの待ち(最後の変更から) */
 const RECOVERY_DELAY_MS = 5000;
@@ -64,7 +64,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
   const projectName = filePath ? baseName(filePath) : (pendingName ?? t("untitled"));
   // ウィンドウのタイトル(タスクバー)にもプロジェクトの名前を出す
   useEffect(() => {
-    document.title = `${dirty ? "● " : ""}${projectName} — Screen Annotator`;
+    document.title = `${dirty ? "● " : ""}${projectName} — StepCut`;
   }, [dirty, projectName]);
 
   const loadProject = useCallback(

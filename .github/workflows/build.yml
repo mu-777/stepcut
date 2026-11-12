@@ -65,7 +65,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: screen-annotator-win
+          name: stepcut-win
           if-no-files-found: error
           path: |
             dist/*.exe

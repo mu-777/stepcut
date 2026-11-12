@@ -283,7 +283,7 @@ export function updateStep(project: Project, index: number, patch: (s: Step) => 
 }
 
 export function newProject(): Project {
-  return { format: "screen-annotator.project", version: 1, sources: [], steps: [] };
+  return { format: "stepcut.project", version: 1, sources: [], steps: [] };
 }
 
 /**

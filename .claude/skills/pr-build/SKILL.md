@@ -76,7 +76,7 @@ mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", 
                           resource_id="<run_id>")
 ```
 
-`screen-annotator-win` が取れる。`update_pull_request` でプレースホルダを差し替える。
+`stepcut-win` が取れる。`update_pull_request` でプレースホルダを差し替える。
 **本文全体を書き直すことになるので、Phase 1 の本文を手元に持っておく**(body の部分更新はできない)。
 
 ```markdown
@@ -84,8 +84,8 @@ mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", 
 
 このブランチの HEAD(`<short sha>`)を CI でビルドしたもの:
 
-- **[Actions run #<run_number>](<run html_url>)** → ページ下部の Artifacts から `screen-annotator-win` を取得
-  - `Screen Annotator Setup <version>.exe`(インストーラ)と `Screen Annotator <version>.exe`(portable)
+- **[Actions run #<run_number>](<run html_url>)** → ページ下部の Artifacts から `stepcut-win` を取得
+  - `StepCut Setup <version>.exe`(インストーラ)と `StepCut <version>.exe`(portable)
 
 ダウンロードには GitHub へのログインが必要で、Artifact は既定で 90 日で失効します。
 未署名のため、初回起動時に SmartScreen の警告が出ます(「詳細情報」→「実行」)。

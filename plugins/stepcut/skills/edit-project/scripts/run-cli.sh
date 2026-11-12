@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screen Annotator の CLI を探して実行し、結果の JSON を標準出力に出す。終了コードは CLI のもの
+# StepCut の CLI を探して実行し、結果の JSON を標準出力に出す。終了コードは CLI のもの
 # (0 = 成功、1 = 失敗、2 = 引数の誤り)。CLI が見つからなければ 3。
 #
 #   run-cli.sh <validate|frame|inspect|export> <覚えておく場所> <プロジェクト> [オプション...]
@@ -19,7 +19,7 @@ shift 2
 
 here="$(cd "$(dirname "$0")" && pwd)"
 if ! cli="$(bash "$here/find-cli.sh" "$data")"; then
-  echo '{"ok":false,"error":"Screen Annotator の実行ファイルが見つかりません。ユーザーに場所を聞き、find-cli.sh --save で覚えさせる / CLI not found"}'
+  echo '{"ok":false,"error":"StepCut の実行ファイルが見つかりません。ユーザーに場所を聞き、find-cli.sh --save で覚えさせる / CLI not found"}'
   exit 3
 fi
 
