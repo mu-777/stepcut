@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 6.5 52 52" role="img" aria-label="StepCut">
+<!-- StepCut のロゴ。形と色の決まりは docs/decisions/20261112-logo.md -->
+  <clipPath id="stick"><rect x="8" y="9" width="48" height="7.5" rx="2.9"/></clipPath>
+  <g fill="#4f8cff">
+    <g clip-path="url(#stick)"><path d="M0 16.5 L4.1 9 H19.1 L15 16.5 Z"/><path d="M21 16.5 L25.1 9 H33.1 L29 16.5 Z"/><path d="M35 16.5 L39.1 9 H47.1 L43 16.5 Z"/><path d="M49 16.5 L53.1 9 H74.1 L70 16.5 Z"/></g>
+    <rect x="18" y="38.5" width="15" height="7" rx="2.5"/>
+    <rect x="37" y="38.5" width="9" height="7" rx="2.5"/>
+  </g>
+  <rect x="10.5" y="21.5" width="43" height="32" rx="6" fill="none" stroke="#4f8cff" stroke-width="5"/>
+</svg>

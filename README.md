@@ -34,9 +34,25 @@ npm run check      # lint・型チェック・単体テスト・ビルド
 npm run dist:win   # Windows 用のインストーラと portable 版を dist/ に作る(Windows 上で実行)
 ```
 
+ロゴの元データは `assets/logo/`(SVG)。Windows のアイコン `build/icon.ico` は、`assets/logo/stepcut-icon.svg` を変えたときに `node scripts/make-icon.cjs` で作り直してコミットする(Playwright が要る)。
+
 main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。
 
 起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.stepcut.json`
+
+## 紹介ページ(LP)
+
+`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
+
+```bash
+cd site
+npm install
+npx wrangler dev      # 手元で表示する
+```
+
+- 動画・画像の枠(`.media`)の中の svg は仮の絵。同じ場所に `video` / `img` を置くと差し替わる
+- OGP 画像 `site/public/og.png` は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
+- Cloudflare 側の設定(初回のみ): Workers & Pages でこのリポジトリを取り込み、Worker 名 `stepcut-lp`、ルートディレクトリ `site`、デプロイコマンド `npx wrangler deploy`、Build watch paths `site/*`
 
 ## 操作
 

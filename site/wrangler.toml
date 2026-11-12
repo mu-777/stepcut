@@ -1,0 +1,10 @@
+# StepCut の紹介ページ(https://stepcut.mu-777.dev)。静的ファイルだけを配る Worker。
+# デプロイは Cloudflare の Workers Builds(main への push で `npx wrangler deploy`)。
+# 手元で見る: `npm install` のあと `npx wrangler dev`。決定は docs/decisions/20261112-landing-page.md
+name = "stepcut-lp"
+compatibility_date = "2026-11-01"
+routes = [{ pattern = "stepcut.mu-777.dev", custom_domain = true }]
+
+[assets]
+directory = "./public"
+not_found_handling = "404-page"

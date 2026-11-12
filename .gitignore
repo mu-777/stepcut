@@ -11,3 +11,6 @@ node_modules/
 out/
 dist/
 test-output/
+
+# Cloudflare Workers(site/)の手元の状態
+.wrangler/
