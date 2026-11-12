@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppSettings, SettingsPatch } from "../../shared/api";
 import { api } from "./api";
 import { EngineSettings } from "./engine-settings";
-import { Field } from "./fields";
+import { SegField } from "./fields";
 import { setLanguage, t } from "./i18n";
 import {
   comboLabel,
@@ -102,16 +102,16 @@ export function SettingsDialog(props: {
         <h3>{t("appSettings")}</h3>
         {settings && (
           <div className="inspector">
-            <Field label={t("language")}>
-              <select
-                value={settings.language}
-                onChange={(e) => void change({ language: e.target.value as AppSettings["language"] })}
-              >
-                <option value="auto">{t("languageAuto")}</option>
-                <option value="ja">日本語</option>
-                <option value="en">English</option>
-              </select>
-            </Field>
+            <SegField<AppSettings["language"]>
+              label={t("language")}
+              value={settings.language}
+              options={[
+                { value: "auto", label: t("languageAuto") },
+                { value: "ja", label: "日本語" },
+                { value: "en", label: "English" },
+              ]}
+              onChange={(v) => void change({ language: v })}
+            />
             <p className="field-label">{t("projectDir")}</p>
             <div className="dir-row">
               <span className="dir-path" title={settings.projectDir ?? ""}>

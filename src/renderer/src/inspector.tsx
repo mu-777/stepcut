@@ -46,6 +46,7 @@ import {
   FontField,
   NumField,
   prune,
+  SearchSelectField,
   SegField,
   SelectField,
   TextField,
@@ -77,16 +78,15 @@ function VoiceSelect(props: {
   onChange: (v: string | undefined) => void;
 }) {
   return (
-    <Field label={props.label}>
-      <select value={props.value ?? ""} onChange={(e) => props.onChange(e.target.value || undefined)}>
-        <option value="">{props.emptyLabel}</option>
-        {props.voices.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.name} ({v.language})
-          </option>
-        ))}
-      </select>
-    </Field>
+    <SearchSelectField
+      label={props.label}
+      value={props.value ?? ""}
+      options={[
+        { value: "", label: props.emptyLabel },
+        ...props.voices.map((v) => ({ value: v.id, label: `${v.name} (${v.language})` })),
+      ]}
+      onChange={(v) => props.onChange(v || undefined)}
+    />
   );
 }
 
@@ -583,7 +583,7 @@ function StepText(props: {
             step={2}
             onChange={(v) => setCaption("size", { style: prune({ ...caption.style, size: v }) })}
           />
-          <SelectField
+          <SegField
             label={t("captionBg")}
             value={
               caption.style?.background === undefined
@@ -892,19 +892,15 @@ function TextDefaults(props: {
               />
             </Field>
           </div>
-          <SelectField
+          <CheckField
             label={t("captionBg")}
-            value={captionBoxColor(capStyle.background ?? "auto") ? "on" : "none"}
-            options={[
-              { value: "none", label: t("bgNone") },
-              { value: "on", label: t("bgOn") },
-            ]}
-            onChange={(v) =>
+            value={captionBoxColor(capStyle.background ?? "auto") !== null}
+            onChange={(on) =>
               set(
                 "styles",
                 prune({
                   ...project.styles,
-                  caption: prune({ ...capStyle, background: v === "on" ? CAPTION_BOX_COLOR : undefined }),
+                  caption: prune({ ...capStyle, background: on ? CAPTION_BOX_COLOR : undefined }),
                 }),
                 "style.bg",
               )
@@ -1501,7 +1497,7 @@ export function ProjectPanel(props: {
           />
         </div>
         <div className="row">
-          <SelectField
+          <SegField
             label={t("fps")}
             value={String(out.fps)}
             options={[
@@ -1510,7 +1506,7 @@ export function ProjectPanel(props: {
             ]}
             onChange={(v) => set("output", { ...project.output, fps: v === "60" ? 60 : 30 })}
           />
-          <SelectField
+          <SegField
             label={t("quality")}
             value={out.quality}
             options={(["low", "medium", "high"] as const).map((q) => ({ value: q, label: t(q) }))}
@@ -1666,7 +1662,7 @@ function BackgroundField(props: {
   const image = typeof bg !== "string" && "image" in bg ? bg.image : null;
   return (
     <>
-      <SelectField
+      <SegField
         label={t("bgType")}
         value={kind}
         options={[

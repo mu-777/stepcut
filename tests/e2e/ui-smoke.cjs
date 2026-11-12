@@ -1467,7 +1467,7 @@ function fakeVoicevox() {
   await page.getByRole("button", { name: /^(Settings|設定)$/ }).click();
   await page.waitForTimeout(200);
   check(
-    (await page.locator(".settings-dialog select").count()) === 1 &&
+    (await page.locator(".settings-dialog .seg-field button").count()) === 3 &&
       (await page.locator(".settings-dialog .dir-row").count()) === 1,
     "ヘッダーの「設定」でアプリの設定(言語・プロジェクトの保存先)を開く",
   );
@@ -1658,13 +1658,25 @@ function fakeVoicevox() {
     await page.waitForTimeout(300);
     await engineSel.selectOption("voicevox");
     await page.waitForTimeout(800);
-    const voiceOpts = await speechFold
-      .locator(".field", { hasText: /^(Voice|声)/ })
-      .locator("option")
-      .allTextContents();
+    // 声は打った文字で部分一致の絞り込みができる選択欄
+    const voiceInput = speechFold.locator(".field", { hasText: /^(Voice|声)/ }).locator("input");
+    await voiceInput.click();
+    const voiceOpts = await speechFold.locator(".combo-list > div").allTextContents();
     check(
       voiceOpts.some((o) => o.includes("テスト(ノーマル)")),
       `VOICEVOX を選ぶと声の一覧がエンジンの声になる (${voiceOpts.join(" / ")})`,
+    );
+    await voiceInput.fill("ノーマル");
+    const filteredVoices = await speechFold.locator(".combo-list > div").allTextContents();
+    check(
+      filteredVoices.length >= 1 && filteredVoices.every((o) => o.includes("ノーマル")),
+      `声は名前の途中の文字でも絞り込める (${filteredVoices.join(" / ")})`,
+    );
+    await voiceInput.press("Enter");
+    await page.waitForTimeout(200);
+    check(
+      /テスト\(ノーマル\)/.test(await voiceInput.inputValue()),
+      `Enter で絞り込んだ声を選ぶ (${await voiceInput.inputValue()})`,
     );
     server.close();
   }

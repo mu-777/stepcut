@@ -132,7 +132,8 @@ export function SelectField<T extends string>(props: {
 export function SegField<T extends string>(props: {
   label: string;
   value: T;
-  options: { value: T; label: string; icon?: ReactNode }[];
+  /** title はボタンに重ねたときの説明(icon のときは label がツールチップになる) */
+  options: { value: T; label: string; icon?: ReactNode; title?: string }[];
   onChange: (v: T) => void;
   title?: string;
 }) {
@@ -146,7 +147,7 @@ export function SegField<T extends string>(props: {
             type="button"
             className={`small ${o.value === props.value ? "on" : ""}`}
             aria-pressed={o.value === props.value}
-            title={o.icon ? o.label : undefined}
+            title={o.title ?? (o.icon ? o.label : undefined)}
             aria-label={o.icon ? o.label : undefined}
             onClick={() => props.onChange(o.value)}
           >
@@ -354,6 +355,100 @@ export function FontField(props: {
                 onClick={() => pick(f.family)}
               >
                 {f.label}
+              </div>
+            ))}
+          </div>
+        )}
+      </span>
+    </Field>
+  );
+}
+
+/**
+ * 選択肢が多い選択(声など)。打った文字を名前の途中に含むもの(部分一致)だけを下に並べる(↑↓ で選び Enter で決める)。
+ * 打っていないときは選んでいるものの名前を出す。選択肢にない値はそのまま出す
+ */
+export function SearchSelectField(props: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  // null は打っていない(候補を閉じている)
+  const [query, setQuery] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const current = props.options.find((o) => o.value === props.value)?.label ?? props.value;
+  const q = fold((query ?? "").trim());
+  const matches = query === null ? [] : props.options.filter((o) => !q || fold(o.label).includes(q));
+  const shown = matches.length > 0;
+  const open = () => {
+    setQuery("");
+    setActive(
+      Math.max(
+        0,
+        props.options.findIndex((o) => o.value === props.value),
+      ),
+    );
+  };
+  const pick = (v: string) => {
+    props.onChange(v);
+    setQuery(null);
+  };
+  return (
+    <Field label={props.label}>
+      <span className="combo">
+        <input
+          type="text"
+          value={query ?? current}
+          placeholder={current}
+          title={current}
+          role="combobox"
+          aria-expanded={shown}
+          aria-autocomplete="list"
+          onFocus={open}
+          onBlur={() => setQuery(null)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActive(0);
+          }}
+          onKeyDown={(e) => {
+            // 日本語の入力の変換中のキー(Enter で確定など)は入力欄に任せる
+            if (e.nativeEvent.isComposing) return;
+            if (query === null) {
+              if (e.key === "ArrowDown") open();
+              return;
+            }
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              const d = e.key === "ArrowDown" ? 1 : -1;
+              setActive((a) => Math.min(matches.length - 1, Math.max(0, a + d)));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              const o = matches[active];
+              if (o) pick(o.value);
+            } else if (e.key === "Escape") {
+              e.stopPropagation();
+              setQuery(null);
+            }
+          }}
+        />
+        {shown && (
+          <div className="combo-list" role="listbox">
+            {matches.map((o, i) => (
+              // biome-ignore lint/a11y/useKeyWithClickEvents: キーは入力欄の ↑↓・Enter で選ぶ
+              <div
+                key={o.value}
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === active}
+                className={`${i === active ? "active" : ""} ${o.value === props.value ? "current" : ""}`}
+                title={o.label}
+                ref={i === active ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                // 入力欄のフォーカスを保ったまま選ぶ
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(o.value)}
+              >
+                {o.label}
               </div>
             ))}
           </div>
