@@ -24,7 +24,7 @@ import {
 } from "../../core/objects";
 import type { Pointer, Project, Shape, Step, Transition, TransitionSpec } from "../../core/schema";
 import { api } from "./api";
-import { CheckField, Field, FontField, NumField, prune, SegField, SelectField } from "./fields";
+import { CheckField, Field, FontField, NumField, prune, SegField } from "./fields";
 import { type MessageKey, t } from "./i18n";
 import { Icon, type IconName } from "./icons";
 import {
@@ -841,7 +841,7 @@ function KindFields(props: {
           onChange={(v) => setStyle("size", { size: v })}
         />
         <ColorField label={t("color")} value={st.color} onChange={(v) => setStyle("color", { color: v })} />
-        <SelectField
+        <SegField
           label={t("align")}
           value={st.align}
           options={[

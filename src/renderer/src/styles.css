@@ -1853,7 +1853,7 @@ button.obj-group-title.toggle {
   min-width: 28px;
 }
 
-/* 打ち込めるフォントの選択。候補は入力欄の下に重ねる */
+/* 打ち込める選択(フォント・声)。候補は入力欄の下に重ねる */
 .combo {
   position: relative;
   display: block;
@@ -1888,6 +1888,11 @@ button.obj-group-title.toggle {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 選んでいる項目(声の選択欄) */
+.combo-list > div.current {
+  font-weight: 600;
 }
 
 .combo-list > div.active,
