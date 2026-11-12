@@ -34,6 +34,8 @@ npm run check      # lint・型チェック・単体テスト・ビルド
 npm run dist:win   # Windows 用のインストーラと portable 版を dist/ に作る(Windows 上で実行)
 ```
 
+ロゴの元データは `assets/logo/`(SVG)。Windows のアイコン `build/icon.ico` は、`assets/logo/stepcut-icon.svg` を変えたときに `node scripts/make-icon.cjs` で作り直してコミットする(Playwright が要る)。
+
 main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。
 
 起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.stepcut.json`
