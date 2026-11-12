@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StepCut | 画面録画から手順書動画を作る Windows アプリ</title>
+    <meta
+      name="description"
+      content="StepCut は、画面録画をステップに切り分け、テロップ・読み上げ・ズームを付けて mp4 に書き出す Windows 用の無料アプリです。ネット接続なしで使えます。"
+    />
+    <meta name="theme-color" content="#1e1f22" />
+    <link rel="canonical" href="https://stepcut.mu-777.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="StepCut" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:title" content="StepCut | 録画を、手順が伝わる動画に。" />
+    <meta
+      property="og:description"
+      content="画面録画をステップに切り分け、テロップ・読み上げ・ズームを付けて mp4 に書き出す Windows 用の無料アプリ。"
+    />
+    <meta property="og:url" content="https://stepcut.mu-777.dev/" />
+    <meta property="og:image" content="https://stepcut.mu-777.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- 仮の絵で使い回す「録画された画面」 -->
+    <!-- use で写した中身には外側の祖先のクラスが届かないので、symbol 自身に il を付ける -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="rec" class="il" viewBox="0 0 320 200">
+        <rect class="w" x="40" y="24" width="240" height="132" rx="4" />
+        <path class="w2" d="M40 28a4 4 0 0 1 4-4h232a4 4 0 0 1 4 4v12H40z" />
+        <rect class="w3" x="52" y="50" width="52" height="94" rx="2" />
+        <rect class="w3" x="116" y="50" width="96" height="10" rx="2" />
+        <rect class="w4" x="116" y="68" width="150" height="10" rx="2" />
+        <rect class="ac" x="116" y="88" width="64" height="14" rx="2" />
+      </symbol>
+      <symbol id="cursor" viewBox="0 0 12 17">
+        <path d="M.7.9v13l3.5-3.3 2.3 5.3 2.2-1-2.3-5.2h4.6z" fill="#fff" stroke="#1e1f22" />
+      </symbol>
+    </svg>
+
+    <header class="wrap site-head">
+      <a href="/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="131" height="40" /></a>
+      <nav class="head-nav" aria-label="ページ内">
+        <a href="#features">できること</a>
+        <a href="#how">使い方</a>
+        <a href="https://github.com/mu-777/screen-annotator">GitHub</a>
+        <a class="btn btn-primary btn-small" href="#download">ダウンロード</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="wrap hero">
+        <h1>録画を、手順が伝わる動画に。</h1>
+        <p class="lead">
+          画面録画をステップに切り分け、テロップ・読み上げ・ズームを付けて mp4 に書き出す、Windows 用の無料アプリです。
+        </p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="#download">Windows 版をダウンロード</a>
+          <a class="btn btn-ghost" href="https://github.com/mu-777/screen-annotator">GitHub で見る</a>
+        </div>
+        <p class="meta">Windows 10 / 11 ・ 無料 ・ Apache-2.0</p>
+        <!-- 差し替え: デモ動画(30〜45 秒、1920×1080)。<video autoplay muted loop playsinline> を svg の代わりに置く -->
+        <div class="media wide hero-media">
+          <svg class="il" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" role="img" aria-label="編集後の動画のイメージ">
+            <use href="#rec" y="-10" width="320" height="200" />
+            <rect class="dim" width="320" height="180" />
+            <rect class="w" x="104" y="68" width="96" height="36" rx="2" />
+            <rect class="ac" x="116" y="78" width="64" height="14" rx="2" />
+            <rect class="ac-s" x="104" y="68" width="96" height="36" rx="2" stroke-width="2" />
+            <use href="#cursor" x="170" y="86" width="12" height="17" />
+            <rect class="bk" x="80" y="140" width="160" height="24" rx="3" />
+            <text class="wh" x="160" y="156.5" font-size="12" text-anchor="middle">「保存」をクリックします</text>
+          </svg>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="wrap">
+          <h2 class="sec-title">録っただけの画面が、こう変わります</h2>
+          <div class="ba">
+            <figure>
+              <!-- 差し替え: 元の録画(5〜10 秒) -->
+              <div class="media wide">
+                <svg class="il" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" role="img" aria-label="元の録画のイメージ">
+                  <rect class="w" width="320" height="180" />
+                  <rect class="w2" width="320" height="22" />
+                  <rect class="w3" x="16" y="36" width="70" height="128" rx="2" />
+                  <rect class="w3" x="102" y="36" width="128" height="13" rx="2" />
+                  <rect class="w4" x="102" y="60" width="200" height="13" rx="2" />
+                  <rect class="ac" x="102" y="86" width="86" height="18" rx="2" />
+                </svg>
+              </div>
+              <figcaption><b>元の録画</b>どこを見ればよいかが分からない</figcaption>
+            </figure>
+            <span class="ba-arrow" aria-hidden="true">→</span>
+            <figure>
+              <!-- 差し替え: 同じ場面の編集後(5〜10 秒) -->
+              <div class="media wide">
+                <svg class="il" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" role="img" aria-label="編集後の動画のイメージ">
+                  <use href="#rec" y="-10" width="320" height="200" />
+                  <rect class="dim" width="320" height="180" />
+                  <rect class="w" x="104" y="68" width="96" height="36" rx="2" />
+                  <rect class="ac" x="116" y="78" width="64" height="14" rx="2" />
+                  <rect class="ac-s" x="104" y="68" width="96" height="36" rx="2" stroke-width="2" />
+                  <use href="#cursor" x="170" y="86" width="12" height="17" />
+                  <rect class="bk" x="80" y="140" width="160" height="24" rx="3" />
+                  <text class="wh" x="160" y="156.5" font-size="12" text-anchor="middle">「保存」をクリックします</text>
+                </svg>
+              </div>
+              <figcaption><b>StepCut で編集後</b>操作する場所と、やることが伝わる</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="features">
+        <div class="wrap">
+          <h2 class="sec-title">できること</h2>
+          <!-- 差し替え: 各枠に 3〜6 秒のループ動画 -->
+          <div class="features">
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="1 本の録画が 3 つのステップに分かれた図">
+                  <g>
+                    <rect class="w" x="26" y="40" width="84" height="54" rx="3" />
+                    <rect class="w2" x="26" y="40" width="84" height="8" rx="3" />
+                    <rect class="w3" x="34" y="56" width="20" height="30" rx="1" />
+                    <rect class="ac" x="62" y="66" width="28" height="8" rx="1" />
+                    <rect class="w" x="118" y="40" width="84" height="54" rx="3" />
+                    <rect class="w2" x="118" y="40" width="84" height="8" rx="3" />
+                    <rect class="w3" x="126" y="56" width="68" height="8" rx="1" />
+                    <rect class="w4" x="126" y="70" width="48" height="8" rx="1" />
+                    <rect class="w" x="210" y="40" width="84" height="54" rx="3" />
+                    <rect class="w2" x="210" y="40" width="84" height="8" rx="3" />
+                    <rect class="w3" x="218" y="56" width="30" height="30" rx="1" />
+                    <rect class="w3" x="256" y="56" width="30" height="30" rx="1" />
+                  </g>
+                  <rect class="pn" x="20" y="120" width="280" height="34" rx="5" />
+                  <rect class="deep" x="26" y="126" width="84" height="22" rx="3" />
+                  <rect class="deep" x="118" y="126" width="84" height="22" rx="3" />
+                  <rect class="deep" x="210" y="126" width="84" height="22" rx="3" />
+                  <text class="tx" x="68" y="141.5" font-size="11" text-anchor="middle">ステップ 1</text>
+                  <text class="tx" x="160" y="141.5" font-size="11" text-anchor="middle">ステップ 2</text>
+                  <text class="tx" x="252" y="141.5" font-size="11" text-anchor="middle">ステップ 3</text>
+                  <rect class="wh" x="113" y="112" width="2" height="50" rx="1" />
+                  <path class="wh" d="M109 108h10l-5 7z" />
+                </svg>
+              </div>
+              <h3>ステップに切り分け</h3>
+              <p>1 本の録画を、手順ごとの場面に分けます。</p>
+            </div>
+
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="画面の下にテロップを入力している図">
+                  <use href="#rec" width="320" height="200" />
+                  <rect class="bk" x="66" y="140" width="188" height="28" rx="3" />
+                  <text class="wh" x="157" y="159" font-size="13" text-anchor="middle">「保存」をクリックします</text>
+                  <rect class="ac" x="238" y="146" width="2" height="16" />
+                  <rect class="ac-s" x="62" y="136" width="196" height="36" rx="4" stroke-width="1.5" stroke-dasharray="4 3" />
+                </svg>
+              </div>
+              <h3>テロップ</h3>
+              <p>画面の上の文字を、その場で書き換えます。</p>
+            </div>
+
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="テロップの文が音声の波形になる図">
+                  <rect class="bk" x="66" y="34" width="188" height="28" rx="3" />
+                  <text class="wh" x="160" y="53" font-size="13" text-anchor="middle">「保存」をクリックします</text>
+                  <path class="mu" d="M156 72h8v10h6l-10 11-10-11h6z" />
+                  <g class="ac">
+                    <rect x="68" y="132" width="4" height="8" rx="2" />
+                    <rect x="77" y="129" width="4" height="14" rx="2" />
+                    <rect x="86" y="125" width="4" height="22" rx="2" />
+                    <rect x="95" y="121" width="4" height="30" rx="2" />
+                    <rect x="104" y="127" width="4" height="18" rx="2" />
+                    <rect x="113" y="123" width="4" height="26" rx="2" />
+                    <rect x="122" y="116" width="4" height="40" rx="2" />
+                    <rect x="131" y="122" width="4" height="28" rx="2" />
+                    <rect x="140" y="128" width="4" height="16" rx="2" />
+                    <rect x="149" y="119" width="4" height="34" rx="2" />
+                    <rect x="158" y="113" width="4" height="46" rx="2" />
+                    <rect x="167" y="121" width="4" height="30" rx="2" />
+                    <rect x="176" y="126" width="4" height="20" rx="2" />
+                    <rect x="185" y="118" width="4" height="36" rx="2" />
+                    <rect x="194" y="124" width="4" height="24" rx="2" />
+                    <rect x="203" y="129" width="4" height="14" rx="2" />
+                    <rect x="212" y="122" width="4" height="28" rx="2" />
+                    <rect x="221" y="127" width="4" height="18" rx="2" />
+                    <rect x="230" y="131" width="4" height="10" rx="2" />
+                    <rect x="239" y="128" width="4" height="16" rx="2" />
+                    <rect x="248" y="132" width="4" height="8" rx="2" />
+                  </g>
+                </svg>
+              </div>
+              <h3>読み上げ</h3>
+              <p>テロップの文が、そのまま音声になります。</p>
+            </div>
+
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="画面の一部を枠で囲んで拡大する図">
+                  <use href="#rec" width="320" height="200" />
+                  <rect class="dim" width="320" height="200" />
+                  <rect class="w" x="100" y="74" width="104" height="42" rx="2" />
+                  <rect class="ac" x="116" y="88" width="64" height="14" rx="2" />
+                  <rect class="ac-s" x="100" y="74" width="104" height="42" rx="2" stroke-width="2" />
+                  <g class="wh">
+                    <rect x="97" y="71" width="6" height="6" />
+                    <rect x="201" y="71" width="6" height="6" />
+                    <rect x="97" y="113" width="6" height="6" />
+                    <rect x="201" y="113" width="6" height="6" />
+                  </g>
+                </svg>
+              </div>
+              <h3>ズーム</h3>
+              <p>見せたい範囲を枠で囲むと、そこに寄ります。</p>
+            </div>
+
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="録画の上にポインター、蛍光ペン、矢印、四角を重ねた図">
+                  <use href="#rec" width="320" height="200" />
+                  <path class="or-s" d="M118 73h146" stroke-width="12" stroke-linecap="round" opacity="0.7" />
+                  <rect class="ac-s" x="47" y="45" width="62" height="104" rx="3" stroke-width="2.5" />
+                  <path class="ac-s" d="M246 132 198 106" stroke-width="3" stroke-linecap="round" />
+                  <path class="ac" d="m190 101 14 1-7 11z" />
+                  <circle class="ac" cx="160" cy="96" r="13" opacity="0.3" />
+                  <use href="#cursor" x="158" y="93" width="12" height="17" />
+                </svg>
+              </div>
+              <h3>ポインター・図形</h3>
+              <p>ポインター、蛍光ペン、矢印、四角を重ねます。</p>
+            </div>
+
+            <div class="feature">
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="mp4 のファイルに書き出す図">
+                  <path class="pn2" d="M126 34h46l24 24v62a6 6 0 0 1-6 6h-64a6 6 0 0 1-6-6V40a6 6 0 0 1 6-6z" />
+                  <path class="ln" d="M172 34v18a6 6 0 0 0 6 6h18z" />
+                  <path class="ac" d="M150 68v26l22-13z" />
+                  <text class="tx" x="158" y="116" font-size="12" text-anchor="middle">mp4</text>
+                  <rect class="pn2" x="70" y="146" width="180" height="8" rx="4" />
+                  <rect class="ac" x="70" y="146" width="180" height="8" rx="4" />
+                  <text class="mu" x="160" y="176" font-size="11" text-anchor="middle" style="font-weight: 400">1920 × 1080 ・ 字幕ファイル(SRT)も出力</text>
+                </svg>
+              </div>
+              <h3>mp4 書き出し</h3>
+              <p>どこでも再生できる動画ファイルになります。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2 class="sec-title">安心して使える理由</h2>
+          <div class="why">
+            <div>
+              <h3>ネット接続なしで使える</h3>
+              <p>録画も編集内容も PC の外に出ません。社内システムの手順書にも使えます。</p>
+            </div>
+            <div>
+              <h3>無料・オープンソース</h3>
+              <p>Apache-2.0。アカウント登録も課金もありません。</p>
+            </div>
+            <div>
+              <h3>AI でも編集できる</h3>
+              <p>編集内容はテキスト(JSON)のファイル。Claude Code にテロップの下書きを頼めます。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section band" id="how">
+        <div class="wrap">
+          <h2 class="sec-title">使い方</h2>
+          <!-- 差し替え: 各枠にアプリのスクリーンショット -->
+          <ol class="how">
+            <li>
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="録画のファイルをアプリのウィンドウにドロップする図">
+                  <rect class="pn" x="24" y="20" width="272" height="160" rx="8" />
+                  <rect class="ln-s" x="24.5" y="20.5" width="271" height="159" rx="8" />
+                  <rect class="ac-s" x="56" y="50" width="208" height="104" rx="8" stroke-width="2" stroke-dasharray="7 6" />
+                  <path class="pn2" d="M136 66h32l16 16v50a5 5 0 0 1-5 5h-43a5 5 0 0 1-5-5V71a5 5 0 0 1 5-5z" />
+                  <path class="ln" d="M168 66v11a5 5 0 0 0 5 5h11z" />
+                  <path class="ac" d="M150 92v20l17-10z" />
+                  <text class="tx" x="157" y="129" font-size="10" text-anchor="middle">mp4</text>
+                  <use href="#cursor" x="180" y="118" width="14" height="20" />
+                </svg>
+              </div>
+              <span class="n">STEP 1</span>
+              <h3>録画を入れる</h3>
+            </li>
+            <li>
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="アプリの編集画面の図。左にステップの一覧、中央にプレビューとタイムライン">
+                  <rect class="pn" x="14" y="12" width="292" height="176" rx="8" />
+                  <rect class="ln-s" x="14.5" y="12.5" width="291" height="175" rx="8" />
+                  <rect class="ln" x="14" y="30" width="292" height="1" />
+                  <rect class="ac" x="266" y="17" width="32" height="9" rx="2" />
+                  <rect class="ln" x="64" y="31" width="1" height="157" />
+                  <rect class="ln" x="250" y="31" width="1" height="157" />
+                  <g>
+                    <rect class="w3" x="22" y="40" width="34" height="21" rx="2" />
+                    <rect class="w" x="22" y="68" width="34" height="21" rx="2" />
+                    <rect class="ac-s" x="21" y="67" width="36" height="23" rx="3" stroke-width="1.5" />
+                    <rect class="w3" x="22" y="96" width="34" height="21" rx="2" />
+                    <rect class="w3" x="22" y="124" width="34" height="21" rx="2" />
+                  </g>
+                  <rect x="72" y="38" width="170" height="100" rx="3" fill="#17181b" />
+                  <use href="#rec" x="85" y="38" width="144" height="90" />
+                  <rect class="ac-s" x="131" y="70" width="46" height="18" rx="1" stroke-width="1.5" />
+                  <rect class="bk" x="117" y="114" width="80" height="14" rx="2" />
+                  <text class="wh" x="157" y="124" font-size="7" text-anchor="middle">「保存」をクリックします</text>
+                  <g>
+                    <rect class="deep" x="72" y="146" width="48" height="8" rx="2" />
+                    <rect class="deep" x="122" y="146" width="64" height="8" rx="2" />
+                    <rect class="deep" x="188" y="146" width="54" height="8" rx="2" />
+                    <rect class="mu" x="76" y="158" width="38" height="8" rx="2" opacity="0.6" />
+                    <rect class="mu" x="126" y="158" width="52" height="8" rx="2" opacity="0.6" />
+                    <rect class="mu" x="192" y="158" width="40" height="8" rx="2" opacity="0.6" />
+                    <rect class="ac" x="138" y="170" width="30" height="8" rx="2" />
+                    <rect class="wh" x="149" y="142" width="1" height="40" />
+                  </g>
+                  <g class="ln">
+                    <rect x="258" y="40" width="24" height="5" rx="1" />
+                    <rect x="258" y="52" width="40" height="5" rx="1" />
+                    <rect x="258" y="62" width="40" height="5" rx="1" />
+                    <rect x="258" y="78" width="24" height="5" rx="1" />
+                    <rect x="258" y="90" width="40" height="5" rx="1" />
+                    <rect x="258" y="100" width="40" height="5" rx="1" />
+                  </g>
+                </svg>
+              </div>
+              <span class="n">STEP 2</span>
+              <h3>切って、説明を付ける</h3>
+            </li>
+            <li>
+              <div class="media">
+                <svg class="il" viewBox="0 0 320 200" role="img" aria-label="完成した動画ファイルの図">
+                  <rect x="60" y="24" width="200" height="118" rx="6" fill="#101113" />
+                  <use href="#rec" x="72" y="24" width="176" height="110" />
+                  <rect class="bk" x="116" y="116" width="88" height="15" rx="2" />
+                  <text class="wh" x="160" y="127" font-size="8" text-anchor="middle">これで完了です</text>
+                  <circle class="bk" cx="160" cy="76" r="17" />
+                  <path class="wh" d="M154 67v18l15-9z" />
+                  <rect class="pn2" x="84" y="154" width="152" height="24" rx="12" />
+                  <circle class="ac" cx="100" cy="166" r="7" />
+                  <path d="m96.5 166 2.5 2.5 4.5-5" fill="none" stroke="#0d1b33" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  <text class="tx" x="170" y="170" font-size="11" text-anchor="middle">経費申請の手順.mp4</text>
+                </svg>
+              </div>
+              <span class="n">STEP 3</span>
+              <h3>書き出す</h3>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section download" id="download">
+        <div class="wrap">
+          <h2 class="sec-title">ダウンロード</h2>
+          <div class="btn-row">
+            <a class="btn btn-primary" href="https://github.com/mu-777/screen-annotator/releases">Windows 版をダウンロード</a>
+          </div>
+          <p class="meta">Windows 10 / 11 ・ インストーラ版と、インストール不要の portable 版があります</p>
+          <p class="dl-note">
+            初回の起動時に「Windows によって PC
+            が保護されました」と出たら、「詳細情報」→「実行」を選んでください(コード署名をしていないためです)。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <span>© mu-777 ・ Apache-2.0</span>
+      <nav aria-label="リンク">
+        <a href="https://github.com/mu-777/screen-annotator">GitHub</a>
+        <a href="https://github.com/mu-777/screen-annotator/issues">不具合の報告</a>
+        <a href="https://mu-777.dev/">mu-777.dev</a>
+      </nav>
+    </footer>
+  </body>
+</html>
