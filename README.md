@@ -1,4 +1,9 @@
-# StepCut
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/stepcut-logo-on-dark.svg">
+    <img src="assets/logo/stepcut-logo-on-light.svg" alt="StepCut" height="56">
+  </picture>
+</h1>
 
 Turn recordings into step-by-step videos, driven by captions.
 
