@@ -490,6 +490,22 @@ function fakeVoicevox() {
     .click();
   check((await page.locator(".caption-input").count()) === 1, "帯の「テロップ」でその場の入力を始める");
   await page.keyboard.press("Escape");
+  // テロップを消しても、帯の「テロップ」で全期間のテロップを作り直して入力を始める
+  const quickCaps = await page.locator(".tl-bar.caption").count();
+  await page.keyboard.press("Delete");
+  check((await page.locator(".tl-bar.caption").count()) === quickCaps - 1, "選んだテロップを Delete で消す");
+  await page
+    .locator(".preview-add")
+    .getByRole("button", { name: /^(Caption|テロップ)$/ })
+    .click();
+  check(
+    (await page.locator(".tl-bar.caption").count()) === quickCaps &&
+      (await page.locator(".caption-input").count()) === 1,
+    "消したテロップを帯の「テロップ」で作り直して入力を始める",
+  );
+  await page.keyboard.type("作り直したテロップ");
+  await page.keyboard.press("Escape");
+  check((await tipOf(1)).includes("作り直したテロップ"), "作り直したテロップに文が入る");
   const quickBefore = await page.locator(".tl-bar.zoom").count();
   await page
     .locator(".preview-add")
