@@ -1,6 +1,6 @@
-// assets/logo/stepcut-icon.svg から Windows 用の build/icon.ico を作る。
+// assets/logo/stepcut-icon.svg から Windows 用の build/icon.ico と、ウィンドウのアイコン用の build/icon.png(256px)を作る。
 //   node scripts/make-icon.cjs
-// ロゴの SVG を変えたときだけ実行し、できた icon.ico をコミットする(ビルドでは実行しない)。
+// ロゴの SVG を変えたときだけ実行し、できた icon.ico・icon.png をコミットする(ビルドでは実行しない)。
 // 描画に Playwright の Chromium を使う。依存には入れていないので、なければ
 // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i --no-save playwright` で一時的に入れる。
 const fs = require("node:fs");
@@ -10,6 +10,7 @@ const { chromium } = require("playwright");
 const root = path.join(__dirname, "..");
 const SRC = path.join(root, "assets/logo/stepcut-icon.svg");
 const OUT = path.join(root, "build/icon.ico");
+const OUT_PNG = path.join(root, "build/icon.png");
 // 256 は PNG、それより小さいものは BMP で入れる(小さい PNG を読めない古い道具があるため)
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 
@@ -84,4 +85,7 @@ function bmpEntry(size, rgba) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, Buffer.concat([dir, ...entries.map((e) => e.data)]));
   console.log(`${path.relative(root, OUT)}: ${SIZES.join(", ")}px`);
+  const largest = rendered[rendered.length - 1];
+  fs.writeFileSync(OUT_PNG, Buffer.from(largest.png, "base64"));
+  console.log(`${path.relative(root, OUT_PNG)}: ${largest.size}px`);
 })();

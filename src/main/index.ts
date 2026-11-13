@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
+import iconIco from "../../build/icon.ico?asset";
+import iconPng from "../../build/icon.png?asset";
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
 import {
   type CliJobResult,
@@ -86,6 +88,9 @@ function createWindow(opts: { show: boolean; query?: Record<string, string> }): 
     minHeight: 560,
     show: opts.show,
     title: "StepCut",
+    // タイトルバー・タスクバーのアイコン。Windows は exe と同じ ICO(小さい大きさの絵を持つ)、ほかは 256px の PNG。
+    // 元は assets/logo/、作り方は docs/decisions/20261112-logo.md
+    icon: process.platform === "win32" ? iconIco : iconPng,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
