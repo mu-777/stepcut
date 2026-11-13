@@ -1526,6 +1526,39 @@ function fakeVoicevox() {
       (await page.locator(".settings-dialog .dir-row").count()) === 1,
     "ヘッダーの「設定」でアプリの設定(言語・プロジェクトの保存先)を開く",
   );
+  // 左のメニューで区分を切り替える(何も指定せずに開くと「一般」)
+  {
+    const tabs = page.locator(".settings-nav [role=tab]");
+    const panel = page.locator(".settings-panel");
+    check(
+      (await tabs.count()) === 3 && (await panel.getAttribute("data-section")) === "general",
+      "アプリの設定は左に 3 つの区分のメニューがあり、「一般」から開く",
+    );
+    await shot(page, "22-settings-general");
+    await tabs.nth(1).click();
+    await page.waitForTimeout(100);
+    check(
+      (await panel.getAttribute("data-section")) === "engines" &&
+        (await page.locator(".settings-dialog .engine-block").count()) === 2 &&
+        (await page.locator(".settings-dialog .dir-row").count()) === 0,
+      "メニューで「読み上げエンジン」を選ぶとその区分だけを出す",
+    );
+    await shot(page, "23-settings-engines");
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(100);
+    check(
+      (await panel.getAttribute("data-section")) === "shortcuts" &&
+        (await page.locator(".settings-dialog .keys-table").count()) === 1,
+      "メニューで下キーを押すと次の区分(キー操作)に移る",
+    );
+    await shot(page, "24-settings-keys");
+    const box = await page.locator(".settings-dialog").boundingBox();
+    const pbox = await panel.boundingBox();
+    check(
+      box && pbox && pbox.y + pbox.height <= box.y + box.height,
+      "キー操作の表が長くても、ダイアログの中で右側だけがスクロールする",
+    );
+  }
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
   check((await page.locator(".settings-dialog").count()) === 0, "Esc でアプリの設定を閉じる");
@@ -1603,6 +1636,10 @@ function fakeVoicevox() {
     await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/i }).click();
     await page.getByRole("button", { name: /Change keys|キー操作を変更/ }).click();
     await page.waitForTimeout(200);
+    check(
+      (await page.locator(".settings-panel").getAttribute("data-section")) === "shortcuts",
+      "キー操作の一覧の「キー操作を変更…」でアプリの設定をキー操作の区分で開く",
+    );
     const splitKey = page.getByRole("button", {
       name: /^(Split the step at the playhead|再生位置でステップを分割): /,
     });
@@ -1719,6 +1756,10 @@ function fakeVoicevox() {
     );
     await page.getByRole("button", { name: /Speech engine settings|読み上げエンジンの設定/ }).click();
     await page.waitForTimeout(200);
+    check(
+      (await page.locator(".settings-panel").getAttribute("data-section")) === "engines",
+      "読み上げの「読み上げエンジンの設定…」でアプリの設定を読み上げエンジンの区分で開く",
+    );
     let confirmText = "";
     page.once("dialog", (d) => {
       confirmText = d.message();

@@ -1735,8 +1735,62 @@ button.icon.play {
 }
 
 /* アプリの設定 */
-.settings-dialog {
-  width: min(460px, calc(100vw - 32px));
+/* アプリの設定: 左に区分のメニュー、右に選んだ区分の中身。高さは固定して右だけスクロールする */
+.dialog.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100vw - 32px));
+  max-width: none;
+  height: min(560px, calc(100vh - 32px));
+  overflow: hidden;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 140px;
+  gap: 2px;
+  padding-right: 8px;
+  border-right: 1px solid var(--line);
+}
+
+.settings-tab {
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* 一般のボタンのホバーの枠(button:hover)は出さず、背景だけで示す */
+.settings-tab:hover:not(:disabled) {
+  background: var(--panel);
+  border-color: transparent;
+}
+
+.settings-tab[aria-selected="true"],
+.settings-tab[aria-selected="true"]:hover:not(:disabled) {
+  background: var(--panel);
+  border-color: var(--line);
+  font-weight: 600;
+}
+
+.settings-panel {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.settings-panel h4 {
+  margin: 0 0 8px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .dir-row {
@@ -2167,9 +2221,6 @@ button.obj-group-title.toggle {
 }
 
 /* アプリの設定: キー操作の割り当て */
-.keys-section {
-  margin-top: 12px;
-}
 
 .keys-table td {
   vertical-align: middle;
@@ -2192,10 +2243,6 @@ button.obj-group-title.toggle {
 }
 
 /* アプリの設定の読み上げエンジン */
-.engine-settings {
-  margin-top: 12px;
-}
-
 .engine-block {
   border: 1px solid var(--line);
   border-radius: 6px;
