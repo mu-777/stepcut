@@ -6,7 +6,7 @@ export function Field({ label, children, title }: { label: string; children: Rea
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: 入力欄は children として label の中に入る
     <label className="field" title={title}>
-      <span>{label}</span>
+      <span className="field-title">{label}</span>
       {children}
     </label>
   );
@@ -139,7 +139,7 @@ export function SegField<T extends string>(props: {
 }) {
   return (
     <div className="field" title={props.title}>
-      <span>{props.label}</span>
+      <span className="field-title">{props.label}</span>
       <div className="seg seg-field">
         {props.options.map((o) => (
           <button

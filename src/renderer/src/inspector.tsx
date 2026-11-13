@@ -1578,7 +1578,7 @@ function DictionaryField(props: { value: Dict; onChange: (d: Dict) => void }) {
   };
   return (
     <div className="field dict-field">
-      <span>{t("dictionary")}</span>
+      <span className="field-title">{t("dictionary")}</span>
       {rows.length > 0 && (
         <div className="dict-grid">
           <span className="dict-head">{t("dictWord")}</span>

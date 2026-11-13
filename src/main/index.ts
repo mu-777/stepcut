@@ -32,6 +32,7 @@ import { createAzureEngine } from "./tts/azure-engine";
 import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 import { createVoicevoxEngine } from "./tts/voicevox-engine";
+import { stepUiZoom, type UiZoomCommand, uiZoomCommand } from "./ui-zoom";
 
 const PROJECT_FILTER = { name: "StepCut Project", extensions: ["json"] };
 
@@ -124,6 +125,34 @@ function lockNavigation(win: BrowserWindow): void {
   win.webContents.on("will-attach-webview", (e) => e.preventDefault());
 }
 
+/** 画面全体の表示の大きさを変えて覚える(メインのウィンドウだけ。書き出し用の隠れたウィンドウには当てない) */
+async function applyUiZoom(cmd: UiZoomCommand): Promise<void> {
+  const win = mainWindow;
+  if (!win) return;
+  const cur = (await loadSettings()).uiZoom;
+  const next = cmd === "reset" ? 1 : stepUiZoom(cur, cmd === "in" ? 1 : -1);
+  win.webContents.setZoomFactor(next);
+  if (next !== cur) await saveSettings({ uiZoom: next });
+}
+
+/**
+ * 表示の大きさのキーを受ける。メニューの accelerator は配列によって「+」が届かないので、キーの押下を直接見る。
+ * 読み込み直したときは覚えた倍率を当て直す
+ */
+function setupUiZoom(win: BrowserWindow): void {
+  win.webContents.on("before-input-event", (e, input) => {
+    const cmd = uiZoomCommand(input);
+    if (!cmd) return;
+    e.preventDefault();
+    void applyUiZoom(cmd);
+  });
+  win.webContents.on("did-finish-load", () => {
+    void loadSettings().then((s) => {
+      if (!win.isDestroyed()) win.webContents.setZoomFactor(s.uiZoom);
+    });
+  });
+}
+
 function sendMenu(command: string) {
   return () => mainWindow?.webContents.send("menu", command);
 }
@@ -159,7 +188,36 @@ function buildMenu(): void {
         { role: "selectAll" },
       ],
     },
-    { role: "viewMenu" },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        // キーは setupUiZoom が受ける(ここは表示だけ。registerAccelerator: false)
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+Plus",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("in"),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("out"),
+        },
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("reset"),
+        },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
     {
       role: "help",
       submenu: [{ label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", click: sendMenu("shortcuts") }],
@@ -426,6 +484,7 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   mainWindow = createWindow({ show: true });
+  setupUiZoom(mainWindow);
   // メニューバーは出さない(操作は画面のヘッダーにある)。メニューは残し、Ctrl+S などのキーとコピー・貼り付けに使う
   if (process.platform !== "darwin") mainWindow.setMenuBarVisibility(false);
   mainWindow.on("close", (e) => {
