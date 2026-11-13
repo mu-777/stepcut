@@ -47,6 +47,7 @@ export function EngineSettings(props: {
 
   return (
     <div className="engine-settings">
+      <p className="field-label">{t("speechEngines")}</p>
       <p className="hint">{t("speechEnginesHint")}</p>
 
       <div className="engine-block" data-engine="voicevox">

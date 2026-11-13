@@ -1787,6 +1787,21 @@ button.icon.play {
   padding-right: 4px;
 }
 
+.update-field,
+.tts-cache-field {
+  margin-top: 12px;
+}
+
+.update-field .row,
+.tts-cache-field .row {
+  align-items: center;
+  gap: 8px;
+}
+
+.tts-cache-usage {
+  flex: 1;
+}
+
 .settings-panel h4 {
   margin: 0 0 8px;
   padding-top: 0;

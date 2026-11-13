@@ -1,9 +1,9 @@
 // アプリの設定(プロジェクトによらない)。左のメニューで区分(一般 / 読み上げ / キー操作)を切り替える。変えたらすぐ保存する。
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
-import type { AppSettings, SettingsPatch } from "../../shared/api";
+import type { AppSettings, SettingsPatch, TtsCacheInfo, UpdateCheckResult } from "../../shared/api";
 import { api } from "./api";
 import { EngineSettings } from "./engine-settings";
-import { Field, SegField } from "./fields";
+import { CheckField, Field, SegField } from "./fields";
 import { setLanguage, t } from "./i18n";
 import {
   comboLabel,
@@ -20,7 +20,7 @@ import {
 /** 左のメニューの区分。並びはメニューの上から */
 const SECTIONS = [
   { id: "general", label: "settingsGeneral" },
-  { id: "engines", label: "speechEngines" },
+  { id: "engines", label: "settingsSpeech" },
   { id: "shortcuts", label: "keyBindings" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -193,10 +193,17 @@ export function SettingsDialog(props: {
                   )}
                 </div>
                 <p className="hint">{t("projectDirHint")}</p>
+                <UpdateField
+                  value={settings.checkUpdates}
+                  onChange={(v) => void change({ checkUpdates: v })}
+                />
               </>
             )}
             {settings && section === "engines" && (
-              <EngineSettings settings={settings} onChange={change} onSettings={setSettings} />
+              <>
+                <EngineSettings settings={settings} onChange={change} onSettings={setSettings} />
+                <TtsCacheField />
+              </>
             )}
             {settings && section === "shortcuts" && (
               <div className="keys-section">
@@ -327,5 +334,80 @@ function UiZoomField(props: { value: number; onChange: (v: number) => void }) {
       </div>
       <p className="hint">{t("uiZoomHint")}</p>
     </>
+  );
+}
+
+/** 起動時に新しい版を確認するか(既定オン)と、今すぐ確認するボタン */
+function UpdateField(props: { value: boolean; onChange: (v: boolean) => void }) {
+  const [result, setResult] = useState<UpdateCheckResult | "checking" | null>(null);
+  return (
+    <div className="update-field">
+      <p className="field-label">{t("updateSection")}</p>
+      <CheckField label={t("checkUpdates")} value={props.value} onChange={props.onChange} />
+      <p className="hint">{t("checkUpdatesHint")}</p>
+      <div className="row">
+        <button
+          type="button"
+          className="small"
+          disabled={result === "checking"}
+          onClick={async () => {
+            setResult("checking");
+            setResult(await api.checkUpdate());
+          }}
+        >
+          {t("checkUpdateNow")}
+        </button>
+        {result && (
+          <span
+            className={`hint update-result${result !== "checking" && result.status === "error" ? " warn" : ""}`}
+          >
+            {result === "checking"
+              ? t("updateChecking")
+              : result.status === "latest"
+                ? `${t("updateLatest")} (v${result.current})`
+                : result.status === "available"
+                  ? `${t("updateAvailable")}: v${result.version} (${t("currentVersion")} v${result.current})`
+                  : `${t("updateError")} (${result.message})`}
+          </span>
+        )}
+        {result && result !== "checking" && result.status === "available" && (
+          <button type="button" className="small" onClick={() => void api.openExternal(result.url)}>
+            {t("openDownloadPage")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const fmtMB = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+
+/** 読み上げのキャッシュの使用量と、消すボタン(消す前に確認する。Azure は作り直しに料金がかかる) */
+function TtsCacheField() {
+  const [info, setInfo] = useState<TtsCacheInfo | null>(null);
+  useEffect(() => {
+    void api.ttsCacheInfo().then(setInfo);
+  }, []);
+  return (
+    <div className="tts-cache-field">
+      <p className="field-label">{t("ttsCache")}</p>
+      <div className="row">
+        <span className="tts-cache-usage">
+          {info ? `${fmtMB(info.bytes)} / ${t("ttsCacheLimit")} ${fmtMB(info.limitBytes)}` : "…"}
+        </span>
+        <button
+          type="button"
+          className="small"
+          disabled={!info || info.bytes === 0}
+          onClick={async () => {
+            if (!window.confirm(t("ttsCacheConfirm"))) return;
+            setInfo(await api.ttsClearCache());
+          }}
+        >
+          {t("ttsCacheClear")}
+        </button>
+      </div>
+      <p className="hint">{t("ttsCacheHint")}</p>
+    </div>
   );
 }
