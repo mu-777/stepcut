@@ -131,8 +131,9 @@ async function applyUiZoom(cmd: UiZoomCommand): Promise<void> {
   if (!win) return;
   const cur = (await loadSettings()).uiZoom;
   const next = cmd === "reset" ? 1 : stepUiZoom(cur, cmd === "in" ? 1 : -1);
-  win.webContents.setZoomFactor(next);
+  // 先に覚えてから当てる(倍率が変わると画面の resize が起き、開いているアプリの設定が読み直すため)
   if (next !== cur) await saveSettings({ uiZoom: next });
+  if (!win.isDestroyed()) win.webContents.setZoomFactor(next);
 }
 
 /**
@@ -242,7 +243,11 @@ function registerIpc(): void {
   ipcMain.handle("settings:set", async (_e, patch: SettingsPatch) => {
     // 起動する実行ファイルは、ファイル選択で選んだものか今の設定のものだけ
     acl.assertExe(patch?.engines?.voicevox?.exePath, (await loadSettings()).engines.voicevox.exePath);
-    return saveSettings(patch);
+    const saved = await saveSettings(patch);
+    // アプリの設定で数字を入れたときは、すぐ画面に当てる
+    if (patch?.uiZoom !== undefined && mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.setZoomFactor(saved.uiZoom);
+    return saved;
   });
   ipcMain.handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
   ipcMain.handle("dialog:pick-exe", async () => {

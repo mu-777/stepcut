@@ -19,14 +19,21 @@ describe("ui zoom", () => {
     expect(stepUiZoom(1, -1)).toBe(0.9);
     expect(stepUiZoom(2, 1)).toBe(2);
     expect(stepUiZoom(0.8, -1)).toBe(0.8);
-    // 段にない値は等倍から動かす
-    expect(stepUiZoom(1.3, 1)).toBe(1.1);
+    // 段にない値(数字で入れた値)からは、その向きのいちばん近い段へ
+    expect(stepUiZoom(1.3, 1)).toBe(1.5);
+    expect(stepUiZoom(1.3, -1)).toBe(1.25);
+    expect(stepUiZoom(3, -1)).toBe(2);
+    expect(stepUiZoom(3, 1)).toBe(3);
+    expect(stepUiZoom(0.5, 1)).toBe(0.8);
   });
 
-  it("reads only known steps from the settings file", () => {
+  it("rounds to 1% and clamps typed values to 50-300%", () => {
     expect(sanitizeUiZoom(1.25)).toBe(1.25);
-    expect(sanitizeUiZoom(1.3)).toBe(1);
+    expect(sanitizeUiZoom(1.333)).toBe(1.33);
+    expect(sanitizeUiZoom(0.1)).toBe(0.5);
+    expect(sanitizeUiZoom(9)).toBe(3);
     expect(sanitizeUiZoom("1.25")).toBe(1);
+    expect(sanitizeUiZoom(Number.NaN)).toBe(1);
     expect(sanitizeUiZoom(undefined)).toBe(1);
   });
 

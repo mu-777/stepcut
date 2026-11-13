@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppSettings, SettingsPatch } from "../../shared/api";
 import { api } from "./api";
 import { EngineSettings } from "./engine-settings";
-import { SegField } from "./fields";
+import { Field, SegField } from "./fields";
 import { setLanguage, t } from "./i18n";
 import {
   comboLabel,
@@ -36,6 +36,10 @@ export function SettingsDialog(props: {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   useEffect(() => {
     void api.getSettings().then(setSettings);
+    // 開いている間に Ctrl+プラス/マイナスで表示の大きさを変えたら(画面の大きさが変わる)、出している値を読み直す
+    const onResize = () => void api.getSettings().then(setSettings);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
   useEffect(() => {
     if (settings && props.focus === "shortcuts") keysRef.current?.scrollIntoView({ block: "start" });
@@ -112,6 +116,7 @@ export function SettingsDialog(props: {
               ]}
               onChange={(v) => void change({ language: v })}
             />
+            <UiZoomField value={settings.uiZoom} onChange={(v) => void change({ uiZoom: v })} />
             <p className="field-label">{t("projectDir")}</p>
             <div className="dir-row">
               <span className="dir-path" title={settings.projectDir ?? ""}>
@@ -209,5 +214,61 @@ export function SettingsDialog(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 画面全体の表示の大きさ(%)。打っている間は当てず、Enter か欄を離れたときに当てる(打ちかけの「1」で 50% に縮まないように)。
+ * 範囲の外は 50〜300% に収める(メインでも収める)
+ */
+function UiZoomField(props: { value: number; onChange: (v: number) => void }) {
+  const shown = String(Math.round(props.value * 100));
+  const [text, setText] = useState(shown);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(shown);
+  }, [shown]);
+  const commit = () => {
+    const n = Number(text);
+    if (text.trim() === "" || !Number.isFinite(n) || n <= 0) {
+      setText(shown);
+      return;
+    }
+    // 範囲の外は 50〜300 に収めて欄にも出す(フォーカスがあるままでも直す)
+    const pct = Math.min(300, Math.max(50, Math.round(n)));
+    setText(String(pct));
+    if (pct !== Math.round(props.value * 100)) props.onChange(pct / 100);
+  };
+  return (
+    <>
+      <div className="row ui-zoom-row">
+        <Field label={t("uiZoom")}>
+          <input
+            type="number"
+            min={50}
+            max={300}
+            step={10}
+            value={text}
+            onFocus={() => {
+              focused.current = true;
+            }}
+            onBlur={() => {
+              focused.current = false;
+              commit();
+            }}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+            }}
+          />
+        </Field>
+        {props.value !== 1 && (
+          <button type="button" className="small" onClick={() => props.onChange(1)}>
+            {t("resetDefault")}
+          </button>
+        )}
+      </div>
+      <p className="hint">{t("uiZoomHint")}</p>
+    </>
   );
 }

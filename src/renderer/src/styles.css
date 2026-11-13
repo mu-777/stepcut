@@ -686,6 +686,11 @@ h4 {
   flex: 1;
 }
 
+/* アプリの設定の表示の大きさ(%): 数字だけなので幅を詰める */
+.ui-zoom-row > .field {
+  flex: 0 0 140px;
+}
+
 .center {
   display: grid;
   min-width: 0;

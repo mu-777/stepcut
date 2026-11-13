@@ -251,6 +251,9 @@ const en = {
   notSavedYet: "Not saved yet",
   language: "Language",
   languageAuto: "Same as the OS",
+  uiZoom: "Screen size (%)",
+  uiZoomHint:
+    "50–300%. Ctrl+Plus / Ctrl+Minus also change it in steps, and Ctrl+0 returns to 100%. Exported videos are not affected.",
   projectDir: "Project folder",
   projectDirDefault: "(OS default)",
   projectDirHint: "Where new projects are saved first, and where Open starts.",
@@ -667,6 +670,9 @@ const ja: typeof en = {
   notSavedYet: "まだ保存していません",
   language: "言語",
   languageAuto: "OS に合わせる",
+  uiZoom: "表示の大きさ(%)",
+  uiZoomHint:
+    "50〜300%。Ctrl+プラス / Ctrl+マイナスでも段階で変えられ、Ctrl+0 で 100% に戻ります。書き出す映像には効きません。",
   projectDir: "プロジェクトの保存先",
   projectDirDefault: "(OS の既定)",
   projectDirHint: "新しいプロジェクトを保存するときと、プロジェクトを開くときに最初に出すフォルダー。",
