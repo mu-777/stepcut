@@ -371,6 +371,13 @@ textarea {
     gap: 2px;
     font-size: 11px;
   }
+  .step-rail:not(.empty) .rail-add {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .step-rail:not(.empty) .rail-add-label {
+    font-size: 11px;
+  }
   .rail-pic {
     width: 100%;
   }
@@ -406,6 +413,21 @@ textarea {
   border-style: dashed;
   color: var(--muted);
   background: transparent;
+}
+
+/* 録画があるときは「全体」と同じ高さ・並びにする(枠は点線のまま) */
+.step-rail:not(.empty) .rail-add {
+  box-sizing: border-box;
+  height: 46px;
+  flex-direction: row;
+  gap: 6px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.step-rail:not(.empty) .rail-add-plus {
+  font-size: 16px;
+  line-height: 1;
 }
 
 .rail-add:hover {

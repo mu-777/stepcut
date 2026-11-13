@@ -1649,6 +1649,9 @@ function fakeVoicevox() {
     check(
       (await page.locator(".tl-clip").count()) === 1 &&
         (await page.locator(".preview-empty-add").count()) === 0 &&
+        (await page.locator(".rail-add-label").count()) === 1 &&
+        Math.round((await page.locator(".rail-add").boundingBox()).height) ===
+          Math.round((await page.locator(".rail-project").boundingBox()).height) &&
         (await len.count()) === 1 &&
         (await len.inputValue()) === "3" &&
         (await page.getByLabel(/^(Speed|速度)/).count()) === 0,

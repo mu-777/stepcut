@@ -4,14 +4,14 @@
 2026-11-13
 
 ## ブランチ
-claude/recording-import-ui-gvkb9z(main 005e13b から。録画がないときのプレビューの追加ボタン。未マージ・PR なし)
+claude/recording-import-ui-gvkb9z(main 005e13b から。録画がないときのプレビューの追加ボタンと、サムネイル列の下端の追加ボタン。未マージ・PR なし)
 
 ## ゴール
 録画がないとき、プレビューの黒い所の中央に「録画・画像を追加…」のボタンを出し、ダブルクリック(確認つき)をやめる
 
 ## 現在地
 - 実装済み: preview.tsx の onAddSource と .preview-empty(HTML の重ね。書き出しに出ない)、App.tsx からダブルクリックと確認(addRecordingConfirm)を削除、i18n の addRecordingTypes
-- 押せるのはボタンだけ。サムネイル列の大きい「＋ 録画・画像」は残す。プレビューへのドロップは対象外
+- 押せるのはボタンだけ。サムネイル列の大きい「＋ 録画・画像」は残す。録画があるときの列の下端のボタンも「＋ 録画・画像」と書き、「全体」と同じ高さにした(枠は点線のまま)。プレビューへのドロップは対象外
 - 更新: 要件 LAY-10、決定 20261031-margin-layout.md、README、docs/manual-test.html、ui-smoke(項目追加・09-empty のスクショ)
 - 確認: npm run check、ui-smoke(全項目。最後の app.close() で止まるのは既知)、CLI 書き出し。未確認: Windows 実機の見た目
 
