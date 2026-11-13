@@ -1086,10 +1086,6 @@ export function App() {
   }, [playing]);
 
   /** 録画がないときの追加(プレビューのダブルクリック・ステップ一覧の案内)。確認してから追加する */
-  const confirmAddRecording = () => {
-    if (window.confirm(t("addRecordingConfirm"))) void actions.current.addSource?.();
-  };
-
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.querySelector(".center .preview")?.requestFullscreen();
@@ -1646,9 +1642,7 @@ ${t("renameTip")}`}
               }
               return false;
             }}
-            onEmptyDoubleClick={() => {
-              if (project.steps.length === 0) confirmAddRecording();
-            }}
+            onAddSource={project.steps.length === 0 ? () => void actions.current.addSource?.() : undefined}
             onContextLost={() => {
               thumbs.clear();
               backgrounds.clear();

@@ -111,7 +111,7 @@ export function StepRail(props: {
           );
         })}
       </ol>
-      {/* 録画がないときは「全体」より下を埋める大きなボタンにし、文字も添える */}
+      {/* 録画がないときは「全体」より下を埋める大きなボタン、あるときは「全体」と同じ形のボタン。どちらも文字を添える */}
       <button
         type="button"
         className="rail-add"
@@ -120,7 +120,7 @@ export function StepRail(props: {
         onClick={props.onAdd}
       >
         <span className="rail-add-plus">＋</span>
-        {empty && <span className="rail-add-label">{t("addRecordingShort")}</span>}
+        <span className="rail-add-label">{t("addRecordingShort")}</span>
       </button>
       {tipEntry && tip && (
         <div className="rail-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>

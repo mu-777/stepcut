@@ -1544,6 +1544,38 @@ function fakeVoicevox() {
       /Project|全体/.test(await panelTitle()),
     "録画がないときは ＋ を列いっぱいに広げて「録画を追加」を添え、設定パネルは全体の設定",
   );
+  // プレビューの録画を置く場所の中央に「録画・画像を追加」のボタンを出す(押すとファイルの選択。ここでは取り消す)
+  {
+    const emptyAdd = page.locator(".preview-empty-add");
+    const eb = await emptyAdd.boundingBox();
+    const sb = await page.locator(".preview-stage").boundingBox();
+    await app.evaluate(({ dialog }) => {
+      globalThis.__picked = 0;
+      dialog.showOpenDialog = async () => {
+        globalThis.__picked++;
+        return { canceled: true, filePaths: [] };
+      };
+    });
+    let confirmed = false;
+    const onDialog = (d) => {
+      confirmed = true;
+      void d.dismiss();
+    };
+    page.on("dialog", onDialog);
+    await emptyAdd.click();
+    await page.waitForTimeout(200);
+    page.off("dialog", onDialog);
+    const picked = await app.evaluate(() => globalThis.__picked);
+    check(
+      eb !== null &&
+        Math.abs(eb.x + eb.width / 2 - (sb.x + sb.width / 2)) < sb.width * 0.15 &&
+        picked === 1 &&
+        !confirmed &&
+        (await page.locator(".tl-clip").count()) === 0,
+      `録画がないときはプレビューの中央に「録画・画像を追加」を出し、押すと確認なしでファイルの選択を開く (選択 ${picked} 回)`,
+    );
+    await shot(page, "09-empty");
+  }
   // mp4 以外を列にドロップすると断る(ドロップを受け付けている)
   await page.evaluate(() => {
     const dt = new DataTransfer();
@@ -1616,6 +1648,10 @@ function fakeVoicevox() {
     const len = page.getByLabel(/^(Length \(s\)|長さ\(秒\))$/);
     check(
       (await page.locator(".tl-clip").count()) === 1 &&
+        (await page.locator(".preview-empty-add").count()) === 0 &&
+        (await page.locator(".rail-add-label").count()) === 1 &&
+        Math.round((await page.locator(".rail-add").boundingBox()).height) ===
+          Math.round((await page.locator(".rail-project").boundingBox()).height) &&
         (await len.count()) === 1 &&
         (await len.inputValue()) === "3" &&
         (await page.getByLabel(/^(Speed|速度)/).count()) === 0,

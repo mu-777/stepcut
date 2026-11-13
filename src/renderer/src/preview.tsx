@@ -79,8 +79,8 @@ export function Preview(props: {
   onCaptionWidth: (width: number, key: string) => void;
   /** テロップを選んでいる(幅の取っ手を出す) */
   captionSelected: boolean;
-  /** 録画を置く場所をダブルクリックした */
-  onEmptyDoubleClick: () => void;
+  /** 録画がないとき、録画を置く場所の中央に出す「録画・画像を追加」のボタンを押した。渡さなければ出さない */
+  onAddSource?: () => void;
   /** 描画の GPU コンテキストが失われた(用意した画像を作り直す) */
   onContextLost: () => void;
   /** 選んだオブジェクトの取っ手(ステージの大きさを渡して作る) */
@@ -499,12 +499,6 @@ export function Preview(props: {
             const v = videoBox;
             props.onVideoClick(p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h);
           }}
-          onDoubleClick={(e) => {
-            if (d) return;
-            const p = toStage(e, e.currentTarget);
-            const v = videoBox;
-            if (p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h) props.onEmptyDoubleClick();
-          }}
           onContextMenu={(e) => {
             e.preventDefault();
             const p = toStage(e, e.currentTarget);
@@ -515,6 +509,23 @@ export function Preview(props: {
           {captionHandle}
           {!d && !props.videoEdit && props.objects?.(size)}
           {editor}
+          {props.onAddSource && (
+            // 録画がないときの案内。HTML で重ねるので書き出しには出ない。ステージのクリック処理へは流さない
+            <div
+              className="preview-empty"
+              style={{ left: videoBox.x, top: videoBox.y, width: videoBox.w, height: videoBox.h }}
+            >
+              <button
+                type="button"
+                className="preview-empty-add"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={props.onAddSource}
+              >
+                <span className="preview-empty-label">{t("addRecording")}</span>
+                <span className="preview-empty-hint">{t("addRecordingTypes")}</span>
+              </button>
+            </div>
+          )}
           {captionGuides.x !== null && <div className="guide v" style={{ left: captionGuides.x }} />}
           {captionGuides.y !== null && <div className="guide h" style={{ top: captionGuides.y }} />}
         </div>
