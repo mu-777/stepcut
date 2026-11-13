@@ -41,6 +41,8 @@ export interface AppSettings {
   shortcuts: Record<string, string>;
   /** ユーザーが有効にする読み上げエンジン */
   engines: SpeechEngineSettings;
+  /** 画面全体の表示の大きさ(1 = 等倍、0.5〜3)。Ctrl+プラス / Ctrl+マイナス / Ctrl+0 か、アプリの設定の数字で変える */
+  uiZoom: number;
 }
 
 /**
@@ -88,6 +90,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   projectDir: null,
   shortcuts: {},
   engines: DEFAULT_ENGINE_SETTINGS,
+  uiZoom: 1,
 };
 
 /** 設定の変更。エンジンの設定は項目ごとに書き足す(hasKey は鍵の保存・削除で変わる) */

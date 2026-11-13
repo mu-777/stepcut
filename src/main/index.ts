@@ -32,6 +32,7 @@ import { createAzureEngine } from "./tts/azure-engine";
 import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 import { createVoicevoxEngine } from "./tts/voicevox-engine";
+import { stepUiZoom, type UiZoomCommand, uiZoomCommand } from "./ui-zoom";
 
 const PROJECT_FILTER = { name: "StepCut Project", extensions: ["json"] };
 
@@ -124,6 +125,35 @@ function lockNavigation(win: BrowserWindow): void {
   win.webContents.on("will-attach-webview", (e) => e.preventDefault());
 }
 
+/** 画面全体の表示の大きさを変えて覚える(メインのウィンドウだけ。書き出し用の隠れたウィンドウには当てない) */
+async function applyUiZoom(cmd: UiZoomCommand): Promise<void> {
+  const win = mainWindow;
+  if (!win) return;
+  const cur = (await loadSettings()).uiZoom;
+  const next = cmd === "reset" ? 1 : stepUiZoom(cur, cmd === "in" ? 1 : -1);
+  // 先に覚えてから当てる(倍率が変わると画面の resize が起き、開いているアプリの設定が読み直すため)
+  if (next !== cur) await saveSettings({ uiZoom: next });
+  if (!win.isDestroyed()) win.webContents.setZoomFactor(next);
+}
+
+/**
+ * 表示の大きさのキーを受ける。メニューの accelerator は配列によって「+」が届かないので、キーの押下を直接見る。
+ * 読み込み直したときは覚えた倍率を当て直す
+ */
+function setupUiZoom(win: BrowserWindow): void {
+  win.webContents.on("before-input-event", (e, input) => {
+    const cmd = uiZoomCommand(input);
+    if (!cmd) return;
+    e.preventDefault();
+    void applyUiZoom(cmd);
+  });
+  win.webContents.on("did-finish-load", () => {
+    void loadSettings().then((s) => {
+      if (!win.isDestroyed()) win.webContents.setZoomFactor(s.uiZoom);
+    });
+  });
+}
+
 function sendMenu(command: string) {
   return () => mainWindow?.webContents.send("menu", command);
 }
@@ -159,7 +189,36 @@ function buildMenu(): void {
         { role: "selectAll" },
       ],
     },
-    { role: "viewMenu" },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        // キーは setupUiZoom が受ける(ここは表示だけ。registerAccelerator: false)
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+Plus",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("in"),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("out"),
+        },
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          registerAccelerator: false,
+          click: () => void applyUiZoom("reset"),
+        },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
     {
       role: "help",
       submenu: [{ label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", click: sendMenu("shortcuts") }],
@@ -184,7 +243,11 @@ function registerIpc(): void {
   ipcMain.handle("settings:set", async (_e, patch: SettingsPatch) => {
     // 起動する実行ファイルは、ファイル選択で選んだものか今の設定のものだけ
     acl.assertExe(patch?.engines?.voicevox?.exePath, (await loadSettings()).engines.voicevox.exePath);
-    return saveSettings(patch);
+    const saved = await saveSettings(patch);
+    // アプリの設定で数字を入れたときは、すぐ画面に当てる
+    if (patch?.uiZoom !== undefined && mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.setZoomFactor(saved.uiZoom);
+    return saved;
   });
   ipcMain.handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
   ipcMain.handle("dialog:pick-exe", async () => {
@@ -426,6 +489,7 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   mainWindow = createWindow({ show: true });
+  setupUiZoom(mainWindow);
   // メニューバーは出さない(操作は画面のヘッダーにある)。メニューは残し、Ctrl+S などのキーとコピー・貼り付けに使う
   if (process.platform !== "darwin") mainWindow.setMenuBarVisibility(false);
   mainWindow.on("close", (e) => {

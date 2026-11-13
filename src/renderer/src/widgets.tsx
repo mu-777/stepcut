@@ -134,6 +134,7 @@ export function ShortcutsDialog(props: { onClose: () => void; onEdit: () => void
     ["Shift", "scShiftSeek"],
     ["Esc", "scEsc"],
     ["Ctrl+Wheel", "scWheel"],
+    ["Ctrl++ / Ctrl+- / Ctrl+0", "scUiZoom"],
     [t("middleDrag"), "scPan"],
   ];
   return (

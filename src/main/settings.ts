@@ -11,6 +11,7 @@ import {
   type SpeechEngineSettings,
 } from "../shared/api";
 import { writeAtomic } from "./project-files";
+import { sanitizeUiZoom } from "./ui-zoom";
 
 const file = () => path.join(app.getPath("userData"), "settings.json");
 let cache: AppSettings | null = null;
@@ -60,6 +61,7 @@ export async function loadSettings(): Promise<AppSettings> {
         Object.entries(obj(raw.shortcuts)).filter((e): e is [string, string] => typeof e[1] === "string"),
       ),
       engines: sanitizeEngines(raw.engines, !!secrets.azureKey),
+      uiZoom: sanitizeUiZoom(raw.uiZoom),
     };
   } catch {
     // ない・読めないときは既定値(壊れたファイルは次の保存で書き直す)
@@ -82,7 +84,12 @@ export async function saveSettings(patch: SettingsPatch): Promise<AppSettings> {
     voicevox: { ...cur.engines.voicevox, ...engines?.voicevox },
     azure: { ...cur.engines.azure, ...engines?.azure },
   };
-  return write({ ...cur, ...rest, engines: sanitizeEngines(merged, !!secrets.azureKey) });
+  return write({
+    ...cur,
+    ...rest,
+    engines: sanitizeEngines(merged, !!secrets.azureKey),
+    uiZoom: sanitizeUiZoom(rest.uiZoom ?? cur.uiZoom),
+  });
 }
 
 /** Azure AI Speech の鍵を保存する(null で消す)。暗号化できない環境では保存しない */

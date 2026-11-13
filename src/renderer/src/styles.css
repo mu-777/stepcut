@@ -8,7 +8,8 @@
   --accent: #4f8cff;
   --error: #ff6b6b;
   font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", "Hiragino Sans", system-ui, sans-serif;
-  font-size: 13px;
+  /* 文字の大きさは Windows の Fluent の段に合わせる: 本文・ボタン・入力欄 14px、見出し・補足は最小 12px */
+  font-size: 14px;
   color: var(--text);
   background: var(--bg);
 }
@@ -150,7 +151,7 @@ textarea {
   min-width: 32px;
   height: 30px;
   padding: 0 6px;
-  font-size: 12px;
+  font-size: 14px;
   background: transparent;
   border-color: transparent;
 }
@@ -655,12 +656,12 @@ h4.first {
 
 h3 {
   margin: 4px 0 8px;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 h4 {
   margin: 14px 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   border-top: 1px solid var(--line);
   padding-top: 8px;
@@ -683,6 +684,11 @@ h4 {
 
 .row > .field {
   flex: 1;
+}
+
+/* アプリの設定の表示の大きさ(%): 数字だけなので幅を詰める */
+.ui-zoom-row > .field {
+  flex: 0 0 140px;
 }
 
 .center {
@@ -1067,9 +1073,10 @@ button.icon.play {
   white-space: nowrap;
 }
 
-.field > span {
+/* 欄の見出し。.field > span で当てると、入力欄を包む span(フォント・声の選択欄など)まで小さくなるのでクラスで当てる */
+.field > .field-title {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .check {
@@ -1440,7 +1447,7 @@ button.icon.play {
 .field-label {
   margin: 4px 0 2px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .swatches {
@@ -1910,7 +1917,7 @@ button.icon.play {
 .obj-group-title {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1957,7 +1964,7 @@ button.obj-group-title.toggle {
 
 .color-value {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2152,7 +2159,7 @@ button.obj-group-title.toggle {
 
 .dict-head {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dict-field > button.small {
@@ -2181,7 +2188,7 @@ button.obj-group-title.toggle {
 .shortcut-table td.shortcut-sep {
   padding-top: 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* アプリの設定の読み上げエンジン */

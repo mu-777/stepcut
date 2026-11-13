@@ -70,6 +70,14 @@ export const RESERVED_KEYS = [
   "Ctrl+V",
   "Ctrl+A",
   "Ctrl+/",
+  // 画面全体の表示の大きさ(メインプロセスが受ける)
+  "Ctrl+=",
+  "Ctrl++",
+  "Ctrl+Shift++",
+  "Ctrl+Shift+=",
+  "Ctrl+;",
+  "Ctrl+-",
+  "Ctrl+0",
   "Escape",
 ];
 
