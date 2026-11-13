@@ -20,9 +20,12 @@ type Update = (fn: (p: Project) => Project, key?: string) => void;
 /** オブジェクトの種類ごとの、ステップの配列の名前 */
 export const OBJECT_FIELD = { pointer: "pointers", shape: "shapes" } as const;
 
-/** 「＋ オブジェクト」で足せるもの(蛍光ペンはポインターの見た目、画像は四角の中身で選ぶ) */
-export type NewObjectKind = "pointer" | "rect" | "arrow" | "text";
-export const NEW_OBJECT_KINDS: NewObjectKind[] = ["pointer", "rect", "arrow", "text"];
+/**
+ * 追加の操作で選べるもの。蛍光ペンと画像は近道で、データの種類は増やさない
+ * (蛍光ペン = 見た目を蛍光ペンにしたポインター、画像 = 画像を入れた四角)
+ */
+export type NewObjectKind = "pointer" | "highlighter" | "rect" | "arrow" | "text" | "image";
+export const NEW_OBJECT_KINDS: NewObjectKind[] = ["pointer", "highlighter", "rect", "arrow", "text", "image"];
 
 const KIND_LABEL = {
   pointer: "objPointer",
@@ -31,8 +34,19 @@ const KIND_LABEL = {
   text: "objText",
 } as const;
 
+const NEW_KIND_LABEL = {
+  ...KIND_LABEL,
+  highlighter: "pointerHighlighter",
+  image: "objImage",
+} as const;
+
 export function newKindLabel(k: NewObjectKind): string {
-  return t(KIND_LABEL[k]);
+  return t(NEW_KIND_LABEL[k]);
+}
+
+/** 追加の操作のツールチップ(「再生位置に〜を追加」) */
+export function newKindTip(k: NewObjectKind): string {
+  return k === "image" ? t("addImageTip") : t("addAtPlayheadTip").replace("{0}", newKindLabel(k));
 }
 
 const paren = (base: string, inner: string) => `${base}${t("parenOpen")}${inner}${t("parenClose")}`;
@@ -207,6 +221,12 @@ export function newObject(
   stepDuration: number,
   view: Rect,
   at?: { x: number; y: number },
+  opts: {
+    /** 全体の設定のポインターの見た目(ポインター・蛍光ペンの見た目を決める) */
+    sharedPointerPreset?: string;
+    /** 画像のときの画像(パスと大きさ) */
+    image?: { path: string; w: number; h: number };
+  } = {},
 ): { kind: ObjectKind; object: AnyObject } {
   const r = (n: number) => Math.round(n);
   const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -218,7 +238,7 @@ export function newObject(
   const cy = at?.y ?? view.y + view.h / 2;
   const vw = view.w;
   const vh = view.h;
-  if (kind === "pointer") {
+  if (kind === "pointer" || kind === "highlighter") {
     const move = Math.min(1, Math.max(0.1, (stepDuration - start) / 3));
     const p: Pointer = {
       mode: "line",
@@ -229,12 +249,29 @@ export function newObject(
       ],
       ...end,
     };
+    // 全体の設定の見た目が求めるものと違うときだけ、そのポインターの見た目を書く
+    const shared = opts.sharedPointerPreset ?? "arrow";
+    if (kind === "highlighter" && shared !== "highlighter") p.style = { preset: "highlighter" };
+    if (kind === "pointer" && shared === "highlighter") p.style = { preset: "arrow" };
     return { kind: "pointer", object: p };
   }
   const box = (w: number, h: number) => ({ x: r(cx - w / 2), y: r(cy - h / 2), w: r(w), h: r(h) });
   let s: Shape;
   if (kind === "rect") s = { type: "rect", start, ...end, rect: box(vw * 0.25, vh * 0.18) };
-  else if (kind === "arrow")
+  else if (kind === "image") {
+    // 画像の縦横比で、見えている範囲の幅 1/4・高さ 1/2 に収める
+    // 大きさが分からない(読めない)画像は四角の既定の大きさにする
+    const img = opts.image;
+    const sized = img && img.w > 0 && img.h > 0 ? img : null;
+    const k = sized ? Math.min((vw * 0.25) / sized.w, (vh * 0.5) / sized.h) : 0;
+    s = {
+      type: "rect",
+      start,
+      ...end,
+      rect: sized ? box(sized.w * k, sized.h * k) : box(vw * 0.25, vh * 0.18),
+      ...(img ? { image: img.path } : {}),
+    };
+  } else if (kind === "arrow")
     s = {
       type: "arrow",
       start,

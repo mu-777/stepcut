@@ -1,30 +1,29 @@
 # STATUS
 
 ## 更新
-2026-11-12
+2026-11-13
 
 ## ブランチ
-ccr-8e9e2e88-8odpdx(main 0012362 から。ロゴとアプリのアイコン、紹介ページ(LP)。未マージ・PR なし)
+ccr-2e407c70-ww3ohi(main f4058dd から。プレビューの下の追加の段。未マージ・PR なし)
 
 ## ゴール
-ロゴを決めてアプリのアイコンにし、紹介とダウンロードの LP を stepcut.mu-777.dev(Cloudflare Workers)に置く
+プレビューの下の帯を 2 段にし、上の段にテロップ・ズーム・オブジェクト 6 種(蛍光ペン・画像は近道)をアイコン + 名前で並べる
 
 ## 現在地
-- ロゴ: assets/logo/ の SVG と build/icon.ico(scripts/make-icon.cjs で生成、package.json の build.win.icon)。決定は docs/decisions/20261112-logo.md
-- LP: site/(静的 HTML + CSS、wrangler.toml は Custom Domain stepcut.mu-777.dev)。動画・画像は仮の絵(svg)。決定は docs/decisions/20261112-landing-page.md
-- 確認: npm run check、wrangler dev で表示(3 つの幅、横スクロール・コンソールエラーなし)、deploy --dry-run。src/ は変えていない。未確認: Windows でのアイコンの見え方、本番のデプロイ
+- 実装済み: 追加の段(App.tsx の AddButton・ADD_ICON、styles.css の .preview-add)、蛍光ペン・画像の近道(objects-ui.ts の newObject。右クリック・設定パネルにも出る)、再生中・枠の編集中は押せない、狭い幅ではアイコンだけ
+- 決定は docs/decisions/20261108-step-drilldown-ui.md(帯)と 20261109-objects.md(近道)を書き換え。要件 UI-01・README・manual-test も更新
+- 確認: npm run check、ui-smoke(全項目。最後の app.close() で止まるのは既知)、CLI 書き出し。未確認: Windows のフォントでの段の幅と見た目
 
 ## 次にやること
-- ユーザー: main にマージ後、Cloudflare の Workers & Pages でリポジトリを取り込む(Worker 名 stepcut-lp、ルート site、watch paths site/*。README の「紹介ページ」)。https://stepcut.mu-777.dev の表示を確認
-- ユーザー: デモ動画・スクリーンショットを用意(ヒーロー 1、Before/After 2、できること 6、使い方 3)。届いたら site/public/index.html の .media の中身を差し替える
-- リリースのワークフロー(別作業)ができたら、LP のダウンロードの先を releases/latest/download/ の固定名にする
-- main の残り: 設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、リポジトリ名、商標確認、docs/manual-test.html の実機確認、M2 の PRJ-03
+- ユーザー: 追加の段の見た目・アイコンの分かりやすさを確認。よければ PR → main にマージ
+- main の残り: 紹介ページの取り込みと画像の差し替え、リリースのワークフロー、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、リポジトリ名、商標確認、docs/manual-test.html の実機確認、M2 の PRJ-03
 
 ## 課題・ブロッカー
 - tts の単体テストが、初回の実行(変換のキャッシュなし)で 1 件落ちることがあった(再実行で通る。原因は未確認)
 - ui-smoke は全項目のあと、最後の app.close() で終わらないことがある(原因は未確認。項目はすべて通る)
 
 ## 未決事項
+- 仮決め: 追加の段の名前に ＋ を付けない、アイコンだけにする境目 500px、画像の近道の大きさ(見えている範囲の幅 1/4・高さ 1/2 に収める)、画像の四角も既定の赤い線が付く
 - ロゴ・名前の商標と類似は未確認。ステップの録画の選択欄: ファイル名だけにしてフルパスはツールチップか、画像付きの一覧か、触らないか
-- 保留(ユーザーが検討中): 初回の案内・チュートリアル。見送り: frame の複数時刻(--every)、録画の長さを返すコマンド。設定パネルの内部の表現(0〜1 など)と操作の見つけにくさ
-- 仮決め: 拡張子 .stepcut.json、プラグイン名 stepcut。以前から: 読み上げのキャッシュ 500MB ほか、移行の判定(#17)、CI で ui-smoke(#19)、T-02・U-01・U-04・T-03・T-04・T-08
+- 保留(ユーザーが検討中): 初回の案内・チュートリアル。見送り: frame の複数時刻(--every)、録画の長さを返すコマンド
+- 仮決め(以前から): 拡張子 .stepcut.json、プラグイン名 stepcut、読み上げのキャッシュ 500MB ほか、移行の判定(#17)、CI で ui-smoke(#19)、T-02・U-01・U-04・T-03・T-04・T-08

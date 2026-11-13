@@ -51,7 +51,7 @@ import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
 import { commit, type History, initHistory, redo, undo } from "./history";
 import { t } from "./i18n";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 import { ImageStore } from "./images";
 import {
   type FoldCommand,
@@ -71,6 +71,7 @@ import {
   NEW_OBJECT_KINDS,
   type NewObjectKind,
   newKindLabel,
+  newKindTip,
   newObject,
   objectMenu,
   patchObject,
@@ -853,22 +854,42 @@ export function App() {
   };
 
   /**
-   * オブジェクトを足して選ぶ。再生位置がそのステップにあればその時刻、なければステップの始まりに、
-   * いま見えている範囲の中央付近へ置く。画像はファイルを選んでから
-   */
-  /**
-   * オブジェクトを足す。at(出力のピクセル)を渡すとそこを中心に置く。録画の外なら、図形は画面に固定して置き、
-   * ポインター(録画の中にしか描けない)は録画の中央に置く
-   */
-  /**
-   * オブジェクトを足す。at はプレビュー上の点(出力のピクセル)、atTime を渡すとその時刻(全体)に作る
-   * (タイムラインの右クリック)。渡さなければ再生位置に作る
+   * オブジェクトを足して選ぶ。at(出力のピクセル)を渡すとそこを中心に、渡さなければいま見えている範囲の中央付近に置く。
+   * 録画の外なら、図形は画面に固定して置き、ポインター(録画の中にしか描けない)は録画の中央に置く。
+   * atTime(全体の時刻)を渡すとその時刻に作り(タイムラインの右クリック)、渡さなければ再生位置に作る。
+   * 画像は先にファイルを選ばせ、取り消したら何も作らない
    */
   const addObject = (
     kind: NewObjectKind,
     stepIndex?: number,
     at?: { x: number; y: number },
     atTime?: number,
+  ) => {
+    if (kind !== "image") {
+      placeObject(kind, stepIndex, at, atTime);
+      return;
+    }
+    playerRef.current?.stop();
+    void (async () => {
+      const path = await api.pickImage();
+      if (!path) return;
+      const img = await images.load(path, filePath);
+      placeObject(
+        kind,
+        stepIndex,
+        at,
+        atTime,
+        img ? { path, w: img.width, h: img.height } : { path, w: 0, h: 0 },
+      );
+    })();
+  };
+
+  const placeObject = (
+    kind: NewObjectKind,
+    stepIndex?: number,
+    at?: { x: number; y: number },
+    atTime?: number,
+    image?: { path: string; w: number; h: number },
   ) => {
     const place = atTime === undefined ? loc : locate(timeline, atTime);
     const i = stepIndex ?? place?.entry.index;
@@ -883,11 +904,12 @@ export function App() {
     playerRef.current?.stop();
     const b = g.box;
     const inVideo = at && at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h;
-    const screen = at && !inVideo && kind !== "pointer";
+    const screen = at && !inVideo && kind !== "pointer" && kind !== "highlighter";
     const sg = screenGeometry(out.width, out.height, g.video);
+    const opts = { sharedPointerPreset: project.styles?.pointer?.preset, image };
     const made = screen
-      ? newObject(kind, local, e.duration, sg.view, toSource(sg, at.x, at.y))
-      : newObject(kind, local, e.duration, g.view, inVideo ? toSource(g, at.x, at.y) : undefined);
+      ? newObject(kind, local, e.duration, sg.view, toSource(sg, at.x, at.y), opts)
+      : newObject(kind, local, e.duration, g.view, inVideo ? toSource(g, at.x, at.y) : undefined, opts);
     const object = screen ? { ...made.object, anchor: "screen" as const } : made.object;
     const r = insertObject(project, i, made.kind, object);
     update(() => r.project, "object-add");
@@ -927,14 +949,6 @@ export function App() {
     );
     patchObject(update, i, { kind: "shape", index }, () => next, "object-anchor");
   };
-
-  /** 「＋ オブジェクト」のメニュー */
-  const objectAddMenu = (x: number, y: number) =>
-    setMenu({
-      x,
-      y,
-      items: NEW_OBJECT_KINDS.map((k) => ({ label: newKindLabel(k), action: () => addObject(k) })),
-    });
 
   /**
    * プレビューの右クリック。オブジェクトの上ならその操作、再生ヘッドのステップに、クリックした点を中心にズーム(UI-05)・
@@ -1089,6 +1103,8 @@ export function App() {
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
+  /** プレビューの下の追加の段を押せないとき(再生中・枠の編集中・再生位置がない) */
+  const addDisabled = playing || !loc || drawingZoom !== null || selection.kind === "video";
   // 再生を始めた・再生位置が別のステップへ移ったなどでテロップが出なくなったら、文字の入力を終える
   const captionEditing = captionEdit !== null && captionStep !== null && loc?.entry.index === captionEdit;
   useEffect(() => {
@@ -1408,140 +1424,139 @@ ${t("renameTip")}`}
             onContextMenu={previewMenu}
             tools={
               <>
-                <div className="preview-tools-left">
-                  {(drawingZoom || ((selection.kind === "video" || boxObjectSelected) && !playing)) && (
-                    <div className="seg" title={withKey(t("anchorTip"), "anchor")}>
-                      {(["center", "corner"] as const).map((a) => (
-                        <button
-                          key={a}
-                          type="button"
-                          className={`small ${anchor === a ? "on" : ""}`}
-                          aria-pressed={anchor === a}
-                          onClick={() => setAnchor(a)}
-                        >
-                          {t(a === "center" ? "anchorCenter" : "anchorCorner")}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {drawingZoom &&
-                    (() => {
-                      const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
-                      const n = z?.keys.length ?? 0;
-                      const go = (i: number) => editZoomRect(drawingZoom.step, drawingZoom.zoom, i);
-                      return (
-                        <>
-                          {n > 1 && (
-                            <div className="seg">
-                              <button
-                                type="button"
-                                className="small"
-                                title={t("prevKey")}
-                                aria-label={t("prevKey")}
-                                disabled={drawingZoom.key <= 0}
-                                onClick={() => go(drawingZoom.key - 1)}
-                              >
-                                ◀
-                              </button>
-                              <span className="seg-label">
-                                {t("zoomKey")} {drawingZoom.key + 1}/{n}
-                              </span>
-                              <button
-                                type="button"
-                                className="small"
-                                title={t("nextKey")}
-                                aria-label={t("nextKey")}
-                                disabled={drawingZoom.key >= n - 1}
-                                onClick={() => go(drawingZoom.key + 1)}
-                              >
-                                ▶
-                              </button>
-                            </div>
-                          )}
-                          <button type="button" className="small" onClick={addZoomKeyAtPlayhead}>
-                            ＋ {t("addZoomKey")}
-                          </button>
-                          {n > 1 && (
-                            <button
-                              type="button"
-                              className={`small ${syncSize ? "on" : ""}`}
-                              aria-pressed={syncSize}
-                              title={t("syncSizeHint")}
-                              onClick={() => setSyncSize((v) => !v)}
-                            >
-                              {t("syncSize")}
-                            </button>
-                          )}
-                        </>
-                      );
-                    })()}
-                  {/* 基本の編集はプレビューで済ませる。ここから始め、細かい数値は右の設定パネルで直す */}
-                  {!drawingZoom && selection.kind !== "video" && !playing && loc && (
-                    <>
-                      <button
-                        type="button"
-                        className="small"
-                        title={t("quickCaptionTip")}
-                        disabled={captionStep === null}
-                        onClick={() => {
-                          setSelection({ kind: "caption", step: loc.entry.index });
-                          setCaptionEdit(loc.entry.index);
-                        }}
-                      >
-                        {t("quickCaption")}
-                      </button>
-                      <button
-                        type="button"
-                        className="small"
-                        title={t("quickZoomTip")}
-                        onClick={() => addZoomAtPlayhead()}
-                      >
-                        ＋ {t("quickZoom")}
-                      </button>
-                      <button
-                        type="button"
-                        className="small"
-                        title={t("quickObjectTip")}
-                        onClick={(e) => {
-                          const r = e.currentTarget.getBoundingClientRect();
-                          objectAddMenu(r.left, r.bottom + 2);
-                        }}
-                      >
-                        ＋ {t("quickObject")}
-                      </button>
-                    </>
-                  )}
+                {/* 追加の段。基本の編集はプレビューで済ませる。ここから始め、細かい数値は右の設定パネルで直す。
+                    使えないとき(再生中・枠の編集中)も消さずに押せなくし、帯の形を変えない */}
+                <div className="preview-add" role="toolbar" aria-label={t("addToolbar")}>
+                  <AddButton
+                    icon="addCaption"
+                    label={t("quickCaption")}
+                    title={t("quickCaptionTip")}
+                    disabled={addDisabled || captionStep === null}
+                    onClick={() => {
+                      if (!loc) return;
+                      setSelection({ kind: "caption", step: loc.entry.index });
+                      setCaptionEdit(loc.entry.index);
+                    }}
+                  />
+                  <AddButton
+                    icon="addZoom"
+                    label={t("quickZoom")}
+                    title={withKey(t("quickZoomTip"), "addZoom")}
+                    disabled={addDisabled}
+                    onClick={() => addZoomAtPlayhead()}
+                  />
+                  <span className="add-sep" aria-hidden="true" />
+                  {NEW_OBJECT_KINDS.map((k) => (
+                    <AddButton
+                      key={k}
+                      icon={ADD_ICON[k]}
+                      label={newKindLabel(k)}
+                      title={newKindTip(k)}
+                      disabled={addDisabled}
+                      onClick={() => addObject(k)}
+                    />
+                  ))}
                 </div>
-                <div className="preview-tools-right">
-                  {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
-                  <button
-                    type="button"
-                    className="small"
-                    title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
-                    aria-label={t("previewZoomOut")}
-                    disabled={viewZoom <= 1}
-                    onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
-                  >
-                    −
-                  </button>
-                  <button
-                    type="button"
-                    className="small zoom-pct"
-                    title={t("previewFit")}
-                    onClick={() => setViewZoom(1)}
-                  >
-                    {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
-                  </button>
-                  <button
-                    type="button"
-                    className="small"
-                    title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
-                    aria-label={t("previewZoomIn")}
-                    disabled={viewZoom >= 8}
-                    onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
-                  >
-                    +
-                  </button>
+                <div className="preview-status">
+                  <div className="preview-tools-left">
+                    {(drawingZoom || ((selection.kind === "video" || boxObjectSelected) && !playing)) && (
+                      <div className="seg" title={withKey(t("anchorTip"), "anchor")}>
+                        {(["center", "corner"] as const).map((a) => (
+                          <button
+                            key={a}
+                            type="button"
+                            className={`small ${anchor === a ? "on" : ""}`}
+                            aria-pressed={anchor === a}
+                            onClick={() => setAnchor(a)}
+                          >
+                            {t(a === "center" ? "anchorCenter" : "anchorCorner")}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {drawingZoom &&
+                      (() => {
+                        const z = project.steps[drawingZoom.step]?.zooms?.[drawingZoom.zoom];
+                        const n = z?.keys.length ?? 0;
+                        const go = (i: number) => editZoomRect(drawingZoom.step, drawingZoom.zoom, i);
+                        return (
+                          <>
+                            {n > 1 && (
+                              <div className="seg">
+                                <button
+                                  type="button"
+                                  className="small"
+                                  title={t("prevKey")}
+                                  aria-label={t("prevKey")}
+                                  disabled={drawingZoom.key <= 0}
+                                  onClick={() => go(drawingZoom.key - 1)}
+                                >
+                                  ◀
+                                </button>
+                                <span className="seg-label">
+                                  {t("zoomKey")} {drawingZoom.key + 1}/{n}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="small"
+                                  title={t("nextKey")}
+                                  aria-label={t("nextKey")}
+                                  disabled={drawingZoom.key >= n - 1}
+                                  onClick={() => go(drawingZoom.key + 1)}
+                                >
+                                  ▶
+                                </button>
+                              </div>
+                            )}
+                            <button type="button" className="small" onClick={addZoomKeyAtPlayhead}>
+                              ＋ {t("addZoomKey")}
+                            </button>
+                            {n > 1 && (
+                              <button
+                                type="button"
+                                className={`small ${syncSize ? "on" : ""}`}
+                                aria-pressed={syncSize}
+                                title={t("syncSizeHint")}
+                                onClick={() => setSyncSize((v) => !v)}
+                              >
+                                {t("syncSize")}
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
+                  </div>
+                  <div className="preview-tools-right">
+                    {/* プレビューの表示倍率(書き出しには影響しない)。% を押すと全体表示に戻る */}
+                    <button
+                      type="button"
+                      className="small"
+                      title={`${t("previewZoomOut")} (Ctrl+Wheel)`}
+                      aria-label={t("previewZoomOut")}
+                      disabled={viewZoom <= 1}
+                      onClick={() => setViewZoom((z) => Math.max(1, z / 1.25))}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      className="small zoom-pct"
+                      title={t("previewFit")}
+                      onClick={() => setViewZoom(1)}
+                    >
+                      {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+                    </button>
+                    <button
+                      type="button"
+                      className="small"
+                      title={`${t("previewZoomIn")} (Ctrl+Wheel)`}
+                      aria-label={t("previewZoomIn")}
+                      disabled={viewZoom >= 8}
+                      onClick={() => setViewZoom((z) => Math.min(8, z * 1.25))}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </>
             }
@@ -1920,5 +1935,38 @@ ${t("renameTip")}`}
         />
       )}
     </div>
+  );
+}
+
+/** 追加の段のアイコン */
+const ADD_ICON: Record<NewObjectKind, IconName> = {
+  pointer: "ptrArrow",
+  highlighter: "ptrHighlighter",
+  rect: "addRect",
+  arrow: "addArrow",
+  text: "addText",
+  image: "ptrImage",
+};
+
+/** 追加の段のボタン(アイコンの下に名前)。狭いときは名前を隠してアイコンだけにする(名前はツールチップに残る) */
+function AddButton(props: {
+  icon: IconName;
+  label: string;
+  title: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="add-button"
+      title={props.title}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      <Icon name={props.icon} />
+      <span className="add-label">{props.label}</span>
+    </button>
   );
 }

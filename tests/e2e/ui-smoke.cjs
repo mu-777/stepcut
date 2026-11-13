@@ -481,18 +481,24 @@ function fakeVoicevox() {
   await railDrag(220 - 122);
   check(await thumbs.first().locator(".rail-text").isVisible(), "広げるとサムネイルの横に文が戻る");
 
-  // プレビューの上の帯から、テロップの入力とズームの追加を始められる
+  // プレビューの下の追加の段から、テロップの入力とズームの追加を始められる
   await thumbs.nth(1).click();
   await page.keyboard.press("ArrowRight");
-  await page.getByRole("button", { name: /^(Caption|テロップ)$/ }).click();
+  await page
+    .locator(".preview-add")
+    .getByRole("button", { name: /^(Caption|テロップ)$/ })
+    .click();
   check((await page.locator(".caption-input").count()) === 1, "帯の「テロップ」でその場の入力を始める");
   await page.keyboard.press("Escape");
   const quickBefore = await page.locator(".tl-bar.zoom").count();
-  await page.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
+  await page
+    .locator(".preview-add")
+    .getByRole("button", { name: /^(Zoom|ズーム)$/ })
+    .click();
   check(
     (await page.locator(".tl-bar.zoom").count()) === quickBefore + 1 &&
       (await page.locator(".box-outline").count()) === 1,
-    "帯の「＋ ズーム」でズームを足し、範囲の編集を始める",
+    "帯の「ズーム」でズームを足し、範囲の編集を始める",
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
@@ -1010,16 +1016,16 @@ function fakeVoicevox() {
   await page.getByRole("button", { name: /^(Undo|元に戻す)$/ }).click();
   await page.waitForTimeout(100);
 
-  // オブジェクト: プレビューの下の「＋ オブジェクト」から足し、プレビュー上の取っ手で直す
+  // オブジェクト: プレビューの下の追加の段から足し、プレビュー上の取っ手で直す
   await thumbs.nth(1).click();
   await page.waitForTimeout(200);
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(300);
+  const addBar = page.locator(".preview-add");
   const addObject = async (name) => {
-    await page.getByRole("button", { name: /^＋ (Object|オブジェクト)$/ }).click();
-    await page.getByRole("menuitem", { name }).click();
+    await addBar.getByRole("button", { name }).click();
     await page.waitForTimeout(300);
   };
   const pixelAt = (pt) =>
@@ -1202,6 +1208,55 @@ function fakeVoicevox() {
       savedObj.highlights === undefined,
     "オブジェクトはステップの shapes・pointers に保存され、蛍光ペンはポインターの見た目になる",
   );
+
+  // 追加の段: テロップ・ズームとオブジェクト 6 種(蛍光ペン・画像は近道)が並び、再生中は押せない
+  check(
+    (await addBar.locator("button").count()) === 8 && (await addBar.locator("button:disabled").count()) === 0,
+    "プレビューの下の追加の段に 8 つのボタン(テロップ・ズーム・ポインター・蛍光ペン・四角・矢印・テキスト・画像)",
+  );
+  await page.locator(".transport button.play").click();
+  await page.waitForTimeout(300);
+  const disabledWhilePlaying = await addBar.locator("button:disabled").count();
+  await page.locator(".transport button.play").click();
+  await page.waitForTimeout(200);
+  check(disabledWhilePlaying === 8, `再生中は追加の段を消さずに押せなくする (${disabledWhilePlaying})`);
+  {
+    const undoBtn = page.getByRole("button", { name: /^(Undo|元に戻す)$/ });
+    const n0 = await page.locator(".tl-bar.object").count();
+    // 蛍光ペンの近道: 見た目を蛍光ペンにしたポインターを作る
+    await addObject(/^(Highlighter|蛍光ペン)$/);
+    check(
+      (await page.locator(".item-name", { hasText: /(Highlighter|蛍光ペン)/ }).count()) === 2 &&
+        (await objField(/^(Opacity|不透明度)$/).count()) === 1,
+      "「蛍光ペン」で、見た目が蛍光ペンのポインターを作る",
+    );
+    // 画像の近道: ファイルを選ぶと、画像の縦横比の四角を作る。取り消すと何も作らない
+    await app.evaluate(({ dialog }) => {
+      dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+    });
+    await addObject(/^(Image|画像)$/);
+    const afterCancel = await page.locator(".tl-bar.object").count();
+    await app.evaluate(({ dialog }, p) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+    }, img);
+    await addObject(/^(Image|画像)$/);
+    await page.waitForTimeout(300);
+    const ob = await page.locator(".object-layer .box-outline").boundingBox();
+    const w = Math.round(ob?.width ?? 0);
+    const h = Math.round(ob?.height ?? 1);
+    check(
+      afterCancel === n0 + 1 &&
+        (await page.locator(".tl-bar.object").count()) === n0 + 2 &&
+        (await page.locator(".item-name", { hasText: /(Image|画像)/ }).count()) === 1 &&
+        Math.abs(w / h - 640 / 360) < 0.05,
+      `「画像」はファイルを選んでから画像の縦横比の四角を作り、取り消すと作らない (${w}×${h})`,
+    );
+    await shot(page, "05c-add-bar");
+    await undoBtn.click();
+    await undoBtn.click();
+    await page.waitForTimeout(200);
+    check((await page.locator(".tl-bar.object").count()) === n0, "近道で作ったものも元に戻すで消える");
+  }
 
   // タイムラインの帯をクリックで選んでも再生位置は動かさない。ダブルクリックで始まりへ移す
   {
@@ -1857,7 +1912,10 @@ function fakeVoicevox() {
     const summary = () => r.w.locator(".fold-summary").first().textContent();
     check((await summary()) === "4.0s", `保持がなければ録画の長さ (${await summary()})`);
     await r.w.keyboard.press("ArrowRight");
-    await r.w.getByRole("button", { name: /^＋ (Zoom|ズーム)$/ }).click();
+    await r.w
+      .locator(".preview-add")
+      .getByRole("button", { name: /^(Zoom|ズーム)$/ })
+      .click();
     await r.w.keyboard.press("Escape");
     await r.w.waitForTimeout(300);
     const held = (await summary()) ?? "";
