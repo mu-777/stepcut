@@ -128,7 +128,9 @@
                 <span>映像</span>
                 <div><i class="v" style="width: 58%"></i><i class="h" style="width: 34%">自動で待つ</i></div>
                 <span>読み上げ</span>
-                <div><i class="a" style="width: calc(92% + 3px)"></i></div>
+                <div>
+                  <i class="a" style="width: calc(92% + 3px)"><svg viewBox="0 0 273 32" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8.5" width="3" height="15" rx="1.5" /><rect x="6" y="8.5" width="3" height="15" rx="1.5" /><rect x="12" y="4.5" width="3" height="23" rx="1.5" /><rect x="18" y="7.5" width="3" height="17" rx="1.5" /><rect x="24" y="4" width="3" height="24" rx="1.5" /><rect x="30" y="5.5" width="3" height="21" rx="1.5" /><rect x="36" y="7.5" width="3" height="17" rx="1.5" /><rect x="42" y="5.5" width="3" height="21" rx="1.5" /><rect x="48" y="9" width="3" height="14" rx="1.5" /><rect x="54" y="8" width="3" height="16" rx="1.5" /><rect x="60" y="11" width="3" height="10" rx="1.5" /><rect x="66" y="12" width="3" height="8" rx="1.5" /><rect x="72" y="11.5" width="3" height="9" rx="1.5" /><rect x="78" y="8.5" width="3" height="15" rx="1.5" /><rect x="84" y="10" width="3" height="12" rx="1.5" /><rect x="90" y="8.5" width="3" height="15" rx="1.5" /><rect x="96" y="5" width="3" height="22" rx="1.5" /><rect x="102" y="2" width="3" height="28" rx="1.5" /><rect x="108" y="4" width="3" height="24" rx="1.5" /><rect x="114" y="5" width="3" height="22" rx="1.5" /><rect x="120" y="1.5" width="3" height="29" rx="1.5" /><rect x="126" y="8" width="3" height="16" rx="1.5" /><rect x="132" y="4" width="3" height="24" rx="1.5" /><rect x="138" y="8.5" width="3" height="15" rx="1.5" /><rect x="144" y="10" width="3" height="12" rx="1.5" /><rect x="150" y="11.5" width="3" height="9" rx="1.5" /><rect x="156" y="12.5" width="3" height="7" rx="1.5" /><rect x="162" y="9.5" width="3" height="13" rx="1.5" /><rect x="168" y="10" width="3" height="12" rx="1.5" /><rect x="174" y="7" width="3" height="18" rx="1.5" /><rect x="180" y="5.5" width="3" height="21" rx="1.5" /><rect x="186" y="6" width="3" height="20" rx="1.5" /><rect x="192" y="4.5" width="3" height="23" rx="1.5" /><rect x="198" y="7.5" width="3" height="17" rx="1.5" /><rect x="204" y="7.5" width="3" height="17" rx="1.5" /><rect x="210" y="7" width="3" height="18" rx="1.5" /><rect x="216" y="4.5" width="3" height="23" rx="1.5" /><rect x="222" y="7" width="3" height="18" rx="1.5" /><rect x="228" y="9" width="3" height="14" rx="1.5" /><rect x="234" y="9.5" width="3" height="13" rx="1.5" /><rect x="240" y="11.5" width="3" height="9" rx="1.5" /><rect x="246" y="11.5" width="3" height="9" rx="1.5" /><rect x="252" y="8" width="3" height="16" rx="1.5" /><rect x="258" y="7" width="3" height="18" rx="1.5" /><rect x="264" y="8" width="3" height="16" rx="1.5" /><rect x="270" y="5" width="3" height="22" rx="1.5" /></svg></i>
+                </div>
               </div>
             </div>
             <div class="card">
@@ -136,16 +138,13 @@
               <p>
                 通しで録った 1 本から、使う区間をステップにします。ステップに入れなかった区間は、自動で省かれます。
               </p>
-              <div class="lanes" role="img" aria-label="1 本の録画を 3 つのステップに切り、間の区間は使わない図">
+              <div class="lanes" role="img" aria-label="1 本の録画のうち、3 つの区間をステップにし、間の区間は省く図">
                 <span>録画</span>
+                <div><i class="r" style="width: calc(96% + 12px)"></i></div>
+                <span>ステップ</span>
                 <div>
-                  <i class="v" style="width: 24%">1</i><i class="x" style="width: 12%"></i
+                  <i class="v" style="width: 24%">1</i><i class="x" style="width: 12%">省く</i
                   ><i class="v" style="width: 30%">2</i><i class="x" style="width: 8%"></i
-                  ><i class="v" style="width: 22%">3</i>
-                </div>
-                <span>動画</span>
-                <div>
-                  <i class="v" style="width: 24%">1</i><i class="v" style="width: 30%">2</i
                   ><i class="v" style="width: 22%">3</i>
                 </div>
               </div>
@@ -165,12 +164,12 @@
               width="1280"
               height="720"
               controls
-              muted
-              loop
               playsinline
-              preload="none"
+              preload="metadata"
               aria-label="StepCut の使い方の動画。録画を追加し、ステップに分け、テロップを書き、ズームを足して、書き出す"
-            ></video>
+            >
+              <track kind="captions" src="/media/howto.vtt" srclang="ja" label="日本語" />
+            </video>
           </div>
           <div class="flow">
             <div>

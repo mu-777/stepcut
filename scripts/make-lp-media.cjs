@@ -1,14 +1,17 @@
-// LP(site/)に載せる動画と画像を、StepCut 自身で作る。
-//   Linux:   xvfb-run -a node scripts/make-lp-media.cjs
+// LP(site/)に載せる動画と画像を、StepCut 自身で作る。手順と絵コンテは docs/lp-media.md。
+//   Linux:   xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/make-lp-media.cjs
 //   Windows: node scripts/make-lp-media.cjs
-// 前提: npm run build 済み、ffmpeg と Playwright がある。手順と絵コンテは docs/lp-media.md。
+//   使い方の動画だけ、手で直したプロジェクトから書き出し直す: 上のコマンドの最後に --howto-export
+// 前提: npm run build 済み、ffmpeg と Playwright がある。
+// 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。azure など)、LP_SPEECH_VOICE(声の ID)
 //
 // 1. 例の画面(site/media-src/sample-app.html)をブラウザで操作して録画する
 // 2. その録画に、テロップ・四角・ズーム・矢印・ポインターを付けたプロジェクト(.stepcut.json)を書く
 // 3. StepCut の CLI で mp4 に書き出す(ヒーロー用の全体、ズームだけ、矢印だけ)
 // 4. StepCut でそのプロジェクトを開いた画面を撮る
 // 5. StepCut を操作するところを録画し、その録画も StepCut で「使い方」の動画にする
-// 途中のファイルは test-output/lp-media/、できたものは site/public/media/ に置く。
+// 途中のファイルは test-output/lp-media/、使い方の動画のプロジェクトと録画は test-output/lp-howto/、
+// できたものは site/public/media/ に置く。
 const { chromium, _electron: electron } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -16,10 +19,11 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const work = path.join(root, "test-output", "lp-media");
+const howtoDir = path.join(root, "test-output", "lp-howto");
 const outDir = path.join(root, "site", "public", "media");
-fs.rmSync(work, { recursive: true, force: true });
-fs.mkdirSync(work, { recursive: true });
-fs.mkdirSync(outDir, { recursive: true });
+const howtoOnly = process.argv.includes("--howto-export");
+if (!howtoOnly) fs.rmSync(work, { recursive: true, force: true });
+for (const dir of [work, howtoDir, outDir]) fs.mkdirSync(dir, { recursive: true });
 
 const linux = process.platform === "linux";
 const electronBin = require(path.join(root, "node_modules/electron"));
@@ -58,7 +62,7 @@ async function record() {
   };
   await sleep(2500);
   await press("settings", "#nav-settings");
-  await sleep(3000);
+  await sleep(4500);
   await press("mail", "#mail");
   await sleep(3000);
   marks.row = { box: await page.locator(".row").first().boundingBox() };
@@ -151,62 +155,76 @@ function buildSteps(m) {
   ];
 }
 
+// 「できること」のズームの動画。ズームの前を長めに見せ、「メール通知」の行だけに寄る(枠の縦横比のまま映す)
+function buildZoomStep(m) {
+  const lead = 3;
+  const mail = center(m.mail.box);
+  const row = m.row.box;
+  const rect = {
+    x: Math.round(row.x - 20),
+    y: Math.round(row.y - 10),
+    w: Math.round(row.width + 40),
+    h: Math.round(row.height + 20),
+  };
+  return {
+    id: "turn-on-mail",
+    source: "rec",
+    in: round(m.mail.t - lead),
+    out: round(m.mail.t + 1.8),
+    caption: { text: "「メール通知」をオンにします" },
+    speech: {},
+    zooms: [{ start: 1.8, end: lead + 1.4, hold: false, keys: [{ t: 1.8, rect }] }],
+    pointers: [
+      {
+        mode: "line",
+        path: [
+          { t: 1.9, x: mail.x - 170, y: mail.y + 70 },
+          { t: lead - 0.1, x: mail.x, y: mail.y },
+        ],
+        click: true,
+        enter: "fade",
+      },
+    ],
+  };
+}
+
 // LP の地(#1e1f22)になじむ、青の暗いグラデーション
 const background = { gradient: { angle: 160, colors: ["#2F4F8F", "#1B2740", "#141A28"] } };
 
-function writeProject(name, steps, source = "sample-app.mp4") {
+function writeProject(name, steps, { source = "sample-app.mp4", dir = work, speech } = {}) {
   const project = {
     format: "stepcut.project",
     version: 1,
-    output: { width: W, height: H, fps: 30, quality: "high" },
+    // 使い方の動画は音声付きで載せるので、字幕(SRT)も書き出す
+    output: { width: W, height: H, fps: 30, quality: "high", ...(speech !== undefined ? { srt: true } : {}) },
     layout: { background },
     // Windows では既定のフォント(Yu Gothic UI)。ほかの OS ではそのフォントがないので指定する
     ...(process.platform === "win32" ? {} : { styles: { caption: { font: "Noto Sans JP" } } }),
+    ...(speech ? { speech } : {}),
     sources: [{ id: "rec", path: source }],
     steps,
   };
-  const file = path.join(work, `${name}.stepcut.json`);
+  const file = path.join(dir, `${name}.stepcut.json`);
   fs.writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return file;
 }
 
-// 3. 書き出して、Web 用に詰め直す(音声なし・先頭にメタデータ)。最初のフレームを poster にする
-function exportVideo(project, name, posterAt) {
+// 3. 書き出して、Web 用に詰め直す(1 秒ごとにキーフレーム、先頭にメタデータ)。1 コマを poster にする。
+// 音声は、audio を指定した動画だけ残す(Linux では読み上げが無音なので残さない)
+function exportVideo(project, name, posterAt, { audio = false } = {}) {
   const raw = path.join(work, `${name}-raw.mp4`);
   const r = cli("export", project, "--out", raw);
   if (!fs.existsSync(raw)) throw new Error(`書き出しに失敗: ${name} ${JSON.stringify(r)}`);
-  ffmpeg(
-    "-i",
-    raw,
-    "-an",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "slow",
-    "-crf",
-    "27",
-    "-pix_fmt",
-    "yuv420p",
-    "-movflags",
-    "+faststart",
-    path.join(outDir, `${name}.mp4`),
-  );
-  ffmpeg(
-    "-i",
-    raw,
-    "-vf",
-    `select='eq(n\\,${Math.round(posterAt * 30)})'`,
-    "-frames:v",
-    "1",
-    "-q:v",
-    "4",
-    path.join(outDir, `${name}.jpg`),
-  );
-  console.log(
-    `${name}.mp4`,
-    `${Math.round(fs.statSync(path.join(outDir, `${name}.mp4`)).size / 1024)} KB`,
-    (r.warnings || []).length ? `(警告 ${r.warnings.length})` : "",
-  );
+  const sound = audio && !linux ? ["-c:a", "aac", "-b:a", "96k"] : ["-an"];
+  const video = ["-c:v", "libx264", "-preset", "slow", "-crf", "27", "-g", "30", "-pix_fmt", "yuv420p"];
+  ffmpeg("-i", raw, ...sound, ...video, "-movflags", "+faststart", path.join(outDir, `${name}.mp4`));
+  const frame = `select='eq(n\\,${Math.round(posterAt * 30)})'`;
+  ffmpeg("-i", raw, "-vf", frame, "-frames:v", "1", "-q:v", "4", path.join(outDir, `${name}.jpg`));
+  // 字幕(SRT)があれば、ブラウザーで出せる WebVTT にする
+  const srt = raw.replace(/\.mp4$/, ".srt");
+  if (fs.existsSync(srt)) ffmpeg("-i", srt, path.join(outDir, `${name}.vtt`));
+  const kb = Math.round(fs.statSync(path.join(outDir, `${name}.mp4`)).size / 1024);
+  console.log(`${name}.mp4`, `${kb} KB`, ...(r.warnings || []).map((w) => `\n  警告: ${w}`));
 }
 
 // StepCut を起動する。アプリの設定は作業用のフォルダーに置き、画面の言語は日本語にする
@@ -247,9 +265,10 @@ async function screenshotApp(project) {
   await closeApp(app);
 }
 
-// 5. StepCut を操作するところを録画する(録画を入れる → 切る → テロップを書く → ズームを足す → 書き出す)
+// 5. StepCut を操作するところを録画する。
+// 録画を入れる → 切る → プレビューの上でテロップを書く → ズームの範囲を囲む → 再生して確かめる → 四角を置く → 書き出す
 const APP = { width: 1280, height: 760 };
-async function recordHowto() {
+async function recordHowto(sample) {
   const { app, page } = await launchApp("howto", APP, [], true);
   const t0 = Date.now();
   const now = () => (Date.now() - t0) / 1000;
@@ -257,10 +276,26 @@ async function recordHowto() {
   const mark = async (name, locator) => {
     marks[name] = { t: now(), box: locator ? await locator.boundingBox() : null };
   };
-  const source = path.join(work, "sample-app.mp4");
-  await app.evaluate(({ dialog }, p) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
-  }, source);
+  // ゆっくりドラッグする(動画で動きが見えるように)
+  const slowDrag = async (from, to) => {
+    await page.mouse.move(from.x, from.y);
+    await sleep(300);
+    await page.mouse.down();
+    for (let i = 1; i <= 24; i++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * i) / 24, from.y + ((to.y - from.y) * i) / 24);
+      await sleep(40);
+    }
+    await sleep(300);
+    await page.mouse.up();
+  };
+  const addBar = (name) => page.locator(".preview-add").getByRole("button", { name });
+  const thumb = (i) => page.locator(".rail-thumb").nth(i);
+  await app.evaluate(
+    ({ dialog }, p) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+    },
+    path.join(work, "sample-app.mp4"),
+  );
   await app.evaluate(
     ({ dialog }, p) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: p });
@@ -277,51 +312,95 @@ async function recordHowto() {
   await page.waitForSelector(".rail-thumb");
   await sleep(2500);
 
-  // ステップに切る: 1 秒ずつ進めて、区切りで分割(S)
+  // ステップに切る: 1 秒ずつ進めて、区切りで分割(S)。区切りは例の画面で押した時刻の間
   await page.locator(".tl-bar.caption").first().click();
   await page.keyboard.press("Home");
   await sleep(600);
   await mark("split", page.locator(".timeline"));
-  for (const seconds of [4, 3]) {
-    for (let i = 0; i < seconds; i++) {
+  const cuts = [Math.round(sample.settings.t + 2), Math.round(sample.mail.t + 2)];
+  let at = 0;
+  for (const cutAt of cuts) {
+    for (; at < cutAt; at++) {
       await page.keyboard.press("ArrowRight");
-      await sleep(280);
+      await sleep(250);
     }
     await sleep(400);
     await page.keyboard.press("s");
     await sleep(900);
   }
+  await sleep(600);
+
+  // テロップを書く: プレビューの上で入力する。右の設定にも同じ文が入る
+  await thumb(0).click();
+  await sleep(700);
+  await addBar(/^テロップ$/).click();
+  const input = page.locator(".caption-input");
+  await input.waitFor();
+  await mark("caption", input);
+  await sleep(500);
+  await page.keyboard.type("左のメニューから「設定」を開きます", { delay: 120 });
+  await sleep(1600);
+  await page.keyboard.press("Escape");
   await sleep(800);
 
-  // テロップを書く
-  await page.locator(".rail-thumb").first().click();
+  // ズーム: ステップ 2 の少し先で足し、プレビューの上で範囲を囲む
+  await thumb(1).click();
   await sleep(500);
-  await page.locator(".tl-bar.caption").first().click();
-  const box = page.locator(".section.focused textarea").first();
-  await box.click();
-  await mark("caption", box);
-  await page.keyboard.type("左のメニューから「設定」を開きます", { delay: 110 });
-  await sleep(1500);
-  await box.blur();
-
-  // ズームを足す
-  await page.locator(".rail-thumb").nth(1).click();
-  await sleep(700);
-  await mark("zoom", page.locator(".preview"));
-  await page.keyboard.press("z");
-  await sleep(2500);
+  await page.keyboard.press("ArrowRight");
+  await sleep(600);
+  await mark("zoom", addBar(/^ズーム$/));
+  await addBar(/^ズーム$/).click();
+  await sleep(1000);
+  const layer = await page.locator(".draw-layer").boundingBox();
+  // 録画の点(ピクセル)を、プレビュー上の位置に直す。プレビューの枠は出力の画面全体で、
+  // 録画はその中の余白(既定は上 4%・下 20%・左右 2.25%)の内側に、縦横比を保って収まっている
+  const fit = Math.min((layer.width * 0.955) / W, (layer.height * 0.76) / H);
+  const origin = {
+    x: layer.x + layer.width * 0.0225 + (layer.width * 0.955 - W * fit) / 2,
+    y: layer.y + layer.height * 0.04 + (layer.height * 0.76 - H * fit) / 2,
+  };
+  const inLayer = (x, y) => ({ x: origin.x + x * fit, y: origin.y + y * fit });
+  const row = sample.row.box;
+  await slowDrag(inLayer(row.x - 30, row.y - 50), inLayer(row.x + row.width + 30, row.y + row.height + 110));
+  await sleep(1300);
   await page.keyboard.press("Escape");
   await sleep(500);
+
+  // 再生して、ズームをプレビューで確かめる
+  await thumb(1).click();
+  await sleep(700);
+  const play = page.locator(".transport button.play");
+  await mark("play", play);
+  await play.click();
+  await sleep(4300);
+  await play.click();
+  await sleep(700);
+
+  // オブジェクト: ステップ 3 に四角を足し、「保存」の上へ動かす
+  await thumb(2).click();
+  await sleep(700);
+  await mark("object", addBar(/^四角$/));
+  await addBar(/^四角$/).click();
+  await sleep(900);
+  const outline = await page.locator(".object-layer .box-outline").boundingBox();
+  const save = center(sample.save.box);
+  await slowDrag(center(outline), inLayer(save.x, save.y));
+  await sleep(1200);
+  await page.keyboard.press("Escape");
+  await sleep(600);
 
   // 書き出す
   const exportButton = page.locator(".tb-btn.primary");
   await mark("export", exportButton);
   await exportButton.click();
+  await sleep(1500);
   await page
     .waitForFunction(
-      () => /^(書き出し|Export)$/.test(document.querySelector(".tb-btn.primary")?.textContent ?? ""),
+      () => /^書き出し$/.test(document.querySelector(".tb-btn.primary")?.textContent ?? ""),
       null,
-      { timeout: 120000 },
+      {
+        timeout: 180000,
+      },
     )
     .catch(() => {});
   await sleep(2500);
@@ -329,24 +408,13 @@ async function recordHowto() {
   const video = page.video();
   await closeApp(app);
   const webm = await video.path();
-  ffmpeg(
-    "-i",
-    webm,
-    "-r",
-    "30",
-    "-c:v",
-    "libx264",
-    "-crf",
-    "16",
-    "-pix_fmt",
-    "yuv420p",
-    "-an",
-    path.join(work, "stepcut-app.mp4"),
-  );
+  const mp4 = path.join(howtoDir, "stepcut-app.mp4");
+  ffmpeg("-i", webm, "-r", "30", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-an", mp4);
   return marks;
 }
 
-// その録画を「使い方」の動画にする。ステップの区切りは、操作した時刻から決める
+// その録画を「使い方」の動画にする。ステップの区切りは、操作した時刻から決める。
+// テロップは画面に出す短い文、speech は読み上げる文(書かなければテロップを読む)
 function buildHowtoSteps(m) {
   const click = (box, t) => {
     const to = center(box);
@@ -360,7 +428,6 @@ function buildHowtoSteps(m) {
       enter: "fade",
     };
   };
-  const zoom = (rect, end) => [{ start: 0.4, end, hold: false, keys: [{ t: 0.4, rect }] }];
   const step = (id, from, to, text, rest = {}) => ({
     id,
     source: "rec",
@@ -370,36 +437,79 @@ function buildHowtoSteps(m) {
     speech: {},
     ...rest,
   });
+  // 見せたい所へ寄る(映像は止めない)。ステップの終わりの少し前まで
+  const zoom = (rect, from, to) => [
+    { start: 0.4, end: round(to - from - 0.6), hold: false, keys: [{ t: 0.4, rect }] },
+  ];
   const exportEnd = m.end.t - 2.3;
+  const cut = {
+    split: [m.split.t - 0.3, m.caption.t - 1.9],
+    caption: [m.caption.t - 1, m.zoom.t - 1.4],
+    zoom: [m.zoom.t - 0.6, m.play.t - 0.9],
+  };
   return [
-    step("add", m.add.t - 1.5, m.add.t + 2.5, "録画を追加します", { pointers: [click(m.add.box, 1.4)] }),
-    step("split", m.split.t - 0.3, m.caption.t - 1.6, "手順の区切りで、ステップに分けます", {
-      zooms: zoom({ x: 120, y: 250, w: 860, h: 510 }, m.caption.t - 1.6 - (m.split.t - 0.3) - 0.6),
+    step("add", m.add.t - 1.5, m.add.t + 2.5, "録画を追加します", {
+      speech: { text: "まず、録画を追加します。" },
+      pointers: [click(m.add.box, 1.4)],
     }),
-    step("caption", m.caption.t - 0.6, m.zoom.t - 1, "テロップを書きます。同じ文の読み上げが付きます", {
-      zooms: zoom({ x: 420, y: 60, w: 860, h: 510 }, m.zoom.t - 1 - (m.caption.t - 0.6) - 0.6),
+    step("split", ...cut.split, "手順の区切りで、ステップに分けます", {
+      zooms: zoom({ x: 120, y: 250, w: 860, h: 510 }, ...cut.split),
     }),
-    step("zoom", m.zoom.t - 0.4, m.export.t - 0.4, "見せたい場所に、ズームを足します"),
+    step("caption", ...cut.caption, "テロップは、プレビューの上で書けます", {
+      speech: {
+        text: "テロップは、プレビューの上で書けます。右の設定にも同じ文が入り、読み上げが付きます。",
+      },
+      zooms: zoom({ x: 330, y: 90, w: 950, h: 564 }, ...cut.caption),
+    }),
+    step("zoom", ...cut.zoom, "ズームは、見せたい範囲を枠で囲みます", { pointers: [click(m.zoom.box, 0.5)] }),
+    step("play", m.play.t - 0.6, m.object.t - 1, "再生して、その場で確かめられます"),
+    step("object", m.object.t - 0.6, m.export.t - 0.6, "四角や矢印も、プレビューの上に置けます", {
+      pointers: [click(m.object.box, 0.5)],
+    }),
     step("export", m.export.t - 1.2, m.export.t + 2, "「書き出し」を押します", {
+      speech: { text: "最後に、書き出しを押します。" },
       pointers: [click(m.export.box, 1.1)],
     }),
-    step("wait", m.export.t + 2, exportEnd, "書き出しが終わるまで待ちます(早送り)", { speed: 4 }),
-    step("done", exportEnd, m.end.t - 0.2, "mp4 ができました"),
+    step("wait", m.export.t + 2, exportEnd, "書き出しが終わるまで待ちます(早送り)", {
+      speed: 8,
+      speech: { text: "書き出しが終わるまで、少し待ちます。" },
+    }),
+    step("done", exportEnd, m.end.t - 0.2, "mp4 ができました", { speech: { text: "mp4 ができました。" } }),
   ];
 }
 
+// 使い方の動画を書き出す。プロジェクトは test-output/lp-howto/ にあり、手で直してから --howto-export で書き出し直せる
+function exportHowto() {
+  const project = path.join(howtoDir, "howto.stepcut.json");
+  const check = cli("validate", project);
+  if (check.ok === false) throw new Error(`検証エラー: ${JSON.stringify(check)}`);
+  exportVideo(project, "howto", 1.5, { audio: true });
+  console.log(`使い方の動画のプロジェクト: ${path.relative(root, project)}`);
+}
+
 (async () => {
+  if (howtoOnly) {
+    exportHowto();
+    process.exit(0);
+  }
   const marks = await record();
   const steps = buildSteps(marks);
   const all = writeProject("notification-settings", steps);
   const check = cli("validate", all);
   if (check.ok === false) throw new Error(`検証エラー: ${JSON.stringify(check)}`);
   exportVideo(all, "hero", 1.2);
-  exportVideo(writeProject("zoom", [steps[1]]), "zoom", 2.2);
+  exportVideo(writeProject("zoom", [buildZoomStep(marks)]), "zoom", 1);
   exportVideo(writeProject("point", [steps[2]]), "point", 1.2);
   await screenshotApp(all);
-  const howto = await recordHowto();
-  exportVideo(writeProject("howto", buildHowtoSteps(howto), "stepcut-app.mp4"), "howto", 1.5);
+  const howto = await recordHowto(marks);
+  // 手で直したプロジェクトが残っていれば、上書きする前に写しを取る
+  const project = path.join(howtoDir, "howto.stepcut.json");
+  if (fs.existsSync(project))
+    fs.copyFileSync(project, path.join(howtoDir, `howto.${Date.now()}.backup.json`));
+  const engine = process.env.LP_SPEECH_ENGINE;
+  const speech = { engine: engine || "os", voice: process.env.LP_SPEECH_VOICE || null };
+  writeProject("howto", buildHowtoSteps(howto), { source: "stepcut-app.mp4", dir: howtoDir, speech });
+  exportHowto();
   process.exit(0);
 })().catch((e) => {
   console.error(e);
