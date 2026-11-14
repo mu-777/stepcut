@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- LP のデモ動画の素材にする、録画用の例の画面。scripts/make-lp-media.cjs が開いて操作し、録画する。配信はしない -->
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>サンプルアプリ</title>
+    <style>
+      * { box-sizing: border-box; }
+      /* 録画したときに文字が小さくなりすぎないよう、全体を 1.25 倍で描く */
+      body { zoom: 1.25; margin: 0; font: 14px/1.5 "Segoe UI", "Yu Gothic UI", "Noto Sans JP", sans-serif; color: #28303d; background: #f3f5f8; }
+      header { height: 48px; background: #fff; border-bottom: 1px solid #dfe3ea; display: flex; align-items: center; padding: 0 20px; font-weight: 700; font-size: 15px; }
+      header span { margin-left: auto; font-weight: 400; color: #7a8494; font-size: 13px; }
+      .layout { display: grid; grid-template-columns: 200px 1fr; height: calc(100vh / 1.25 - 48px); }
+      nav { background: #e9edf3; padding: 12px 0; }
+      nav button { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; color: #5a6474; padding: 9px 20px; cursor: pointer; }
+      nav button.on { background: #dbe3f0; color: #1d4fb8; font-weight: 700; }
+      main { padding: 28px 36px; }
+      h1 { font-size: 20px; margin: 0 0 18px; }
+      .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 820px; }
+      .card { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 16px; }
+      .card b { display: block; font-size: 24px; margin-top: 4px; }
+      .rows { max-width: 620px; display: grid; gap: 10px; }
+      .row { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+      .row small { display: block; color: #7a8494; }
+      .tg { width: 40px; height: 22px; border-radius: 99px; border: 0; background: #c5ccd8; position: relative; cursor: pointer; transition: background 0.15s; }
+      .tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+      .tg[aria-checked="true"] { background: #35b06a; }
+      .tg[aria-checked="true"]::after { left: 21px; }
+      .actions { max-width: 620px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 18px; }
+      #save { border: 0; background: #2f6fe0; color: #fff; font: inherit; font-weight: 700; padding: 8px 22px; border-radius: 6px; cursor: pointer; }
+      #saved { color: #1f8a4c; font-weight: 700; visibility: hidden; }
+    </style>
+  </head>
+  <body>
+    <header>サンプルアプリ<span>山田さん</span></header>
+    <div class="layout">
+      <nav>
+        <button type="button" id="nav-home" class="on">ホーム</button>
+        <button type="button" id="nav-requests">申請</button>
+        <button type="button" id="nav-settings">設定</button>
+        <button type="button" id="nav-help">ヘルプ</button>
+      </nav>
+      <main>
+        <section id="home">
+          <h1>ホーム</h1>
+          <div class="cards">
+            <div class="card">未処理の申請<b>3 件</b></div>
+            <div class="card">今月の承認<b>12 件</b></div>
+            <div class="card">お知らせ<b>1 件</b></div>
+          </div>
+        </section>
+        <section id="settings" hidden>
+          <h1>通知の設定</h1>
+          <div class="rows">
+            <div class="row"><div>メール通知<small>申請が届いたらメールで知らせます</small></div><button type="button" class="tg" id="mail" role="switch" aria-checked="false" aria-label="メール通知"></button></div>
+            <div class="row"><div>週次レポート<small>毎週月曜に集計を送ります</small></div><button type="button" class="tg" id="weekly" role="switch" aria-checked="true" aria-label="週次レポート"></button></div>
+          </div>
+          <div class="actions"><span id="saved">保存しました</span><button type="button" id="save">保存</button></div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      $("nav-settings").onclick = () => {
+        $("home").hidden = true;
+        $("settings").hidden = false;
+        $("nav-home").classList.remove("on");
+        $("nav-settings").classList.add("on");
+      };
+      for (const t of document.querySelectorAll(".tg")) {
+        t.onclick = () => t.setAttribute("aria-checked", t.getAttribute("aria-checked") !== "true");
+      }
+      $("save").onclick = () => {
+        $("saved").style.visibility = "visible";
+      };
+    </script>
+  </body>
+</html>

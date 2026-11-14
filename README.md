@@ -55,7 +55,7 @@ npm install
 npx wrangler dev      # 手元で表示する
 ```
 
-- 動画・画像の枠(`.media`)の中の svg は仮の絵。同じ場所に `video` / `img` を置くと差し替わる
+- 動画と編集画面の画像(`site/public/media/`)は StepCut 自身で作る。作り直すときは `node scripts/make-lp-media.cjs`(Linux は `xvfb-run -a` を付ける)。手順は [docs/lp-media.md](docs/lp-media.md)
 - OGP 画像 `site/public/og.png` は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
 - Cloudflare 側の設定(初回のみ): Workers & Pages でこのリポジトリを取り込み、Worker 名 `stepcut-lp`、ルートディレクトリ `site`、デプロイコマンド `npx wrangler deploy`、Build watch paths `site/*`
 
