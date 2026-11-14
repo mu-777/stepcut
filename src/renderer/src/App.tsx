@@ -1446,6 +1446,7 @@ ${t("renameTip")}`}
                       setCaptionEdit(loc.entry.index);
                     }}
                   />
+                  <span className="add-sep" aria-hidden="true" />
                   <AddButton
                     icon="addZoom"
                     label={t("quickZoom")}
@@ -1550,9 +1551,10 @@ ${t("renameTip")}`}
                       type="button"
                       className="small zoom-pct"
                       title={t("previewFit")}
+                      aria-label={viewZoom === 1 ? t("previewFit") : undefined}
                       onClick={() => setViewZoom(1)}
                     >
-                      {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+                      {viewZoom === 1 ? <Icon name="fitView" /> : `${Math.round(viewZoom * 100)}%`}
                     </button>
                     <button
                       type="button"
