@@ -401,28 +401,6 @@ section {
 }
 
 /* ---------- できること ---------- */
-.feat {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 52px;
-  align-items: center;
-  padding-block: 38px;
-}
-
-.feat:nth-of-type(even) > .vis {
-  order: -1;
-}
-
-.feat h3 {
-  font-size: clamp(22px, 2.6vw, 29px);
-  margin-bottom: 12px;
-}
-
-.feat p {
-  color: var(--muted);
-  max-width: 30em;
-}
-
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -438,70 +416,6 @@ section {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 1px 10px;
-}
-
-.vis {
-  min-width: 0;
-}
-
-.telops {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
-  display: grid;
-  gap: 8px;
-}
-
-.telops div {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  background: var(--deep);
-  border: 1px solid transparent;
-  border-radius: 9px;
-  padding: 13px 14px;
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.telops div.on {
-  border-color: var(--accent);
-}
-
-.telops b {
-  font: 700 12px var(--f-display);
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 5px;
-  padding: 1px 7px;
-}
-
-.wave {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  height: 22px;
-}
-
-.wave i {
-  width: 3px;
-  border-radius: 9px;
-  background: var(--line);
-  height: 40%;
-}
-
-.wave i:nth-child(2n) {
-  height: 95%;
-}
-
-.wave i:nth-child(3n) {
-  height: 60%;
-}
-
-.telops .on .wave i {
-  background: var(--accent-pale);
 }
 
 /* ---------- 付けられるもの: 1 種類ずつの小さな動画 ---------- */
@@ -522,32 +436,65 @@ section {
   margin-top: 8px;
 }
 
-/* 読み上げは絵にできないので、テロップの文と波形で示す */
-.kinds .voice {
-  aspect-ratio: 16 / 9;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 14px;
-  padding: 16px;
-  font-weight: 600;
-  font-size: clamp(13px, 1.5vw, 16px);
-  text-align: center;
-  background: radial-gradient(120% 90% at 20% 0%, #2f4f8f 0%, #1b2740 55%, #141a28 100%);
+.kinds figcaption small {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
 }
 
-.kinds .voice .wave {
-  height: 34px;
-  gap: 4px;
+/* 読み上げ: テロップと同じ動画に、音が出ている印を重ねる(動画は音声なしで載せるため) */
+.kinds .frame {
+  position: relative;
 }
 
-.kinds .voice .wave i {
-  width: 4px;
-  background: var(--accent-pale);
+.sound {
+  position: absolute;
+  right: 4%;
+  top: 14%;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 99px;
+  background: var(--accent);
 }
 
-.kinds .voice .wave i:nth-child(4n) {
-  height: 30%;
+.sound i {
+  width: 3px;
+  height: 16px;
+  border-radius: 9px;
+  background: var(--accent-ink);
+  transform-origin: center;
+  animation: sound 0.9s ease-in-out infinite;
+}
+
+.sound i:nth-child(2) {
+  animation-delay: -0.6s;
+}
+
+.sound i:nth-child(3) {
+  animation-delay: -0.3s;
+}
+
+.sound i:nth-child(4) {
+  animation-delay: -0.75s;
+}
+
+.sound i:nth-child(5) {
+  animation-delay: -0.15s;
+}
+
+@keyframes sound {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
 }
 
 /* ---------- 使いみち: 例ごとに、できた動画と編集画面 ---------- */
@@ -739,7 +686,6 @@ details p {
   }
 
   .hero .wrap,
-  .feat,
   .flow,
   .ease,
   .pairs > div,
@@ -753,15 +699,6 @@ details p {
 
   .pairs .hd {
     display: none;
-  }
-
-  .feat {
-    gap: 22px;
-    padding-block: 26px;
-  }
-
-  .feat:nth-of-type(even) > .vis {
-    order: 0;
   }
 
   .flow div:first-child,
@@ -797,5 +734,9 @@ details p {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .sound i {
+    animation: none;
   }
 }
