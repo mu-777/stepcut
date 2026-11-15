@@ -15,6 +15,8 @@ const paths: Record<string, string> = {
   panelProject: "M3 5h18v14H3zM7 8.5h10v7H7z",
   // 設定パネルの欄をすべて閉じる: 向かい合う山形
   collapseAll: "M7 4l5 5 5-5M7 20l5-5 5 5",
+  // プレビューの全体表示: 枠の中に ↔(タイムラインの全体表示 ↔ とそろえる。全画面の四隅のかぎと見分ける)
+  fitView: "M3 5h18v14H3zM7 12h10M9.5 9.5L7 12l2.5 2.5M14.5 9.5L17 12l-2.5 2.5",
   chevronLeft: "M15 5l-7 7 7 7",
   chevronRight: "M9 5l7 7-7 7",
   // ヘッダー(線だけのアイコン)
@@ -54,6 +56,7 @@ const paths: Record<string, string> = {
 const LINE_ICONS = [
   "panelProject",
   "collapseAll",
+  "fitView",
   "chevronLeft",
   "chevronRight",
   "fileMenu",

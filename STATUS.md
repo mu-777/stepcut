@@ -4,7 +4,7 @@
 2026-11-15
 
 ## ブランチ
-claude/lp-design-refresh-j4toug(main 0209a60 から。紹介ページの作り直し)
+claude/lp-design-refresh-j4toug(main 0209a60 から。紹介ページの作り直し。main 29e1891 を取り込み済み)
 
 ## ゴール
 紹介ページ(site/)の構成・見た目・文面を作り直し、動画と編集画面の画像を StepCut 自身で作ったものにする
