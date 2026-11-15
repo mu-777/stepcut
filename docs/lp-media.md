@@ -4,6 +4,15 @@
 
 ## 何を作るか
 
+英語のページ(`/`)用と日本語のページ(`/ja/`)用の 2 組を作る。中身は同じで、文字(テロップ・読み上げ・例の画面・アプリの画面)の言語だけが違う。
+
+| 組 | 実行 | 出力 | 途中のファイル |
+|---|---|---|---|
+| 日本語 | `node scripts/make-lp-media.cjs` | `site/public/media/` | `test-output/lp-media/`、`test-output/lp-howto/` |
+| 英語 | `node scripts/make-lp-media.cjs --lang en` | `site/public/media/en/` | `test-output/lp-media-en/`、`test-output/lp-howto-en/` |
+
+下の表は日本語の組のファイル名。英語の組も同じ名前で `media/en/` に置く。
+
 | ファイル(`site/public/media/`) | 載せる場所 | 中身 |
 |---|---|---|
 | `hero.mp4` / `hero.jpg` | ヒーロー | 例の画面の録画に、テロップ・四角・ズーム・矢印・ポインターを付けた 3 ステップの動画 |
@@ -26,11 +35,12 @@
 2. 実行する
    - Windows: `node scripts/make-lp-media.cjs`
    - Linux: `xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/make-lp-media.cjs`
-3. 8〜9 分で終わる。`site/public/media/` の 31 ファイルが新しくなる。動画ごとの場面の一覧が `test-output/lp-media/sheets/` にできるので、中身はそれで確かめられる
+   - 英語の組は、どちらも最後に `--lang en` を付けてもう一度回す
+3. 1 組 8〜9 分で終わる。出力先の 31 ファイルが新しくなる。動画ごとの場面の一覧が `test-output/lp-media/sheets/` にできるので、中身はそれで確かめられる
 4. 確かめる: `cd site && npx wrangler dev` でページを開き、次を見る
    - 動画(大 5 本と小 8 本)が再生され、テロップの文字が欠けていない
    - ポインターが、押す場所(「設定」、スイッチ、「保存」、「書き出し」)に重なっている
-   - `app.png` と `use-*-app.png` の画面が日本語で、プレビューに録画が映っている
+   - `app.png` と `use-*-app.png` の画面がその組の言語で、プレビューに録画が映っている
 5. よければ `site/public/media/` をコミットする
 
 `howto.mp4` のシーク(再生位置の移動)は `npx wrangler dev` では確かめられない(手元のサーバーが範囲指定の読み込みに応えず、ブラウザーがシークできない動画として扱う)。本番で確かめるか、範囲指定に応えるサーバーで開く。本番が応えるかは `curl -sI -H "Range: bytes=0-99" https://stepcut.mu-777.dev/media/howto.mp4` が `206` を返すかで分かる。
@@ -48,10 +58,11 @@
    - 右上の歯車 →「読み上げエンジン」→ Azure AI Speech を有効にする(規約・料金の確認が出る)
    - 「リージョン」に控えた地域、「鍵」にキー 1 を貼る。鍵はこのパソコンで暗号化して保存され、プロジェクトファイルには書かれない
    - アプリを閉じる
-3. スクリプトを実行する(PowerShell)。使い方の動画の読み上げは、既定で Azure AI Speech の `ja-JP-NanamiNeural`
+3. スクリプトを実行する(PowerShell)。使い方の動画の読み上げは、既定で Azure AI Speech の `ja-JP-NanamiNeural`(英語の組は `en-US-JennyNeural`)
 
 ```powershell
 node scripts/make-lp-media.cjs
+node scripts/make-lp-media.cjs --lang en
 # 声を変えるとき
 $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 ```
@@ -73,7 +84,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 | `howto.<数字>.backup.json` | スクリプトを回し直す前のプロジェクトの写し |
 
 1. `test-output/lp-howto/howto.stepcut.json` を StepCut で開き、テロップ・読み上げの文・ズーム・区切りを直して保存する
-2. 直したプロジェクトから動画だけを書き出し直す: `node scripts/make-lp-media.cjs --howto-export`(Linux は `xvfb-run -a` を付ける)。録画はやり直さず、`site/public/media/howto.*` だけが新しくなる
+2. 直したプロジェクトから動画だけを書き出し直す: `node scripts/make-lp-media.cjs --howto-export`(英語の組は `test-output/lp-howto-en/` を直し、`--howto-export --lang en`)(Linux は `xvfb-run -a` を付ける)。録画はやり直さず、`site/public/media/howto.*` だけが新しくなる
 
 スクリプトを引数なしで回すと録画からやり直し、プロジェクトも作り直す(直した内容は `backup` に残るだけで、新しいプロジェクトには入らない)。
 
@@ -105,12 +116,14 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 
 - 自動で再生する動画(ヒーロー、付けられるものの 8 本、使いみちの 3 例)は音声なしで載せる。使い方の動画は操作の付いた動画で、Windows で作ると読み上げが入る。字幕のトラック(`howto.vtt`)も付ける
 - 動画は 1 秒ごとにキーフレームを入れる(シークしたときにすぐ絵が出るように)
-- 画面の言語は日本語に固定する(スクリプトが作業用の設定フォルダーに `language: "ja"` を書く。自分のアプリの設定は変えない)
-- テロップのフォントは、Windows では既定(Yu Gothic UI)、ほかの OS では Noto Sans JP を指定する
+- アプリの画面の言語は `--lang` のもの(既定は日本語)にする(スクリプトが作業用の設定フォルダーに `language` を書く。自分のアプリの設定は変えない)
+- 例の画面(`site/media-src/*.html`)は、`?lang=en` を付けて開くと英語になる。英語の文字は各要素の `data-en` に書く
+- テロップ・読み上げ・画面に置く文字と、アプリで押すボタンの名前は、スクリプトの `TEXT` に言語ごとに書く
+- テロップのフォントは、Windows では既定(Yu Gothic UI)、ほかの OS では Noto Sans JP を指定する(英語の組も同じ)
 
 ## いまのファイルについて
 
-いまコミットしてあるものは Linux のコンテナで作った。そのため次の違いがある。Windows で作り直すと解消する(Windows での実行は未確認)。
+いまコミットしてあるものは、日本語・英語の組とも Linux のコンテナで作った。そのため次の違いがある。Windows で作り直すと解消する(Windows での実行は未確認)。
 
 - 画面の文字が Windows のフォントではない
 - 読み上げが無音で代替されていて、使い方の動画に音声がない(動画の最後に、その知らせと Linux のパスが映る)

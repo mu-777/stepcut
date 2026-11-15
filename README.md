@@ -47,7 +47,7 @@ main への PR では GitHub Actions が Windows 版をビルドし、run の Ar
 
 ## 紹介ページ(LP)
 
-`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
+`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。英語のページが `/`(`site/public/index.html`)、日本語のページが `/ja/`(`site/public/ja/index.html`)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
 
 ```bash
 cd site
@@ -55,8 +55,8 @@ npm install
 npx wrangler dev      # 手元で表示する
 ```
 
-- 動画と編集画面の画像(`site/public/media/`)は StepCut 自身で作る。作り直すときは `node scripts/make-lp-media.cjs`(Linux は `xvfb-run -a` を付ける)。手順は [docs/lp-media.md](docs/lp-media.md)
-- OGP 画像 `site/public/og.png` は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
+- 動画と編集画面の画像は StepCut 自身で作る。日本語用(`site/public/media/`)は `node scripts/make-lp-media.cjs`、英語用(`site/public/media/en/`)は `node scripts/make-lp-media.cjs --lang en`(Linux は `xvfb-run -a` を付ける)。手順は [docs/lp-media.md](docs/lp-media.md)
+- OGP 画像(英語 `site/public/og.png`、日本語 `og-ja.png`)は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
 - Cloudflare 側の設定(初回のみ): Workers & Pages でこのリポジトリを取り込み、Worker 名 `stepcut-lp`、ルートディレクトリ `site`、デプロイコマンド `npx wrangler deploy`、Build watch paths `site/*`
 
 ## 操作

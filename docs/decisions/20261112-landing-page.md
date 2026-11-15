@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-12
-updated: 2026-11-14
+updated: 2026-11-15
 tags: [infra, web]
 ---
 
@@ -12,6 +12,8 @@ tags: [infra, web]
 ## 決定
 
 - ソースはこのリポジトリの `site/`。静的な HTML と CSS だけ(フレームワーク・JavaScript なし)
+- 英語と日本語の 2 枚。英語を `/`(`site/public/index.html`)、日本語を `/ja/`(`site/public/ja/index.html`)に置く。ナビに相手の言語へのリンクを置き、`hreflang`(`x-default` は英語)と `og:locale:alternate` で互いを指す。ブラウザーの言語による自動の振り分けはしない。2 枚は手で書き、片方を変えたらもう片方も直す(`.claude/rules/lp-media.md`)。404 のページは両方の言語を並べる
+- 動画・画像・OGP 画像も言語ごとに作る(英語は `media/en/` と `og.png`、日本語は `media/` と `og-ja.png`)。英語の書体は IBM Plex Sans と Sora
 - 配信は Cloudflare Workers の静的アセット。Worker 名 `stepcut-lp`、Custom Domain `stepcut.mu-777.dev`(`site/wrangler.toml`)
 - デプロイは Cloudflare の Workers Builds(Git 連携)。main への push で、`site/` に変更があれば `npx wrangler deploy` が走る。ルートディレクトリ・watch paths は Cloudflare のダッシュボード側の設定
 - 見た目はアプリの配色(`--bg` `#1e1f22`、`--panel`、`--line`、`--accent` `#4f8cff`)に合わせ、ブラウザの設定によらず暗い地で固定する。雰囲気は同じ作者の [DayGlassBar のページ](https://mu-777.github.io/dayglassbar/)にそろえる(細い線のナビ、丸いバッジ、光る青のボタン)
@@ -22,7 +24,7 @@ tags: [infra, web]
 - 文面: 普通の文で事実を述べる。対句・言い切り・「〜だけ」「不要」の強調は使わない。利点は肯定形で書く(「少ない」「固定」ではなく「シンプル」「見渡せる」)。項目は、ほかのツールでは当たり前でないものだけを載せる
 - 動画と編集画面の画像は StepCut 自身で作る(`scripts/make-lp-media.cjs`。手順は [docs/lp-media.md](../lp-media.md))。自動で再生する動画は音声なし。「使い方」の動画だけは操作の付いた動画にして読み上げ(Azure AI Speech)を入れ、StepCut が書き出した字幕も付ける
 - ダウンロードのボタンは GitHub Releases のページへ送る。リリースの仕組みができたら `releases/latest/download/<固定のファイル名>` に替える
-- フォントは Google Fonts の IBM Plex Sans JP(本文・見出しの和文)と Sora(見出しの欧文・数字。ロゴと同じ書体)
+- フォントは Google Fonts の IBM Plex Sans JP(本文・見出しの和文)と Sora(見出しの欧文・数字。ロゴと同じ書体)。英語のページは IBM Plex Sans JP の代わりに IBM Plex Sans を読む
 
 ## 理由
 
@@ -32,6 +34,8 @@ tags: [infra, web]
 - 1 ページで、動きは動画だけなので、ビルドの要る仕組みは持たない。アプリの依存(package.json)にも足さない(wrangler は `site/package.json` だけ)
 - 構成は、動画編集ツールのページ(Screen Studio・Cap・Tella・Descript・Guidde)と DayGlassBar を要素に分け、StepCut に条件がそろっているものだけを採った。機能ごとに「得られる結果の見出し + 証拠の動画」(Screen Studio)、小さな機能の格子(同)、制作の流れを 1 本で見せる(Descript)、最後のダウンロードが締めの呼びかけを兼ねる(DayGlassBar)
 - 動画を StepCut で作ると、ページそのものがアプリで作れるものの見本になる。スクリプトにしてあるので、画面を変えたら作り直せる
+- 英語を `/` にするのは、アプリの UI が英語を主にしている(NF-07)ため。言語での自動の振り分けをしないのは、静的ファイルだけでは振り分けられない(Worker のスクリプトが要る)ことと、Google が言語を推測した自動リダイレクトを避けるよう勧めている([Managing multi-regional and multilingual sites](https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites))ため
+- 英語のページに日本語の動画を載せると、テロップと画面が読めない。動画はスクリプトで作るので、言語ごとに作っても手間は実行 1 回分
 
 ## 不採用案と理由(逆戻りガード)
 
@@ -56,6 +60,10 @@ tags: [infra, web]
 - **項目を増やす(取り消し・やり直し、並べ替え、解像度、「書き出してからの見直しが不要」など)** — どの動画編集ツールにもある。載せない
 - **ヒーローの機能タブ、利用者の声・スター数、作品集、料金表** — モードも実績も作例もまだなく、無料でアカウントもない
 - **CSS で描いた仮の絵のまま載せる** — StepCut で作った実物の方が、アプリの見本になる
+- **日本語を `/` のままにし、英語を `/en/` に置く** — 今のリンクは変わらないが、UI が英語を主にしている(NF-07)ことと合わない。ユーザーが英語を `/` にする方を選んだ
+- **ブラウザーの言語で自動で振り分ける** — Worker のスクリプトが要り、検索エンジンが片方の言語しか見られなくなるおそれがある
+- **テンプレートから 2 言語をビルドで作る** — ずれは防げるが、ビルドの仕組みを持たない決定に反する
+- **英語のページに日本語の動画をそのまま載せる** — 手間はないが、テロップと画面が読めない
 
 ## 前提と再検討の条件
 
@@ -64,6 +72,5 @@ tags: [infra, web]
 - 「ないもの」(自由なトラック、凝ったトランジション、録画)は要件 3.2 と UI-03 による。機能を足したらページも直す
 - GitHub Releases がまだない。最初のリリースを出すまで、ダウンロードの先は空のページになる
 - コード署名をしていない(NF-08)ので、SmartScreen の警告の手順をページに書いている。署名をしたら消す
-- 英語のページは作っていない。海外向けに出すなら足す
 - 「使い方」の動画のシークは、配信側が範囲指定の読み込み(Range)に応えることが前提。手元の `wrangler dev` は応えない。本番で応えなければ、Worker で範囲指定を処理するか、動画の置き場所を変える
 - 動画が自動で再生される。動きを減らす設定(prefers-reduced-motion)の人にも再生される(JavaScript を使わないため止められない)。問題になったら、数行のスクリプトを足すか、操作の付いた動画にする

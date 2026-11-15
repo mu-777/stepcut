@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StepCut | 録画に説明を付ける Windows アプリ</title>
+    <meta
+      name="description"
+      content="StepCut は、録画をステップに切り分け、テロップ・読み上げ・ズーム・ポインターで説明を付けて mp4 に書き出す Windows 用の無料アプリです。ネット接続なしで使えます。"
+    />
+    <meta name="theme-color" content="#1e1f22" />
+    <link rel="canonical" href="https://stepcut.mu-777.dev/ja/" />
+    <link rel="alternate" hreflang="en" href="https://stepcut.mu-777.dev/" />
+    <link rel="alternate" hreflang="ja" href="https://stepcut.mu-777.dev/ja/" />
+    <link rel="alternate" hreflang="x-default" href="https://stepcut.mu-777.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="StepCut" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:title" content="StepCut | 録画を、説明付きの動画に。" />
+    <meta
+      property="og:description"
+      content="録画をステップに切り分け、テロップ・読み上げ・ズーム・ポインターで説明を付けて mp4 に書き出す Windows 用の無料アプリ。"
+    />
+    <meta property="og:url" content="https://stepcut.mu-777.dev/ja/" />
+    <meta property="og:image" content="https://stepcut.mu-777.dev/og-ja.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=Sora:wght@500;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="win" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M3 4.5 11 3.4v8.1H3zM12 3.2 21 2v9.5h-9zM3 12.5h8v8.1l-8-1.1zM12 12.5h9V22l-9-1.2z" />
+      </symbol>
+    </svg>
+
+    <header class="nav">
+      <div class="wrap">
+        <a href="/ja/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="112" height="34" /></a>
+        <ul>
+          <li><a href="#howto">使い方</a></li>
+          <li><a href="#features">付けられるもの</a></li>
+          <li><a href="#uses">使いみち</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="https://github.com/mu-777/screen-annotator">GitHub</a></li>
+        </ul>
+        <a class="lang" href="/" hreflang="en" lang="en">English</a>
+        <a class="btn pri sm" href="#download">ダウンロード</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap">
+          <div>
+            <span class="pill">無料・オープンソース · Windows 10 / 11</span>
+            <h1><span>録画を、</span><span>説明付きの動画に。</span></h1>
+            <p class="lead">
+              録画をステップに切って、テロップ・読み上げ・ズーム・ポインターで説明を付けます。操作の手順、製品のデモ、資料の解説などに使えます。
+            </p>
+            <div class="cta">
+              <a class="btn pri" href="https://github.com/mu-777/screen-annotator/releases">
+                <svg aria-hidden="true"><use href="#win" /></svg>Windows 版をダウンロード
+              </a>
+              <a class="btn sec" href="https://github.com/mu-777/screen-annotator">GitHub で見る</a>
+            </div>
+            <p class="meta">アカウント登録なし · ネット接続なしで動く</p>
+          </div>
+          <div>
+            <!-- 動画・画像は scripts/make-lp-media.cjs が StepCut で作る(docs/lp-media.md) -->
+            <div class="frame">
+              <video
+                src="/media/hero.mp4"
+                poster="/media/hero.jpg"
+                width="1280"
+                height="720"
+                autoplay
+                muted
+                loop
+                playsinline
+                aria-label="StepCut で作った動画の例。3 つのステップに、テロップ・四角・ズーム・矢印が付いている"
+              ></video>
+            </div>
+            <p class="frame-cap">StepCut で書き出した動画です。3 つのステップに、テロップ・四角・ズーム・矢印を付けています</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <h2 class="sec-t">説明を付けることに、機能を絞っています</h2>
+          <p class="sec-l">
+            汎用の動画編集ソフトに比べて、できることは多くありません。そのぶん、操作はシンプルです。
+          </p>
+          <div class="frame">
+            <img
+              src="/media/app.png"
+              width="1360"
+              height="800"
+              alt="StepCut の編集画面。左にステップの一覧、中央にプレビューとタイムライン、右に選んだステップの設定"
+            />
+          </div>
+          <div class="pairs">
+            <div class="hd"><span>ないもの</span><span>その代わり</span></div>
+            <div>
+              <p>自由に増やせるトラック</p>
+              <p>タイムラインは、映像・テロップ・読み上げ・ズーム・オブジェクトの 5 段。ひと目で見渡せます。</p>
+            </div>
+            <div>
+              <p>凝ったトランジションやアニメーション</p>
+              <p>場面の切り替えは、フェードとフラッシュから選べます。</p>
+            </div>
+            <div>
+              <p>画面の録画、Web カメラ</p>
+              <p>使い慣れた道具で録った mp4 を、そのまま読み込めます。</p>
+            </div>
+          </div>
+          <div class="ease">
+            <div class="card">
+              <h3>読み上げが長いときは、映像が待ちます</h3>
+              <p>
+                読み上げが映像より長いときは、最後の画面のまま読み終わるまで待ちます。声と映像の長さは、自動でそろいます。
+              </p>
+              <div class="lanes" role="img" aria-label="映像が読み上げより短いとき、差の分だけ最後の画面で自動的に待つ図">
+                <span>映像</span>
+                <div><i class="v" style="width: 58%"></i><i class="h" style="width: 34%">自動で待つ</i></div>
+                <span>読み上げ</span>
+                <div>
+                  <i class="a" style="width: calc(92% + 3px)"><svg viewBox="0 0 273 32" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8.5" width="3" height="15" rx="1.5" /><rect x="6" y="8.5" width="3" height="15" rx="1.5" /><rect x="12" y="4.5" width="3" height="23" rx="1.5" /><rect x="18" y="7.5" width="3" height="17" rx="1.5" /><rect x="24" y="4" width="3" height="24" rx="1.5" /><rect x="30" y="5.5" width="3" height="21" rx="1.5" /><rect x="36" y="7.5" width="3" height="17" rx="1.5" /><rect x="42" y="5.5" width="3" height="21" rx="1.5" /><rect x="48" y="9" width="3" height="14" rx="1.5" /><rect x="54" y="8" width="3" height="16" rx="1.5" /><rect x="60" y="11" width="3" height="10" rx="1.5" /><rect x="66" y="12" width="3" height="8" rx="1.5" /><rect x="72" y="11.5" width="3" height="9" rx="1.5" /><rect x="78" y="8.5" width="3" height="15" rx="1.5" /><rect x="84" y="10" width="3" height="12" rx="1.5" /><rect x="90" y="8.5" width="3" height="15" rx="1.5" /><rect x="96" y="5" width="3" height="22" rx="1.5" /><rect x="102" y="2" width="3" height="28" rx="1.5" /><rect x="108" y="4" width="3" height="24" rx="1.5" /><rect x="114" y="5" width="3" height="22" rx="1.5" /><rect x="120" y="1.5" width="3" height="29" rx="1.5" /><rect x="126" y="8" width="3" height="16" rx="1.5" /><rect x="132" y="4" width="3" height="24" rx="1.5" /><rect x="138" y="8.5" width="3" height="15" rx="1.5" /><rect x="144" y="10" width="3" height="12" rx="1.5" /><rect x="150" y="11.5" width="3" height="9" rx="1.5" /><rect x="156" y="12.5" width="3" height="7" rx="1.5" /><rect x="162" y="9.5" width="3" height="13" rx="1.5" /><rect x="168" y="10" width="3" height="12" rx="1.5" /><rect x="174" y="7" width="3" height="18" rx="1.5" /><rect x="180" y="5.5" width="3" height="21" rx="1.5" /><rect x="186" y="6" width="3" height="20" rx="1.5" /><rect x="192" y="4.5" width="3" height="23" rx="1.5" /><rect x="198" y="7.5" width="3" height="17" rx="1.5" /><rect x="204" y="7.5" width="3" height="17" rx="1.5" /><rect x="210" y="7" width="3" height="18" rx="1.5" /><rect x="216" y="4.5" width="3" height="23" rx="1.5" /><rect x="222" y="7" width="3" height="18" rx="1.5" /><rect x="228" y="9" width="3" height="14" rx="1.5" /><rect x="234" y="9.5" width="3" height="13" rx="1.5" /><rect x="240" y="11.5" width="3" height="9" rx="1.5" /><rect x="246" y="11.5" width="3" height="9" rx="1.5" /><rect x="252" y="8" width="3" height="16" rx="1.5" /><rect x="258" y="7" width="3" height="18" rx="1.5" /><rect x="264" y="8" width="3" height="16" rx="1.5" /><rect x="270" y="5" width="3" height="22" rx="1.5" /></svg></i>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>1 本の録画を、切り分けて使います</h3>
+              <p>
+                通しで録った 1 本から、使う区間をステップにします。ステップに入れなかった区間は、自動で省かれます。
+              </p>
+              <div class="lanes" role="img" aria-label="1 本の録画のうち、3 つの区間をステップにし、間の区間は省く図">
+                <span>録画</span>
+                <div><i class="r" style="width: calc(96% + 12px)"></i></div>
+                <span>ステップ</span>
+                <div>
+                  <i class="v" style="width: 24%">1</i><i class="x" style="width: 12%">省く</i
+                  ><i class="v" style="width: 30%">2</i><i class="x" style="width: 8%"></i
+                  ><i class="v" style="width: 22%">3</i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="howto">
+        <div class="wrap">
+          <h2 class="sec-t">使い方</h2>
+          <p class="sec-l">録画を入れてから書き出すまで、4 つの作業です。下の動画も StepCut で作りました。</p>
+          <div class="frame">
+            <video
+              src="/media/howto.mp4"
+              poster="/media/howto.jpg"
+              width="1280"
+              height="720"
+              controls
+              playsinline
+              preload="metadata"
+              aria-label="StepCut の使い方の動画。録画を追加し、ステップに分け、テロップを書き、ズームを足して、書き出す"
+            >
+              <track kind="captions" src="/media/howto.vtt" srclang="ja" label="日本語" />
+            </video>
+          </div>
+          <div class="flow">
+            <div>
+              <small>STEP 1</small>
+              <h3>録画を入れる</h3>
+              <p>録っておいた mp4 を開きます。画像も入れられます。</p>
+            </div>
+            <div>
+              <small>STEP 2</small>
+              <h3>ステップに切る</h3>
+              <p>説明の区切りで分けます。使う区間だけをステップにできます。</p>
+            </div>
+            <div>
+              <small>STEP 3</small>
+              <h3>テロップを書く</h3>
+              <p>ステップごとに、やることを 1 文で。読み上げが付きます。見せたい場所にズームやポインターを足します。</p>
+            </div>
+            <div>
+              <small>STEP 4</small>
+              <h3>書き出す</h3>
+              <p>mp4 になります。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <div class="wrap">
+          <h2 class="sec-t">付けられるもの</h2>
+          <p class="sec-l">同じ場面に、1 つずつ付けた例です。組み合わせて使えます。</p>
+          <div class="kinds">
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-caption.mp4"
+                  poster="/media/kind-caption.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の下にテロップの文が出る"
+                ></video>
+              </div>
+              <figcaption>テロップ<small>ステップごとの文</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-caption.mp4"
+                  poster="/media/kind-caption.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="テロップの文が、読み上げの音声になる"
+                ></video>
+                <span class="sound" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+              </div>
+              <figcaption>読み上げ<small>テロップの文が、そのまま声に。録音はいりません</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-zoom.mp4"
+                  poster="/media/kind-zoom.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="スイッチのあたりにズームで寄る"
+                ></video>
+              </div>
+              <figcaption>ズーム<small>囲んだ範囲に寄る</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-pointer.mp4"
+                  poster="/media/kind-pointer.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="ポインターがスイッチへ動いてクリックする"
+                ></video>
+              </div>
+              <figcaption>ポインター<small>押す場所を示す</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-pen.mp4"
+                  poster="/media/kind-pen.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="「メール通知」の文字に蛍光ペンの線が引かれる"
+                ></video>
+              </div>
+              <figcaption>蛍光ペン<small>なぞって線を引く</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-rect.mp4"
+                  poster="/media/kind-rect.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="「メール通知」の行が四角で囲まれる"
+                ></video>
+              </div>
+              <figcaption>四角<small>場所を囲む</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-arrow.mp4"
+                  poster="/media/kind-arrow.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="矢印がスイッチを指す"
+                ></video>
+              </div>
+              <figcaption>矢印<small>場所を指す</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-text.mp4"
+                  poster="/media/kind-text.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の上に文字が置かれる"
+                ></video>
+              </div>
+              <figcaption>テキスト<small>画面に文字を置く</small></figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-image.mp4"
+                  poster="/media/kind-image.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の上にロゴの画像が置かれる"
+                ></video>
+              </div>
+              <figcaption>画像<small>ロゴなどを置く</small></figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="uses">
+        <div class="wrap">
+          <h2 class="sec-t">使いみち</h2>
+          <p class="sec-l">どの動画も StepCut で作りました。右は、その動画を作っている編集画面です。</p>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>操作の手順を見せる</h3>
+                <p>押す場所をポインターと四角で示します。入力している間のような待ち時間は、早送りにできます。</p>
+              </div>
+              <ul class="tags">
+                <li>ステップ</li>
+                <li>ポインター</li>
+                <li>四角</li>
+                <li>早送り</li>
+              </ul>
+            </div>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-steps.mp4"
+                    poster="/media/use-steps.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="申請の画面を開き、件名と金額を入力して、送信するまでの手順の動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-steps-app.png" width="1360" height="800" loading="lazy" alt="操作の手順の動画を作っている StepCut の編集画面。3 つのステップと、四角とポインターの段が見える" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
+            </div>
+          </div>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>製品のデモを見せる</h3>
+                <p>見せたい所へズームで寄り、止めて説明できます。文字やロゴを重ね、始まりと終わりはフェードにできます。</p>
+              </div>
+              <ul class="tags">
+                <li>ズーム</li>
+                <li>保持</li>
+                <li>テキスト</li>
+                <li>画像</li>
+                <li>フェード</li>
+              </ul>
+            </div>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-demo.mp4"
+                    poster="/media/use-demo.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="売上のグラフの画面を、ズームしながら紹介する動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-demo-app.png" width="1360" height="800" loading="lazy" alt="製品のデモの動画を作っている StepCut の編集画面。プレビューにズームの枠が出ている" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
+            </div>
+          </div>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>資料を解説する</h3>
+                <p>画像もステップにできます。スライドを並べ、蛍光ペンと矢印で指しながら読み上げます。</p>
+              </div>
+              <ul class="tags">
+                <li>画像のステップ</li>
+                <li>蛍光ペン</li>
+                <li>矢印</li>
+              </ul>
+            </div>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-slides.mp4"
+                    poster="/media/use-slides.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="スライドの画像に、蛍光ペンと矢印を重ねて解説する動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-slides-app.png" width="1360" height="800" loading="lazy" alt="資料の解説の動画を作っている StepCut の編集画面。スライドの画像が 2 つのステップになっている" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="factsec">
+        <div class="wrap">
+          <div class="facts">
+            <div>
+              <h3>ネット接続なしで動く</h3>
+              <p>編集から書き出しまで、PC の中で完結します。録画が外に送られることはありません。</p>
+            </div>
+            <div>
+              <h3>無料・オープンソース</h3>
+              <p>Apache-2.0。アカウント登録も課金もありません。</p>
+            </div>
+            <div>
+              <h3>AI での編集 <span class="beta">β</span></h3>
+              <p>編集内容はテキスト(JSON)のファイルです。Claude Code に、テロップの下書きなどを頼めます。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq">
+        <div class="wrap">
+          <h2 class="sec-t">FAQ</h2>
+          <details>
+            <summary>無料で使えますか?</summary>
+            <p>無料です。Apache-2.0 のオープンソースで、アカウント登録も課金もありません。</p>
+          </details>
+          <details>
+            <summary>録画や編集内容は外に送られますか?</summary>
+            <p>
+              標準の設定では送られません。読み上げに Azure AI Speech を選んだときだけ、読み上げる文がそのサービスに送られます。
+            </p>
+          </details>
+          <details>
+            <summary>読み上げの声は選べますか?</summary>
+            <p>
+              選べます。Windows 標準の音声のほか、Azure AI Speech と VOICEVOX につなげます。声と速さは、全体とステップごとに決められます。
+            </p>
+          </details>
+          <details>
+            <summary>Mac でも使えますか?</summary>
+            <p>いまは Windows だけです。Mac 版は移植を予定しています。</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="dl" id="download">
+        <div class="wrap">
+          <img class="mark" src="/favicon.svg" alt="" width="60" height="60" />
+          <h2>StepCut をダウンロード</h2>
+          <p class="meta">Windows 10 / 11(64 ビット) · 無料</p>
+          <div class="cta">
+            <a class="btn pri" href="https://github.com/mu-777/screen-annotator/releases">
+              <svg aria-hidden="true"><use href="#win" /></svg>Windows 版をダウンロード
+            </a>
+          </div>
+          <p class="meta">インストーラー版と、インストール不要の portable 版があります</p>
+          <p class="note">
+            初回の起動時に「Windows によって PC
+            が保護されました」と出たら、「詳細情報」→「実行」を選んでください(コード署名をしていないためです)。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap">
+        <span>© mu-777 · Apache-2.0</span>
+        <span class="sp">
+          <a href="https://github.com/mu-777/screen-annotator">GitHub</a>
+          <a href="https://github.com/mu-777/screen-annotator/issues">不具合の報告</a>
+          <a href="https://mu-777.dev/">mu-777.dev</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
