@@ -452,7 +452,7 @@ function buildHowtoSteps(m) {
       speech: { text: "まず、録画を追加します。" },
       pointers: [click(m.add.box, 1.4)],
     }),
-    step("split", ...cut.split, "手順の区切りで、ステップに分けます", {
+    step("split", ...cut.split, "説明の区切りで、ステップに分けます", {
       zooms: zoom({ x: 120, y: 250, w: 860, h: 510 }, ...cut.split),
     }),
     step("caption", ...cut.caption, "テロップは、プレビューの上で書けます", {

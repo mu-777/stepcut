@@ -1,7 +1,7 @@
 # STATUS
 
 ## 更新
-2026-11-14
+2026-11-15
 
 ## ブランチ
 claude/lp-design-refresh-j4toug(main 0209a60 から。紹介ページの作り直し)
