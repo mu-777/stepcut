@@ -28,7 +28,11 @@
       .tg[aria-checked="true"]::after { left: 21px; }
       .actions { max-width: 620px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 18px; }
       #save { border: 0; background: #2f6fe0; color: #fff; font: inherit; font-weight: 700; padding: 8px 22px; border-radius: 6px; cursor: pointer; }
-      #saved { color: #1f8a4c; font-weight: 700; visibility: hidden; }
+      #saved, #sent { color: #1f8a4c; font-weight: 700; visibility: hidden; }
+      .form { max-width: 620px; display: grid; gap: 14px; }
+      .form label { display: grid; gap: 4px; color: #5a6474; }
+      .form input { font: inherit; padding: 9px 12px; border: 1px solid #c9d0db; border-radius: 6px; background: #fff; color: #28303d; }
+      #send { border: 0; background: #2f6fe0; color: #fff; font: inherit; font-weight: 700; padding: 8px 22px; border-radius: 6px; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -49,6 +53,14 @@
             <div class="card">お知らせ<b>1 件</b></div>
           </div>
         </section>
+        <section id="requests" hidden>
+          <h1>経費の申請</h1>
+          <div class="form">
+            <label>件名<input id="subject" placeholder="例: 交通費" /></label>
+            <label>金額(円)<input id="amount" inputmode="numeric" placeholder="例: 1200" /></label>
+          </div>
+          <div class="actions"><span id="sent">申請しました</span><button type="button" id="send">送信</button></div>
+        </section>
         <section id="settings" hidden>
           <h1>通知の設定</h1>
           <div class="rows">
@@ -61,17 +73,23 @@
     </div>
     <script>
       const $ = (id) => document.getElementById(id);
-      $("nav-settings").onclick = () => {
-        $("home").hidden = true;
-        $("settings").hidden = false;
-        $("nav-home").classList.remove("on");
-        $("nav-settings").classList.add("on");
-      };
+      const pages = ["home", "requests", "settings"];
+      for (const name of pages) {
+        $(`nav-${name}`).onclick = () => {
+          for (const other of pages) {
+            $(other).hidden = other !== name;
+            $(`nav-${other}`).classList.toggle("on", other === name);
+          }
+        };
+      }
       for (const t of document.querySelectorAll(".tg")) {
         t.onclick = () => t.setAttribute("aria-checked", t.getAttribute("aria-checked") !== "true");
       }
       $("save").onclick = () => {
         $("saved").style.visibility = "visible";
+      };
+      $("send").onclick = () => {
+        $("sent").style.visibility = "visible";
       };
     </script>
   </body>

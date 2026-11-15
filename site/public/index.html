@@ -44,7 +44,7 @@
         <a href="/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="112" height="34" /></a>
         <ul>
           <li><a href="#howto">使い方</a></li>
-          <li><a href="#features">できること</a></li>
+          <li><a href="#uses">使いみち</a></li>
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/mu-777/screen-annotator">GitHub</a></li>
         </ul>
@@ -59,7 +59,7 @@
             <span class="pill">無料・オープンソース · Windows 10 / 11</span>
             <h1><span>録画を、</span><span>説明付きの動画に。</span></h1>
             <p class="lead">
-              録画をステップに切って、テロップ・読み上げ・ズーム・ポインターで説明を付けます。操作の手順、製品のデモ、不具合の報告などに使えます。
+              録画をステップに切って、テロップ・読み上げ・ズーム・ポインターで説明を付けます。操作の手順、製品のデモ、資料の解説などに使えます。
             </p>
             <div class="cta">
               <a class="btn pri" href="https://github.com/mu-777/screen-annotator/releases">
@@ -196,14 +196,96 @@
         </div>
       </section>
 
-      <section id="features">
+      <section id="uses">
         <div class="wrap">
-          <h2 class="sec-t">できること</h2>
+          <h2 class="sec-t">使いみち</h2>
+          <p class="sec-l">どの動画も StepCut で作りました。例ごとに、使っている機能が違います。</p>
+          <div class="feat">
+            <div>
+              <h3>操作の手順を見せる</h3>
+              <p>押す場所をポインターと四角で示します。入力している間のような待ち時間は、早送りにできます。</p>
+              <ul class="tags">
+                <li>ステップの切り分け</li>
+                <li>ポインター</li>
+                <li>四角</li>
+                <li>早送り</li>
+              </ul>
+            </div>
+            <div class="vis">
+              <div class="frame">
+                <video
+                  src="/media/use-steps.mp4"
+                  poster="/media/use-steps.jpg"
+                  width="1280"
+                  height="720"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="申請の画面を開き、件名と金額を入力して、送信するまでの手順の動画"
+                ></video>
+              </div>
+            </div>
+          </div>
+          <div class="feat">
+            <div>
+              <h3>製品のデモを見せる</h3>
+              <p>見せたい所へズームで寄り、止めて説明できます。文字やロゴを重ね、始まりと終わりはフェードにできます。</p>
+              <ul class="tags">
+                <li>ズーム</li>
+                <li>止めて見せる</li>
+                <li>テキスト</li>
+                <li>画像</li>
+                <li>フェード</li>
+              </ul>
+            </div>
+            <div class="vis">
+              <div class="frame">
+                <video
+                  src="/media/use-demo.mp4"
+                  poster="/media/use-demo.jpg"
+                  width="1280"
+                  height="720"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="売上のグラフの画面を、ズームしながら紹介する動画"
+                ></video>
+              </div>
+            </div>
+          </div>
+          <div class="feat">
+            <div>
+              <h3>資料を解説する</h3>
+              <p>画像もステップにできます。スライドを並べ、蛍光ペンと矢印で指しながら読み上げます。</p>
+              <ul class="tags">
+                <li>画像のステップ</li>
+                <li>蛍光ペン</li>
+                <li>矢印</li>
+              </ul>
+            </div>
+            <div class="vis">
+              <div class="frame">
+                <video
+                  src="/media/use-slides.mp4"
+                  poster="/media/use-slides.jpg"
+                  width="1280"
+                  height="720"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="スライドの画像に、蛍光ペンと矢印を重ねて解説する動画"
+                ></video>
+              </div>
+            </div>
+          </div>
           <div class="feat">
             <div>
               <h3>テロップを書くと、声になる。</h3>
               <p>
-                ステップにテロップを書くと、同じ文の読み上げが付きます。録音もマイクもいりません。文を直せば、音声も作り直されます。
+                どの動画でも、ステップにテロップを書くと、同じ文の読み上げが付きます。録音もマイクもいりません。文を直せば、音声も作り直されます。
               </p>
               <ul class="tags">
                 <li>Windows 標準の音声</li>
@@ -228,58 +310,6 @@
               </div>
             </div>
           </div>
-          <div class="feat">
-            <div>
-              <h3>小さなボタンも、読める大きさに。</h3>
-              <p>
-                見せたい範囲を枠で囲むと、そのステップの間だけそこへ寄ります。フル HD の録画をスマートフォンで見る人にも、文字が読めます。
-              </p>
-            </div>
-            <div class="vis">
-              <div class="frame">
-                <video
-                  src="/media/zoom.mp4"
-                  poster="/media/zoom.jpg"
-                  width="1280"
-                  height="720"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                  aria-label="画面の一部にズームして、スイッチをオンにする様子"
-                ></video>
-              </div>
-            </div>
-          </div>
-          <div class="feat">
-            <div>
-              <h3>どこを押すかを、指して見せる。</h3>
-              <p>ポインターを動かして見せ、矢印や四角を重ねます。見る人は、探さずに済みます。</p>
-              <ul class="tags">
-                <li>ポインター</li>
-                <li>蛍光ペン</li>
-                <li>矢印</li>
-                <li>四角</li>
-                <li>テキスト</li>
-                <li>画像</li>
-              </ul>
-            </div>
-            <div class="vis">
-              <div class="frame">
-                <video
-                  src="/media/point.mp4"
-                  poster="/media/point.jpg"
-                  width="1280"
-                  height="720"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                  aria-label="矢印とポインターで「保存」ボタンを指し示す様子"
-                ></video>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -287,10 +317,6 @@
         <div class="wrap">
           <h2 class="sec-t">ほかにも</h2>
           <div class="more">
-            <div>
-              <h3>待ち時間は早送り</h3>
-              <p>読み込み中などの区間だけ、速度を上げられます。</p>
-            </div>
             <div>
               <h3>読みの辞書</h3>
               <p>製品名や固有の用語の読み方を登録できます。</p>

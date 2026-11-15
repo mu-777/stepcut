@@ -7,7 +7,7 @@
 //
 // 1. 例の画面(site/media-src/sample-app.html)をブラウザで操作して録画する
 // 2. その録画に、テロップ・四角・ズーム・矢印・ポインターを付けたプロジェクト(.stepcut.json)を書く
-// 3. StepCut の CLI で mp4 に書き出す(ヒーロー用の全体、ズームだけ、矢印だけ)
+// 3. StepCut の CLI で mp4 に書き出す(ヒーロー用と、使いみちの 3 例)
 // 4. StepCut でそのプロジェクトを開いた画面を撮る
 // 5. StepCut を操作するところを録画し、その録画も StepCut で「使い方」の動画にする
 // 途中のファイルは test-output/lp-media/、使い方の動画のプロジェクトと録画は test-output/lp-howto/、
@@ -155,43 +155,271 @@ function buildSteps(m) {
   ];
 }
 
-// 「できること」のズームの動画。ズームの前を長めに見せ、「メール通知」の行だけに寄る(枠の縦横比のまま映す)
-function buildZoomStep(m) {
-  const lead = 3;
-  const mail = center(m.mail.box);
-  const row = m.row.box;
-  const rect = {
-    x: Math.round(row.x - 20),
-    y: Math.round(row.y - 10),
-    w: Math.round(row.width + 40),
-    h: Math.round(row.height + 20),
+// ---- 使いみちの 3 例(操作の手順・製品のデモ・資料の解説)。例ごとに違う機能を使う ----
+
+// 例の画面をブラウザーで開いて録画する。run の中の press(名前, セレクター) で、押した時刻と位置を覚える
+async function recordScreen(html, out, run) {
+  const browser = await chromium.launch();
+  const context = await browser.newContext({
+    viewport: { width: W, height: H },
+    recordVideo: { dir: work, size: { width: W, height: H } },
+  });
+  const page = await context.newPage();
+  const t0 = Date.now();
+  await page.goto(`file://${path.join(root, "site/media-src", html)}`);
+  const marks = {};
+  const now = () => (Date.now() - t0) / 1000;
+  const box = (selector) => page.locator(selector).boundingBox();
+  const press = async (name, selector) => {
+    const b = await box(selector);
+    await page.locator(selector).click();
+    marks[name] = { t: now(), box: b };
   };
+  await run({ page, marks, now, box, press });
+  marks.end = { t: now() };
+  const video = page.video();
+  await context.close();
+  const webm = await video.path();
+  await browser.close();
+  ffmpeg(
+    "-i",
+    webm,
+    "-r",
+    "30",
+    "-c:v",
+    "libx264",
+    "-crf",
+    "16",
+    "-pix_fmt",
+    "yuv420p",
+    "-an",
+    path.join(work, out),
+  );
+  return marks;
+}
+
+const pad = (b, p) => ({
+  x: Math.round(b.x - p),
+  y: Math.round(b.y - p),
+  w: Math.round(b.width + p * 2),
+  h: Math.round(b.height + p * 2),
+});
+// 押す場所へ動いてクリックするポインター。at はクリックの時刻(ステップ内)
+const clickAt = (b, at) => {
+  const to = center(b);
   return {
-    id: "turn-on-mail",
-    source: "rec",
-    in: round(m.mail.t - lead),
-    out: round(m.mail.t + 1.8),
-    caption: { text: "「メール通知」をオンにします" },
-    speech: {},
-    zooms: [{ start: 1.8, end: lead + 1.4, hold: false, keys: [{ t: 1.8, rect }] }],
-    pointers: [
-      {
-        mode: "line",
-        path: [
-          { t: 1.9, x: mail.x - 170, y: mail.y + 70 },
-          { t: lead - 0.1, x: mail.x, y: mail.y },
-        ],
-        click: true,
-        enter: "fade",
-      },
+    mode: "line",
+    path: [
+      { t: Math.max(0.1, at - 1), x: to.x + 120, y: to.y + 130 },
+      { t: at, x: to.x, y: to.y },
     ],
+    click: true,
+    enter: "fade",
   };
+};
+
+// 例 1 操作の手順: ステップの切り分け・ポインター・四角・早送り(入力している間)
+async function makeProcedure() {
+  const m = await recordScreen(
+    "sample-app.html",
+    "use-steps-src.mp4",
+    async ({ page, marks, now, press }) => {
+      await sleep(2200);
+      await press("requests", "#nav-requests");
+      await sleep(2200);
+      marks.typeStart = { t: now() };
+      await page.locator("#subject").pressSequentially("交通費(大阪への出張)", { delay: 260 });
+      await page.locator("#amount").pressSequentially("12800", { delay: 260 });
+      marks.typeEnd = { t: now() };
+      await sleep(1800);
+      await press("send", "#send");
+      await sleep(2600);
+    },
+  );
+  const lead = 1.5;
+  const steps = [
+    {
+      id: "open",
+      source: "rec",
+      in: round(m.requests.t - lead),
+      out: round(m.requests.t + 1.5),
+      caption: { text: "左のメニューから「申請」を開きます" },
+      speech: {},
+      shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.requests.box, -4), enter: "fade" }],
+      pointers: [clickAt(m.requests.box, lead - 0.1)],
+    },
+    {
+      id: "type",
+      source: "rec",
+      in: round(m.typeStart.t - 0.2),
+      out: round(m.typeEnd.t + 0.4),
+      speed: 3,
+      caption: { text: "件名と金額を入力します(早送り)" },
+      speech: {},
+    },
+    {
+      id: "send",
+      source: "rec",
+      in: round(m.send.t - lead),
+      out: round(m.send.t + 2),
+      caption: { text: "「送信」を押します" },
+      speech: {},
+      shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.send.box, 8), enter: "fade" }],
+      pointers: [clickAt(m.send.box, lead - 0.1)],
+    },
+  ];
+  exportVideo(writeProject("use-steps", steps, { source: "use-steps-src.mp4" }), "use-steps", 1.2);
+}
+
+// 例 2 製品のデモ: 動くズーム・止めて見せる(保持)・テキスト・画像(ロゴ)・フェード
+async function makeDemo() {
+  const m = await recordScreen("sample-dashboard.html", "use-demo-src.mp4", async ({ marks, box, press }) => {
+    marks.kpis = { box: await box(".kpis") };
+    marks.growth = { box: await box("#growth") };
+    marks.panel = { box: await box(".panel") };
+    await sleep(5500);
+    await press("weekly", "#weekly");
+    await sleep(3500);
+  });
+  fs.copyFileSync(path.join(root, "build/icon.png"), path.join(work, "logo.png"));
+  // 箱を中心に、録画と同じ縦横比の枠
+  const frame = (b, w) => {
+    const c = center(b);
+    const h = Math.round((w * H) / W);
+    return {
+      x: Math.min(W - w, Math.max(0, Math.round(c.x - w / 2))),
+      y: Math.min(H - h, Math.max(0, Math.round(c.y - h / 2))),
+      w,
+      h,
+    };
+  };
+  const logo = {
+    type: "rect",
+    start: 0,
+    anchor: "screen",
+    rect: { x: 48, y: 36, w: 96, h: 96 },
+    image: "logo.png",
+    style: { strokeWidth: 0 },
+  };
+  const first = m.weekly.t - 1.2 - 0.5;
+  const g = m.growth.box;
+  const steps = [
+    {
+      id: "overview",
+      source: "rec",
+      in: 0.5,
+      out: round(m.weekly.t - 1.2),
+      fadeIn: 0.6,
+      caption: { text: "売上の動きを、ひと目で確認できます" },
+      speech: {},
+      zooms: [
+        {
+          start: 0.7,
+          end: round(first - 0.3),
+          hold: false,
+          keys: [
+            { t: 0.7, rect: frame(m.kpis.box, 860) },
+            { t: round(first - 0.5), rect: frame(m.panel.box, 860) },
+          ],
+        },
+      ],
+      shapes: [
+        logo,
+        {
+          type: "text",
+          start: 0.9,
+          end: round(first - 0.3),
+          rect: { x: Math.round(g.x - 10), y: Math.round(g.y + g.height + 14), w: 230, h: 44 },
+          text: "前の月より増加",
+          style: { size: 22 },
+          enter: "fade",
+          exit: "fade",
+        },
+      ],
+    },
+    {
+      id: "switch",
+      source: "rec",
+      in: round(m.weekly.t - 1.2),
+      out: round(m.weekly.t + 2.4),
+      fadeOut: 0.6,
+      caption: { text: "期間を切り替えると、すぐに反映されます" },
+      speech: {},
+      // 切り替わった後のグラフに寄って、止めて見せる
+      zooms: [{ start: 2.2, end: 3.6, keys: [{ t: 2.2, rect: frame(m.panel.box, 900) }] }],
+      shapes: [logo],
+      pointers: [clickAt(m.weekly.box, 1.1)],
+    },
+  ];
+  exportVideo(writeProject("use-demo", steps, { source: "use-demo-src.mp4" }), "use-demo", 1.5);
+}
+
+// 例 3 資料の解説: 画像のステップ・蛍光ペン・矢印
+async function makeSlides() {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: W, height: H } });
+  await page.goto(`file://${path.join(root, "site/media-src/sample-slides.html")}`);
+  const keys = {};
+  for (const n of [1, 2]) {
+    const slide = page.locator(`#slide${n}`);
+    await slide.screenshot({ path: path.join(work, `slide${n}.png`) });
+    const s = await slide.boundingBox();
+    const k = await page.locator(`#key${n}`).boundingBox();
+    keys[n] = { x: k.x - s.x, y: k.y - s.y, width: k.width, height: k.height };
+  }
+  await browser.close();
+  const k1 = keys[1];
+  const k2 = center(keys[2]);
+  const steps = [
+    {
+      id: "slide1",
+      source: "s1",
+      in: 0,
+      out: 4.5,
+      fadeIn: 0.5,
+      caption: { text: "申請は、ブラウザーから出せるようになります" },
+      speech: {},
+      pointers: [
+        {
+          mode: "line",
+          path: [
+            { t: 0.9, x: Math.round(k1.x), y: Math.round(k1.y + k1.height * 0.55) },
+            { t: 2.1, x: Math.round(k1.x + k1.width), y: Math.round(k1.y + k1.height * 0.55) },
+          ],
+          style: { preset: "highlighter" },
+        },
+      ],
+    },
+    {
+      id: "slide2",
+      source: "s2",
+      in: 0,
+      out: 4.5,
+      fadeOut: 0.5,
+      caption: { text: "申請すると、上長に通知が届きます" },
+      speech: {},
+      shapes: [
+        {
+          type: "arrow",
+          start: 0.8,
+          from: { x: k2.x, y: Math.round(keys[2].y + keys[2].height + 150) },
+          to: { x: k2.x, y: Math.round(keys[2].y + keys[2].height + 14) },
+          enter: "fade",
+        },
+      ],
+    },
+  ];
+  const sources = [
+    { id: "s1", path: "slide1.png" },
+    { id: "s2", path: "slide2.png" },
+  ];
+  exportVideo(writeProject("use-slides", steps, { sources }), "use-slides", 2.4);
 }
 
 // LP の地(#1e1f22)になじむ、青の暗いグラデーション
 const background = { gradient: { angle: 160, colors: ["#2F4F8F", "#1B2740", "#141A28"] } };
 
-function writeProject(name, steps, { source = "sample-app.mp4", dir = work, speech } = {}) {
+function writeProject(name, steps, { source = "sample-app.mp4", sources, dir = work, speech } = {}) {
   const project = {
     format: "stepcut.project",
     version: 1,
@@ -201,7 +429,7 @@ function writeProject(name, steps, { source = "sample-app.mp4", dir = work, spee
     // Windows では既定のフォント(Yu Gothic UI)。ほかの OS ではそのフォントがないので指定する
     ...(process.platform === "win32" ? {} : { styles: { caption: { font: "Noto Sans JP" } } }),
     ...(speech ? { speech } : {}),
-    sources: [{ id: "rec", path: source }],
+    sources: sources ?? [{ id: "rec", path: source }],
     steps,
   };
   const file = path.join(dir, `${name}.stepcut.json`);
@@ -498,8 +726,9 @@ function exportHowto() {
   const check = cli("validate", all);
   if (check.ok === false) throw new Error(`検証エラー: ${JSON.stringify(check)}`);
   exportVideo(all, "hero", 1.2);
-  exportVideo(writeProject("zoom", [buildZoomStep(marks)]), "zoom", 1);
-  exportVideo(writeProject("point", [steps[2]]), "point", 1.2);
+  await makeProcedure();
+  await makeDemo();
+  await makeSlides();
   await screenshotApp(all);
   const howto = await recordHowto(marks);
   // 手で直したプロジェクトが残っていれば、上書きする前に写しを取る
