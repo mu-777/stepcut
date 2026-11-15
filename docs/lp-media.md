@@ -1,6 +1,6 @@
 # LP の動画と画像の作り方
 
-紹介ページ(`site/`)の動画と編集画面の画像は、StepCut 自身で作っている。作り直すときの手順と、中身の決まり。
+紹介ページ(`site/`)の動画と編集画面の画像は、StepCut 自身で作っている。作り直すときの手順と、中身の決まり。エージェントに頼むときはスキル `/lp-media`(`.claude/skills/lp-media/SKILL.md`)。
 
 ## 何を作るか
 
@@ -12,6 +12,7 @@
 | `use-steps.mp4` / `.jpg` | 「使いみち」の操作の手順 | 申請の画面で入力して送る。ポインター・四角・早送り |
 | `use-demo.mp4` / `.jpg` | 「使いみち」の製品のデモ | グラフの画面を紹介する。動くズーム・止めて見せるズーム・テキスト・画像(ロゴ)・フェード |
 | `use-slides.mp4` / `.jpg` | 「使いみち」の資料の解説 | スライドの画像 2 枚をステップにする。蛍光ペン・矢印 |
+| `use-steps-app.png` / `use-demo-app.png` / `use-slides-app.png` | 「使いみち」の各例の右 | その例のプロジェクトを開いた StepCut の画面(四角・ズームの枠・蛍光ペンを選んだ状態) |
 
 `.jpg` は動画が読み込まれるまで出す 1 コマ。
 
@@ -24,11 +25,11 @@
 2. 実行する
    - Windows: `node scripts/make-lp-media.cjs`
    - Linux: `xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/make-lp-media.cjs`
-3. 5〜6 分で終わる。`site/public/media/` の 12 ファイルが新しくなる
+3. 6〜7 分で終わる。`site/public/media/` の 15 ファイルが新しくなる。動画ごとの場面の一覧が `test-output/lp-media/sheets/` にできるので、中身はそれで確かめられる
 4. 確かめる: `cd site && npx wrangler dev` でページを開き、次を見る
    - 5 本の動画が再生され、テロップの文字が欠けていない
    - ポインターが、押す場所(「設定」、スイッチ、「保存」、「書き出し」)に重なっている
-   - `app.png` の画面が日本語で、ステップが 3 つ並んでいる
+   - `app.png` と `use-*-app.png` の画面が日本語で、プレビューに録画が映っている
 5. よければ `site/public/media/` をコミットする
 
 `howto.mp4` のシーク(再生位置の移動)は `npx wrangler dev` では確かめられない(手元のサーバーが範囲指定の読み込みに応えず、ブラウザーがシークできない動画として扱う)。本番で確かめるか、範囲指定に応えるサーバーで開く。本番が応えるかは `curl -sI -H "Range: bytes=0-99" https://stepcut.mu-777.dev/media/howto.mp4` が `206` を返すかで分かる。
@@ -46,16 +47,17 @@
    - 右上の歯車 →「読み上げエンジン」→ Azure AI Speech を有効にする(規約・料金の確認が出る)
    - 「リージョン」に控えた地域、「鍵」にキー 1 を貼る。鍵はこのパソコンで暗号化して保存され、プロジェクトファイルには書かれない
    - アプリを閉じる
-3. 読み上げエンジンを指定してスクリプトを実行する(PowerShell)
+3. スクリプトを実行する(PowerShell)。使い方の動画の読み上げは、既定で Azure AI Speech の `ja-JP-NanamiNeural`
 
 ```powershell
-$env:LP_SPEECH_ENGINE = "azure"
-$env:LP_SPEECH_VOICE = "ja-JP-NanamiNeural"   # 省くとエンジンの既定の声
 node scripts/make-lp-media.cjs
+# 声を変えるとき
+$env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 ```
 
 - 読み上げる文は Microsoft に送られ、料金は自分の契約に請求される
 - Azure を有効にしていないと、Windows 標準の声で代わりに読む(書き出しの警告に出る)
+- 読み上げが無音になる環境(Linux)で回したときは、置いてある音声付きの `howto.mp4` を上書きしない。上書きするなら `--overwrite-narrated`
 - 音声が入るのは `howto.mp4` だけ。ほかの動画は自動で再生するので、音声を外して載せる
 - 読み上げが映像より長いステップは、最後の画面で待つ分だけ長くなる(動画の長さが Linux で作ったものと変わる)
 
@@ -90,6 +92,7 @@ node scripts/make-lp-media.cjs
 | 例の画面で押す順番・待つ長さ | `scripts/make-lp-media.cjs` の `record` |
 | ヒーローの動画のテロップ・図形・ズーム | 同 `buildSteps` |
 | 使いみちの 3 例(押す操作、テロップ、使う機能) | 同 `makeProcedure` / `makeDemo` / `makeSlides` |
+| 編集画面の画像で選んでおくもの | 同 `screenshots`(画像だけ撮り直すなら `--screens`) |
 | 使い方の動画で見せる操作 | 同 `recordHowto` |
 | 使い方の動画のテロップ・ズーム | 同 `buildHowtoSteps` |
 | 背景の色、出力の大きさ | 同 `writeProject` |

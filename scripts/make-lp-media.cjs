@@ -3,7 +3,9 @@
 //   Windows: node scripts/make-lp-media.cjs
 //   使い方の動画だけ、手で直したプロジェクトから書き出し直す: 上のコマンドの最後に --howto-export
 // 前提: npm run build 済み、ffmpeg と Playwright がある。
-// 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。azure など)、LP_SPEECH_VOICE(声の ID)
+//   編集画面の画像だけ撮り直す(直前に作ったプロジェクトを使う): --screens
+//   --overwrite-narrated: 置いてある音声付きの使い方の動画を、無音のものでも上書きする
+// 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。既定は azure)、LP_SPEECH_VOICE(声の ID。既定は ja-JP-NanamiNeural)
 //
 // 1. 例の画面(site/media-src/sample-app.html)をブラウザで操作して録画する
 // 2. その録画に、テロップ・四角・ズーム・矢印・ポインターを付けたプロジェクト(.stepcut.json)を書く
@@ -13,7 +15,7 @@
 // 途中のファイルは test-output/lp-media/、使い方の動画のプロジェクトと録画は test-output/lp-howto/、
 // できたものは site/public/media/ に置く。
 const { chromium, _electron: electron } = require("playwright");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -22,7 +24,7 @@ const work = path.join(root, "test-output", "lp-media");
 const howtoDir = path.join(root, "test-output", "lp-howto");
 const outDir = path.join(root, "site", "public", "media");
 const howtoOnly = process.argv.includes("--howto-export");
-if (!howtoOnly) fs.rmSync(work, { recursive: true, force: true });
+if (!howtoOnly && !process.argv.includes("--screens")) fs.rmSync(work, { recursive: true, force: true });
 for (const dir of [work, howtoDir, outDir]) fs.mkdirSync(dir, { recursive: true });
 
 const linux = process.platform === "linux";
@@ -268,7 +270,9 @@ async function makeProcedure() {
       pointers: [clickAt(m.send.box, lead - 0.1)],
     },
   ];
-  exportVideo(writeProject("use-steps", steps, { source: "use-steps-src.mp4" }), "use-steps", 1.2);
+  const project = writeProject("use-steps", steps, { source: "use-steps-src.mp4" });
+  exportVideo(project, "use-steps", 1.2);
+  return project;
 }
 
 // 例 2 製品のデモ: 動くズーム・止めて見せる(保持)・テキスト・画像(ロゴ)・フェード
@@ -351,7 +355,9 @@ async function makeDemo() {
       pointers: [clickAt(m.weekly.box, 1.1)],
     },
   ];
-  exportVideo(writeProject("use-demo", steps, { source: "use-demo-src.mp4" }), "use-demo", 1.5);
+  const project = writeProject("use-demo", steps, { source: "use-demo-src.mp4" });
+  exportVideo(project, "use-demo", 1.5);
+  return project;
 }
 
 // 例 3 資料の解説: 画像のステップ・蛍光ペン・矢印
@@ -413,7 +419,9 @@ async function makeSlides() {
     { id: "s1", path: "slide1.png" },
     { id: "s2", path: "slide2.png" },
   ];
-  exportVideo(writeProject("use-slides", steps, { sources }), "use-slides", 2.4);
+  const project = writeProject("use-slides", steps, { sources });
+  exportVideo(project, "use-slides", 2.4);
+  return project;
 }
 
 // LP の地(#1e1f22)になじむ、青の暗いグラデーション
@@ -437,22 +445,61 @@ function writeProject(name, steps, { source = "sample-app.mp4", sources, dir = w
   return file;
 }
 
+// 動画に、聞こえる音が入っているか(音声の流れがない・ずっと無音なら false)。音量を測って決める
+function hasSound(file) {
+  if (!fs.existsSync(file)) return false;
+  const r = spawnSync("ffmpeg", [
+    "-hide_banner",
+    "-i",
+    file,
+    "-vn",
+    "-af",
+    "volumedetect",
+    "-f",
+    "null",
+    "-",
+  ]);
+  const m = /max_volume: (-?[\d.]+|-inf) dB/.exec(String(r.stderr));
+  return !!m && m[1] !== "-inf" && Number(m[1]) > -70;
+}
+
 // 3. 書き出して、Web 用に詰め直す(1 秒ごとにキーフレーム、先頭にメタデータ)。1 コマを poster にする。
-// 音声は、audio を指定した動画だけ残す(Linux では読み上げが無音なので残さない)
+// 音声は、audio を指定した動画だけ残す。読み上げが無音で代替されたとき(読み上げに対応していない OS)は残さず、
+// すでに音声付きの動画が置いてあれば上書きしない(Windows で作った音声付きを、無音のもので消さないため)
 function exportVideo(project, name, posterAt, { audio = false } = {}) {
   const raw = path.join(work, `${name}-raw.mp4`);
   const r = cli("export", project, "--out", raw);
   if (!fs.existsSync(raw)) throw new Error(`書き出しに失敗: ${name} ${JSON.stringify(r)}`);
-  const sound = audio && !linux ? ["-c:a", "aac", "-b:a", "96k"] : ["-an"];
+  const warnings = r.warnings || [];
+  const out = path.join(outDir, `${name}.mp4`);
+  const silent = !hasSound(raw);
+  if (audio && silent && hasSound(out) && !process.argv.includes("--overwrite-narrated")) {
+    console.log(
+      `${name}.mp4 は音声付きのものが置いてあるので、無音のもので上書きしません(--overwrite-narrated で上書き)`,
+    );
+    return;
+  }
+  const sound = audio && !silent ? ["-c:a", "aac", "-b:a", "96k"] : ["-an"];
   const video = ["-c:v", "libx264", "-preset", "slow", "-crf", "27", "-g", "30", "-pix_fmt", "yuv420p"];
-  ffmpeg("-i", raw, ...sound, ...video, "-movflags", "+faststart", path.join(outDir, `${name}.mp4`));
+  ffmpeg("-i", raw, ...sound, ...video, "-movflags", "+faststart", out);
   const frame = `select='eq(n\\,${Math.round(posterAt * 30)})'`;
   ffmpeg("-i", raw, "-vf", frame, "-frames:v", "1", "-q:v", "4", path.join(outDir, `${name}.jpg`));
   // 字幕(SRT)があれば、ブラウザーで出せる WebVTT にする
   const srt = raw.replace(/\.mp4$/, ".srt");
   if (fs.existsSync(srt)) ffmpeg("-i", srt, path.join(outDir, `${name}.vtt`));
-  const kb = Math.round(fs.statSync(path.join(outDir, `${name}.mp4`)).size / 1024);
-  console.log(`${name}.mp4`, `${kb} KB`, ...(r.warnings || []).map((w) => `\n  警告: ${w}`));
+  // 確かめる用に、場面を等間隔で並べた一覧を作る(スキル lp-media の Phase 2 で見る)
+  const [cols, rows] = name === "howto" ? [4, 4] : [4, 2];
+  const every = Math.max(1, Math.floor((r.frames || 300) / (cols * rows)));
+  const tiles = `select='not(mod(n\\,${every}))',scale=480:-1,tile=${cols}x${rows}`;
+  fs.mkdirSync(path.join(work, "sheets"), { recursive: true });
+  ffmpeg("-i", raw, "-vf", tiles, "-frames:v", "1", path.join(work, "sheets", `${name}.png`));
+  const kb = Math.round(fs.statSync(out).size / 1024);
+  console.log(
+    `${name}.mp4`,
+    `${kb} KB`,
+    audio ? (silent ? "(音声なし)" : "(音声あり)") : "",
+    ...warnings.map((w) => `\n  警告: ${w}`),
+  );
 }
 
 // StepCut を起動する。アプリの設定は作業用のフォルダーに置き、画面の言語は日本語にする
@@ -479,19 +526,36 @@ async function closeApp(app) {
   await app.close();
 }
 
-// 4. StepCut で開いた画面を撮る(2 つ目のステップのテロップを選んだ状態)
-async function screenshotApp(project) {
-  const { app, page } = await launchApp("shot", { width: 1360, height: 800 }, [project]);
+// 4. StepCut でプロジェクトを開いた画面を撮る。select で、選んでおくもの(ステップやタイムラインの要素)を押す
+async function screenshotApp(project, name, select) {
+  const { app, page } = await launchApp(`shot-${name}`, { width: 1360, height: 800 }, [project]);
   await page.waitForSelector(".rail-thumb");
   await page.waitForTimeout(2500);
-  await page.locator(".rail-thumb").nth(1).click();
-  await page.waitForTimeout(300);
-  await page.locator(".tl-bar.caption").nth(1).click();
+  await select(page);
   await page.waitForTimeout(1200);
-  await page.screenshot({ path: path.join(outDir, "app.png") });
-  console.log("app.png");
+  await page.screenshot({ path: path.join(outDir, `${name}.png`) });
+  console.log(`${name}.png`);
   await closeApp(app);
 }
+// ステップ step(0 始まり)を選び、そのステップにあるタイムラインの要素(テロップ・ズーム・オブジェクト)を押す
+const selectBar = (step, kind) => async (page) => {
+  await page.locator(".rail-thumb").nth(step).click();
+  await page.waitForTimeout(400);
+  const clip = await page.locator(".tl-clip").nth(step).boundingBox();
+  const bars = page.locator(`.tl-bar.${kind}`);
+  for (let i = 0; i < (await bars.count()); i++) {
+    const b = await bars.nth(i).boundingBox();
+    if (b && b.x >= clip.x - 2 && b.x < clip.x + clip.width) {
+      await bars.nth(i).scrollIntoViewIfNeeded();
+      await bars.nth(i).click();
+      break;
+    }
+  }
+  // ステップの先頭はフェードで暗いことがあるので、ステップの中ほどへ再生位置を動かして撮る。
+  // 矢印キーは、ズームの枠を選んでいると枠を動かすので使わない(目盛りを押す)
+  const ruler = await page.locator(".tl-ruler").boundingBox();
+  await page.mouse.click(clip.x + clip.width * 0.45, ruler.y + ruler.height / 2);
+};
 
 // 5. StepCut を操作するところを録画する。
 // 録画を入れる → 切る → プレビューの上でテロップを書く → ズームの範囲を囲む → 再生して確かめる → 四角を置く → 書き出す
@@ -715,7 +779,20 @@ function exportHowto() {
   console.log(`使い方の動画のプロジェクト: ${path.relative(root, project)}`);
 }
 
+// 編集画面の画像 4 枚。プロジェクトは test-output/lp-media/ にあるものを開く
+async function screenshots() {
+  const project = (name) => path.join(work, `${name}.stepcut.json`);
+  await screenshotApp(project("notification-settings"), "app", selectBar(1, "caption"));
+  await screenshotApp(project("use-steps"), "use-steps-app", selectBar(0, "object"));
+  await screenshotApp(project("use-demo"), "use-demo-app", selectBar(0, "zoom"));
+  await screenshotApp(project("use-slides"), "use-slides-app", selectBar(0, "object"));
+}
+
 (async () => {
+  if (process.argv.includes("--screens")) {
+    await screenshots();
+    process.exit(0);
+  }
   if (howtoOnly) {
     exportHowto();
     process.exit(0);
@@ -729,14 +806,15 @@ function exportHowto() {
   await makeProcedure();
   await makeDemo();
   await makeSlides();
-  await screenshotApp(all);
+  await screenshots();
   const howto = await recordHowto(marks);
   // 手で直したプロジェクトが残っていれば、上書きする前に写しを取る
   const project = path.join(howtoDir, "howto.stepcut.json");
   if (fs.existsSync(project))
     fs.copyFileSync(project, path.join(howtoDir, `howto.${Date.now()}.backup.json`));
   const engine = process.env.LP_SPEECH_ENGINE;
-  const speech = { engine: engine || "os", voice: process.env.LP_SPEECH_VOICE || null };
+  // 使い方の動画の読み上げは Azure AI Speech。アプリの設定で有効にしていなければ、OS 標準の声で代わりに読む
+  const speech = { engine: engine || "azure", voice: process.env.LP_SPEECH_VOICE || "ja-JP-NanamiNeural" };
   writeProject("howto", buildHowtoSteps(howto), { source: "stepcut-app.mp4", dir: howtoDir, speech });
   exportHowto();
   process.exit(0);

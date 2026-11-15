@@ -44,6 +44,7 @@
         <a href="/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="112" height="34" /></a>
         <ul>
           <li><a href="#howto">使い方</a></li>
+          <li><a href="#features">できること</a></li>
           <li><a href="#uses">使いみち</a></li>
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/mu-777/screen-annotator">GitHub</a></li>
@@ -196,102 +197,65 @@
         </div>
       </section>
 
-      <section id="uses">
+      <section id="features">
         <div class="wrap">
-          <h2 class="sec-t">使いみち</h2>
-          <p class="sec-l">どの動画も StepCut で作りました。例ごとに、使っている機能が違います。</p>
-          <div class="feat">
+          <h2 class="sec-t">できること</h2>
+          <p class="sec-l">付けられる説明を、タイムラインの段ごとに並べました。</p>
+          <div class="lanesum">
             <div>
-              <h3>操作の手順を見せる</h3>
-              <p>押す場所をポインターと四角で示します。入力している間のような待ち時間は、早送りにできます。</p>
-              <ul class="tags">
-                <li>ステップの切り分け</li>
-                <li>ポインター</li>
-                <li>四角</li>
-                <li>早送り</li>
+              <span>映像</span>
+              <ul>
+                <li><b>ステップ</b>録画を区間に切り、並べ替えられます。</li>
+                <li><b>早送り</b>待ち時間の区間だけ、速度を上げます。</li>
+                <li><b>保持</b>映像を止めて、その画面のまま説明します。</li>
+                <li><b>フェード</b>ステップの始まりと終わりに付けます。</li>
               </ul>
             </div>
-            <div class="vis">
-              <div class="frame">
-                <video
-                  src="/media/use-steps.mp4"
-                  poster="/media/use-steps.jpg"
-                  width="1280"
-                  height="720"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                  aria-label="申請の画面を開き、件名と金額を入力して、送信するまでの手順の動画"
-                ></video>
-              </div>
-            </div>
-          </div>
-          <div class="feat">
             <div>
-              <h3>製品のデモを見せる</h3>
-              <p>見せたい所へズームで寄り、止めて説明できます。文字やロゴを重ね、始まりと終わりはフェードにできます。</p>
-              <ul class="tags">
-                <li>ズーム</li>
-                <li>止めて見せる</li>
-                <li>テキスト</li>
-                <li>画像</li>
-                <li>フェード</li>
+              <span>テロップ</span>
+              <ul>
+                <li><b>テロップ</b>ステップごとの文。位置・大きさ・背景を変えられます。</li>
               </ul>
             </div>
-            <div class="vis">
-              <div class="frame">
-                <video
-                  src="/media/use-demo.mp4"
-                  poster="/media/use-demo.jpg"
-                  width="1280"
-                  height="720"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                  aria-label="売上のグラフの画面を、ズームしながら紹介する動画"
-                ></video>
-              </div>
-            </div>
-          </div>
-          <div class="feat">
             <div>
-              <h3>資料を解説する</h3>
-              <p>画像もステップにできます。スライドを並べ、蛍光ペンと矢印で指しながら読み上げます。</p>
-              <ul class="tags">
-                <li>画像のステップ</li>
-                <li>蛍光ペン</li>
-                <li>矢印</li>
+              <span>読み上げ</span>
+              <ul>
+                <li><b>読み上げ</b>テロップの文を声にします。Windows 標準の音声、VOICEVOX 互換エンジン、Azure AI Speech。</li>
+                <li><b>読みの辞書</b>製品名や固有の用語の読み方を登録します。</li>
               </ul>
             </div>
-            <div class="vis">
-              <div class="frame">
-                <video
-                  src="/media/use-slides.mp4"
-                  poster="/media/use-slides.jpg"
-                  width="1280"
-                  height="720"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                  aria-label="スライドの画像に、蛍光ペンと矢印を重ねて解説する動画"
-                ></video>
-              </div>
+            <div>
+              <span>ズーム</span>
+              <ul>
+                <li><b>ズーム</b>囲んだ範囲に寄ります。寄ったまま動かすこともできます。</li>
+              </ul>
+            </div>
+            <div>
+              <span>オブジェクト</span>
+              <ul>
+                <li><b>ポインター</b>押す場所へ動かし、クリックを示します。</li>
+                <li><b>蛍光ペン</b>なぞった所に線を引きます。</li>
+                <li><b>四角</b>場所を囲みます。</li>
+                <li><b>矢印</b>場所を指します。</li>
+                <li><b>テキスト</b>画面の上に文字を置きます。</li>
+                <li><b>画像</b>ロゴなどの画像を置きます。</li>
+              </ul>
+            </div>
+            <div>
+              <span>全体</span>
+              <ul>
+                <li><b>背景と余白</b>単色・グラデーション・画像の上に録画を置きます。</li>
+                <li><b>字幕ファイル</b>mp4 と一緒に SRT を書き出します。</li>
+                <li><b>書き出し</b>mp4。4K・60fps まで。</li>
+              </ul>
             </div>
           </div>
           <div class="feat">
             <div>
               <h3>テロップを書くと、声になる。</h3>
               <p>
-                どの動画でも、ステップにテロップを書くと、同じ文の読み上げが付きます。録音もマイクもいりません。文を直せば、音声も作り直されます。
+                ステップにテロップを書くと、同じ文の読み上げが付きます。録音もマイクもいりません。文を直せば、音声も作り直されます。
               </p>
-              <ul class="tags">
-                <li>Windows 標準の音声</li>
-                <li>VOICEVOX 互換エンジン</li>
-                <li>Azure AI Speech</li>
-              </ul>
             </div>
             <div class="vis">
               <div class="telops" role="img" aria-label="ステップごとのテロップの文が、それぞれ読み上げの音声になる図">
@@ -313,21 +277,122 @@
         </div>
       </section>
 
-      <section>
+      <section id="uses">
         <div class="wrap">
-          <h2 class="sec-t">ほかにも</h2>
-          <div class="more">
-            <div>
-              <h3>読みの辞書</h3>
-              <p>製品名や固有の用語の読み方を登録できます。</p>
+          <h2 class="sec-t">使いみち</h2>
+          <p class="sec-l">どの動画も StepCut で作りました。右は、その動画を作っている編集画面です。</p>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>操作の手順を見せる</h3>
+                <p>押す場所をポインターと四角で示します。入力している間のような待ち時間は、早送りにできます。</p>
+              </div>
+              <ul class="tags">
+                <li>ステップ</li>
+                <li>ポインター</li>
+                <li>四角</li>
+                <li>早送り</li>
+              </ul>
             </div>
-            <div>
-              <h3>字幕ファイル</h3>
-              <p>mp4 と一緒に SRT を書き出せます。</p>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-steps.mp4"
+                    poster="/media/use-steps.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="申請の画面を開き、件名と金額を入力して、送信するまでの手順の動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-steps-app.png" width="1360" height="800" loading="lazy" alt="操作の手順の動画を作っている StepCut の編集画面。3 つのステップと、四角とポインターの段が見える" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
             </div>
-            <div>
-              <h3>背景と余白</h3>
-              <p>単色・グラデーション・画像の上に、録画を置けます。</p>
+          </div>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>製品のデモを見せる</h3>
+                <p>見せたい所へズームで寄り、止めて説明できます。文字やロゴを重ね、始まりと終わりはフェードにできます。</p>
+              </div>
+              <ul class="tags">
+                <li>ズーム</li>
+                <li>保持</li>
+                <li>テキスト</li>
+                <li>画像</li>
+                <li>フェード</li>
+              </ul>
+            </div>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-demo.mp4"
+                    poster="/media/use-demo.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="売上のグラフの画面を、ズームしながら紹介する動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-demo-app.png" width="1360" height="800" loading="lazy" alt="製品のデモの動画を作っている StepCut の編集画面。プレビューにズームの枠が出ている" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
+            </div>
+          </div>
+          <div class="use">
+            <div class="use-t">
+              <div>
+                <h3>資料を解説する</h3>
+                <p>画像もステップにできます。スライドを並べ、蛍光ペンと矢印で指しながら読み上げます。</p>
+              </div>
+              <ul class="tags">
+                <li>画像のステップ</li>
+                <li>蛍光ペン</li>
+                <li>矢印</li>
+              </ul>
+            </div>
+            <div class="use-m">
+              <figure>
+                <div class="frame">
+                  <video
+                    src="/media/use-slides.mp4"
+                    poster="/media/use-slides.jpg"
+                    width="1280"
+                    height="720"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    aria-label="スライドの画像に、蛍光ペンと矢印を重ねて解説する動画"
+                  ></video>
+                </div>
+                <figcaption>できた動画</figcaption>
+              </figure>
+              <figure>
+                <div class="frame">
+                  <img src="/media/use-slides-app.png" width="1360" height="800" loading="lazy" alt="資料の解説の動画を作っている StepCut の編集画面。スライドの画像が 2 つのステップになっている" />
+                </div>
+                <figcaption>編集画面</figcaption>
+              </figure>
             </div>
           </div>
         </div>
