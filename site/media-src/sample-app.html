@@ -36,38 +36,38 @@
     </style>
   </head>
   <body>
-    <header>サンプルアプリ<span>山田さん</span></header>
+    <header data-en="Sample App&lt;span&gt;Alex Kim&lt;/span&gt;">サンプルアプリ<span>山田さん</span></header>
     <div class="layout">
       <nav>
-        <button type="button" id="nav-home" class="on">ホーム</button>
-        <button type="button" id="nav-requests">申請</button>
-        <button type="button" id="nav-settings">設定</button>
-        <button type="button" id="nav-help">ヘルプ</button>
+        <button type="button" id="nav-home" class="on" data-en="Home">ホーム</button>
+        <button type="button" id="nav-requests" data-en="Requests">申請</button>
+        <button type="button" id="nav-settings" data-en="Settings">設定</button>
+        <button type="button" id="nav-help" data-en="Help">ヘルプ</button>
       </nav>
       <main>
         <section id="home">
-          <h1>ホーム</h1>
+          <h1 data-en="Home">ホーム</h1>
           <div class="cards">
-            <div class="card">未処理の申請<b>3 件</b></div>
-            <div class="card">今月の承認<b>12 件</b></div>
-            <div class="card">お知らせ<b>1 件</b></div>
+            <div class="card" data-en="Pending requests&lt;b&gt;3&lt;/b&gt;">未処理の申請<b>3 件</b></div>
+            <div class="card" data-en="Approved this month&lt;b&gt;12&lt;/b&gt;">今月の承認<b>12 件</b></div>
+            <div class="card" data-en="Notices&lt;b&gt;1&lt;/b&gt;">お知らせ<b>1 件</b></div>
           </div>
         </section>
         <section id="requests" hidden>
-          <h1>経費の申請</h1>
+          <h1 data-en="Expense request">経費の申請</h1>
           <div class="form">
-            <label>件名<input id="subject" placeholder="例: 交通費" /></label>
-            <label>金額(円)<input id="amount" inputmode="numeric" placeholder="例: 1200" /></label>
+            <label><span data-en="Subject">件名</span><input id="subject" placeholder="例: 交通費" data-en-ph="e.g. Travel" /></label>
+            <label><span data-en="Amount (USD)">金額(円)</span><input id="amount" inputmode="numeric" placeholder="例: 1200" data-en-ph="e.g. 120" /></label>
           </div>
-          <div class="actions"><span id="sent">申請しました</span><button type="button" id="send">送信</button></div>
+          <div class="actions"><span id="sent" data-en="Submitted">申請しました</span><button type="button" id="send" data-en="Submit">送信</button></div>
         </section>
         <section id="settings" hidden>
-          <h1>通知の設定</h1>
+          <h1 data-en="Notifications">通知の設定</h1>
           <div class="rows">
-            <div class="row"><div><span id="mail-label">メール通知</span><small>申請が届いたらメールで知らせます</small></div><button type="button" class="tg" id="mail" role="switch" aria-checked="false" aria-label="メール通知"></button></div>
-            <div class="row"><div>週次レポート<small>毎週月曜に集計を送ります</small></div><button type="button" class="tg" id="weekly" role="switch" aria-checked="true" aria-label="週次レポート"></button></div>
+            <div class="row"><div data-en="&lt;span id=&quot;mail-label&quot;&gt;Email alerts&lt;/span&gt;&lt;small&gt;Get an email when a request arrives&lt;/small&gt;"><span id="mail-label">メール通知</span><small>申請が届いたらメールで知らせます</small></div><button type="button" class="tg" id="mail" role="switch" aria-checked="false" aria-label="メール通知" data-en-label="Email alerts"></button></div>
+            <div class="row"><div data-en="Weekly report&lt;small&gt;Sends a summary every Monday&lt;/small&gt;">週次レポート<small>毎週月曜に集計を送ります</small></div><button type="button" class="tg" id="weekly" role="switch" aria-checked="true" aria-label="週次レポート" data-en-label="Weekly report"></button></div>
           </div>
-          <div class="actions"><span id="saved">保存しました</span><button type="button" id="save">保存</button></div>
+          <div class="actions"><span id="saved" data-en="Saved">保存しました</span><button type="button" id="save" data-en="Save">保存</button></div>
         </section>
       </main>
     </div>
@@ -91,6 +91,15 @@
       $("send").onclick = () => {
         $("sent").style.visibility = "visible";
       };
+    </script>
+    <script>
+      // ?lang=en で英語の画面にする(scripts/make-lp-media.cjs の --lang en)。data-en の HTML で中身を差し替える
+      if (new URLSearchParams(location.search).get("lang") === "en") {
+        document.documentElement.lang = "en";
+        for (const el of document.querySelectorAll("[data-en]")) el.innerHTML = el.dataset.en;
+        for (const el of document.querySelectorAll("[data-en-label]")) el.setAttribute("aria-label", el.dataset.enLabel);
+        for (const el of document.querySelectorAll("[data-en-ph]")) el.placeholder = el.dataset.enPh;
+      }
     </script>
   </body>
 </html>

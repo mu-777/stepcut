@@ -23,19 +23,19 @@
     </style>
   </head>
   <body>
-    <header>サンプルボード</header>
+    <header data-en="Sample Board">サンプルボード</header>
     <main>
       <div class="kpis">
-        <div class="kpi">今月の売上<b>1,284 万円</b></div>
-        <div class="kpi">前月比<b id="growth">+18%</b></div>
-        <div class="kpi">新規の取引先<b>7 社</b></div>
+        <div class="kpi" data-en="Sales this month&lt;b&gt;$128,400&lt;/b&gt;">今月の売上<b>1,284 万円</b></div>
+        <div class="kpi" data-en="vs. last month&lt;b id=&quot;growth&quot;&gt;+18%&lt;/b&gt;">前月比<b id="growth">+18%</b></div>
+        <div class="kpi" data-en="New clients&lt;b&gt;7&lt;/b&gt;">新規の取引先<b>7 社</b></div>
       </div>
       <div class="panel">
         <div class="head">
-          <span>売上の推移</span>
+          <span data-en="Sales trend">売上の推移</span>
           <div class="seg">
-            <button type="button" id="monthly" class="on">月別</button>
-            <button type="button" id="weekly">週別</button>
+            <button type="button" id="monthly" class="on" data-en="Monthly">月別</button>
+            <button type="button" id="weekly" data-en="Weekly">週別</button>
           </div>
         </div>
         <div class="chart" id="chart"></div>
@@ -52,6 +52,15 @@
       document.getElementById("monthly").onclick = () => draw("monthly");
       document.getElementById("weekly").onclick = () => draw("weekly");
       draw("monthly");
+    </script>
+    <script>
+      // ?lang=en で英語の画面にする(scripts/make-lp-media.cjs の --lang en)。data-en の HTML で中身を差し替える
+      if (new URLSearchParams(location.search).get("lang") === "en") {
+        document.documentElement.lang = "en";
+        for (const el of document.querySelectorAll("[data-en]")) el.innerHTML = el.dataset.en;
+        for (const el of document.querySelectorAll("[data-en-label]")) el.setAttribute("aria-label", el.dataset.enLabel);
+        for (const el of document.querySelectorAll("[data-en-ph]")) el.placeholder = el.dataset.enPh;
+      }
     </script>
   </body>
 </html>

@@ -5,7 +5,9 @@
 // 前提: npm run build 済み、ffmpeg と Playwright がある。
 //   編集画面の画像だけ撮り直す(直前に作ったプロジェクトを使う): --screens
 //   --overwrite-narrated: 置いてある音声付きの使い方の動画を、無音のものでも上書きする
-// 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。既定は azure)、LP_SPEECH_VOICE(声の ID。既定は ja-JP-NanamiNeural)
+//   --lang en: 英語のページ用(アプリの画面・例の画面・テロップを英語にし、site/public/media/en/ に置く)。既定は ja
+// 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。既定は azure)、
+//   LP_SPEECH_VOICE(声の ID。既定は ja-JP-NanamiNeural、--lang en では en-US-JennyNeural)
 //
 // 1. 例の画面(site/media-src/sample-app.html)をブラウザで操作して録画する
 // 2. その録画に、テロップ・四角・ズーム・矢印・ポインターを付けたプロジェクト(.stepcut.json)を書く
@@ -13,16 +15,100 @@
 // 4. StepCut でそのプロジェクトを開いた画面を撮る
 // 5. StepCut を操作するところを録画し、その録画も StepCut で「使い方」の動画にする
 // 途中のファイルは test-output/lp-media/、使い方の動画のプロジェクトと録画は test-output/lp-howto/、
-// できたものは site/public/media/ に置く。
+// できたものは site/public/media/ に置く(--lang en では、それぞれ -en を付けたフォルダーと media/en/)。
 const { chromium, _electron: electron } = require("playwright");
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
+const langAt = process.argv.indexOf("--lang");
+const lang = langAt >= 0 ? process.argv[langAt + 1] : "ja";
+if (lang !== "ja" && lang !== "en") throw new Error(`--lang は ja か en: ${lang}`);
+const suffix = lang === "ja" ? "" : `-${lang}`;
 const root = path.resolve(__dirname, "..");
-const work = path.join(root, "test-output", "lp-media");
-const howtoDir = path.join(root, "test-output", "lp-howto");
-const outDir = path.join(root, "site", "public", "media");
+const work = path.join(root, "test-output", `lp-media${suffix}`);
+const howtoDir = path.join(root, "test-output", `lp-howto${suffix}`);
+const outDir = path.join(root, "site", "public", "media", ...(lang === "ja" ? [] : [lang]));
+
+// 言語ごとの文。テロップ・読み上げ・画面に置く文字と、アプリの画面で押すボタンの名前(src/renderer/src/i18n.ts と同じ文言)
+const TEXT = {
+  ja: {
+    heroOpen: "左のメニューから「設定」を開きます",
+    heroMail: "「メール通知」をオンにします",
+    heroSave: "最後に「保存」を押します",
+    kindText: "ここをオンにします",
+    stepsOpen: "左のメニューから「申請」を開きます",
+    stepsSubject: "交通費(大阪への出張)",
+    stepsAmount: "12800",
+    stepsType: "件名と金額を入力します(早送り)",
+    stepsSend: "「送信」を押します",
+    demoOverview: "売上の動きを、ひと目で確認できます",
+    demoGrowth: "前の月より増加",
+    demoSwitch: "期間を切り替えると、すぐに反映されます",
+    slides1: "申請は、ブラウザーから出せるようになります",
+    slides2: "申請すると、上長に通知が届きます",
+    howtoAdd: "録画を追加します",
+    howtoAddSpeech: "まず、録画を追加します。",
+    howtoSplit: "説明の区切りで、ステップに分けます",
+    howtoCaption: "テロップは、プレビューの上で書けます",
+    howtoCaptionSpeech:
+      "テロップは、プレビューの上で書けます。右の設定にも同じ文が入り、読み上げが付きます。",
+    howtoZoom: "ズームは、見せたい範囲を枠で囲みます",
+    howtoPlay: "再生して、その場で確かめられます",
+    howtoObject: "四角や矢印も、プレビューの上に置けます",
+    howtoExport: "「書き出し」を押します",
+    howtoExportSpeech: "最後に、書き出しを押します。",
+    howtoWait: "書き出しが終わるまで待ちます(早送り)",
+    howtoWaitSpeech: "書き出しが終わるまで、少し待ちます。",
+    howtoDone: "mp4 ができました",
+    howtoDoneSpeech: "mp4 ができました。",
+    uiCaption: "テロップ",
+    uiZoom: "ズーム",
+    uiBox: "四角",
+    uiExport: "書き出し",
+    voice: "ja-JP-NanamiNeural",
+  },
+  en: {
+    heroOpen: "Open Settings from the menu on the left",
+    heroMail: "Turn on Email alerts",
+    heroSave: "Finally, click Save",
+    kindText: "Turn this on",
+    stepsOpen: "Open Requests from the menu on the left",
+    stepsSubject: "Travel (Chicago trip)",
+    stepsAmount: "128",
+    stepsType: "Enter the subject and amount (sped up)",
+    stepsSend: "Click Submit",
+    demoOverview: "See how sales are trending at a glance",
+    demoGrowth: "Up from last month",
+    demoSwitch: "Switch the period and the chart updates instantly",
+    slides1: "Requests can now be submitted from your browser",
+    slides2: "Once you submit, your manager is notified",
+    howtoAdd: "Add a recording",
+    howtoAddSpeech: "First, add a recording.",
+    howtoSplit: "Split it into steps where the explanation changes",
+    howtoCaption: "Type captions right on the preview",
+    howtoCaptionSpeech:
+      "Type captions right on the preview. The same text appears in the settings on the right, and it is read aloud.",
+    howtoZoom: "For a zoom, draw a box around the area to show",
+    howtoPlay: "Play it back to check on the spot",
+    howtoObject: "Boxes and arrows go on the preview too",
+    howtoExport: "Click Export",
+    howtoExportSpeech: "Finally, click Export.",
+    howtoWait: "Wait for the export to finish (sped up)",
+    howtoWaitSpeech: "Wait a moment for the export to finish.",
+    howtoDone: "The mp4 is ready",
+    howtoDoneSpeech: "The mp4 is ready.",
+    uiCaption: "Caption",
+    uiZoom: "Zoom",
+    uiBox: "Box",
+    uiExport: "Export",
+    voice: "en-US-JennyNeural",
+  },
+}[lang];
+// 例の画面(site/media-src/)の URL。英語は ?lang=en で切り替える
+const sampleUrl = (html) =>
+  `${pathToFileURL(path.join(root, "site/media-src", html)).href}${lang === "ja" ? "" : `?lang=${lang}`}`;
 const howtoOnly = process.argv.includes("--howto-export");
 if (!howtoOnly && !process.argv.includes("--screens")) fs.rmSync(work, { recursive: true, force: true });
 for (const dir of [work, howtoDir, outDir]) fs.mkdirSync(dir, { recursive: true });
@@ -54,7 +140,7 @@ async function record() {
   });
   const page = await context.newPage();
   const t0 = Date.now();
-  await page.goto(`file://${path.join(root, "site/media-src/sample-app.html")}`);
+  await page.goto(sampleUrl("sample-app.html"));
   const marks = {};
   const press = async (name, selector) => {
     const el = page.locator(selector);
@@ -121,7 +207,7 @@ function buildSteps(m) {
       source: "rec",
       in: round(m.settings.t - lead),
       out: round(m.settings.t + 1.5),
-      caption: { text: "左のメニューから「設定」を開きます" },
+      caption: { text: TEXT.heroOpen },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.settings.box, -4), enter: "fade" }],
       pointers: [pointerTo(settings, { x: 520, y: 420 })],
@@ -131,7 +217,7 @@ function buildSteps(m) {
       source: "rec",
       in: round(m.mail.t - lead),
       out: round(m.mail.t + 1.8),
-      caption: { text: "「メール通知」をオンにします" },
+      caption: { text: TEXT.heroMail },
       speech: {},
       zooms: [{ start: 0.3, end: lead + 1.4, hold: false, keys: [{ t: 0.3, rect: zoomRect }] }],
       pointers: [pointerTo(mail, { x: mail.x - 170, y: mail.y + 70 })],
@@ -141,7 +227,7 @@ function buildSteps(m) {
       source: "rec",
       in: round(m.save.t - lead),
       out: round(m.save.t + 2),
-      caption: { text: "最後に「保存」を押します" },
+      caption: { text: TEXT.heroSave },
       speech: {},
       shapes: [
         {
@@ -169,7 +255,7 @@ async function recordScreen(html, out, run) {
   });
   const page = await context.newPage();
   const t0 = Date.now();
-  await page.goto(`file://${path.join(root, "site/media-src", html)}`);
+  await page.goto(sampleUrl(html));
   const marks = {};
   const now = () => (Date.now() - t0) / 1000;
   const box = (selector) => page.locator(selector).boundingBox();
@@ -231,8 +317,8 @@ async function makeProcedure() {
       await press("requests", "#nav-requests");
       await sleep(2200);
       marks.typeStart = { t: now() };
-      await page.locator("#subject").pressSequentially("交通費(大阪への出張)", { delay: 260 });
-      await page.locator("#amount").pressSequentially("12800", { delay: 260 });
+      await page.locator("#subject").pressSequentially(TEXT.stepsSubject, { delay: 260 });
+      await page.locator("#amount").pressSequentially(TEXT.stepsAmount, { delay: 260 });
       marks.typeEnd = { t: now() };
       await sleep(1800);
       await press("send", "#send");
@@ -246,7 +332,7 @@ async function makeProcedure() {
       source: "rec",
       in: round(m.requests.t - lead),
       out: round(m.requests.t + 1.5),
-      caption: { text: "左のメニューから「申請」を開きます" },
+      caption: { text: TEXT.stepsOpen },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.requests.box, -4), enter: "fade" }],
       pointers: [clickAt(m.requests.box, lead - 0.1)],
@@ -257,7 +343,7 @@ async function makeProcedure() {
       in: round(m.typeStart.t - 0.2),
       out: round(m.typeEnd.t + 0.4),
       speed: 3,
-      caption: { text: "件名と金額を入力します(早送り)" },
+      caption: { text: TEXT.stepsType },
       speech: {},
     },
     {
@@ -265,7 +351,7 @@ async function makeProcedure() {
       source: "rec",
       in: round(m.send.t - lead),
       out: round(m.send.t + 2),
-      caption: { text: "「送信」を押します" },
+      caption: { text: TEXT.stepsSend },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.send.box, 8), enter: "fade" }],
       pointers: [clickAt(m.send.box, lead - 0.1)],
@@ -315,7 +401,7 @@ async function makeDemo() {
       in: 0.5,
       out: round(m.weekly.t - 1.2),
       fadeIn: 0.6,
-      caption: { text: "売上の動きを、ひと目で確認できます" },
+      caption: { text: TEXT.demoOverview },
       speech: {},
       zooms: [
         {
@@ -334,8 +420,13 @@ async function makeDemo() {
           type: "text",
           start: 0.9,
           end: round(first - 0.3),
-          rect: { x: Math.round(g.x - 10), y: Math.round(g.y + g.height + 14), w: 230, h: 44 },
-          text: "前の月より増加",
+          rect: {
+            x: Math.round(g.x - 10),
+            y: Math.round(g.y + g.height + 14),
+            w: lang === "ja" ? 230 : 260,
+            h: 44,
+          },
+          text: TEXT.demoGrowth,
           style: { size: 22 },
           enter: "fade",
           exit: "fade",
@@ -348,7 +439,7 @@ async function makeDemo() {
       in: round(m.weekly.t - 1.2),
       out: round(m.weekly.t + 2.4),
       fadeOut: 0.6,
-      caption: { text: "期間を切り替えると、すぐに反映されます" },
+      caption: { text: TEXT.demoSwitch },
       speech: {},
       // 切り替わった後のグラフに寄って、止めて見せる
       zooms: [{ start: 2.2, end: 3.6, keys: [{ t: 2.2, rect: frame(m.panel.box, 900) }] }],
@@ -365,7 +456,7 @@ async function makeDemo() {
 async function makeSlides() {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: W, height: H } });
-  await page.goto(`file://${path.join(root, "site/media-src/sample-slides.html")}`);
+  await page.goto(sampleUrl("sample-slides.html"));
   const keys = {};
   for (const n of [1, 2]) {
     const slide = page.locator(`#slide${n}`);
@@ -384,7 +475,7 @@ async function makeSlides() {
       in: 0,
       out: 4.5,
       fadeIn: 0.5,
-      caption: { text: "申請は、ブラウザーから出せるようになります" },
+      caption: { text: TEXT.slides1 },
       speech: {},
       pointers: [
         {
@@ -403,7 +494,7 @@ async function makeSlides() {
       in: 0,
       out: 4.5,
       fadeOut: 0.5,
-      caption: { text: "申請すると、上長に通知が届きます" },
+      caption: { text: TEXT.slides2 },
       speech: {},
       shapes: [
         {
@@ -486,7 +577,7 @@ function makeKinds(m) {
   // 最初から view に寄ったままにする(動きなし)
   const fixed = [{ start: 0, end: dur, hold: false, transition: 0, keys: [{ t: 0, rect: view }] }];
   const kinds = {
-    caption: { ...base(), zooms: fixed, caption: { text: "「メール通知」をオンにします", start: 0.5 } },
+    caption: { ...base(), zooms: fixed, caption: { text: TEXT.heroMail, start: 0.5 } },
     zoom: {
       ...base(),
       zooms: [
@@ -555,7 +646,7 @@ function makeKinds(m) {
           type: "text",
           start: 0.6,
           rect: { x: Math.round(row.x + 16), y: Math.round(m.save.box.y - 6), w: 300, h: 56 },
-          text: "ここをオンにします",
+          text: TEXT.kindText,
           style: { size: 28 },
           enter: "fade",
         },
@@ -638,11 +729,11 @@ function exportVideo(project, name, posterAt, { audio = false } = {}) {
   );
 }
 
-// StepCut を起動する。アプリの設定は作業用のフォルダーに置き、画面の言語は日本語にする
+// StepCut を起動する。アプリの設定は作業用のフォルダーに置き、画面の言語は --lang のものにする
 async function launchApp(name, size, args, video) {
   const userData = path.join(work, `user-data-${name}`);
   fs.mkdirSync(userData, { recursive: true });
-  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ language: "ja" }));
+  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ language: lang }));
   const app = await electron.launch({
     executablePath: electronBin,
     args: [root, ...sandboxArgs, `--user-data-dir=${userData}`, ...args],
@@ -716,7 +807,7 @@ async function recordHowto(sample) {
     await sleep(300);
     await page.mouse.up();
   };
-  const addBar = (name) => page.locator(".preview-add").getByRole("button", { name });
+  const addBar = (name, opts) => page.locator(".preview-add").getByRole("button", { name, ...opts });
   const thumb = (i) => page.locator(".rail-thumb").nth(i);
   await app.evaluate(
     ({ dialog }, p) => {
@@ -761,12 +852,12 @@ async function recordHowto(sample) {
   // テロップを書く: プレビューの上で入力する。右の設定にも同じ文が入る
   await thumb(0).click();
   await sleep(700);
-  await addBar(/^テロップ$/).click();
+  await addBar(TEXT.uiCaption, { exact: true }).click();
   const input = page.locator(".caption-input");
   await input.waitFor();
   await mark("caption", input);
   await sleep(500);
-  await page.keyboard.type("左のメニューから「設定」を開きます", { delay: 120 });
+  await page.keyboard.type(TEXT.heroOpen, { delay: 120 });
   await sleep(1600);
   await page.keyboard.press("Escape");
   await sleep(800);
@@ -776,8 +867,8 @@ async function recordHowto(sample) {
   await sleep(500);
   await page.keyboard.press("ArrowRight");
   await sleep(600);
-  await mark("zoom", addBar(/^ズーム$/));
-  await addBar(/^ズーム$/).click();
+  await mark("zoom", addBar(TEXT.uiZoom, { exact: true }));
+  await addBar(TEXT.uiZoom, { exact: true }).click();
   await sleep(1000);
   const layer = await page.locator(".draw-layer").boundingBox();
   // 録画の点(ピクセル)を、プレビュー上の位置に直す。プレビューの枠は出力の画面全体で、
@@ -807,8 +898,8 @@ async function recordHowto(sample) {
   // オブジェクト: ステップ 3 に四角を足し、「保存」の上へ動かす
   await thumb(2).click();
   await sleep(700);
-  await mark("object", addBar(/^四角$/));
-  await addBar(/^四角$/).click();
+  await mark("object", addBar(TEXT.uiBox, { exact: true }));
+  await addBar(TEXT.uiBox, { exact: true }).click();
   await sleep(900);
   const outline = await page.locator(".object-layer .box-outline").boundingBox();
   const save = center(sample.save.box);
@@ -824,8 +915,8 @@ async function recordHowto(sample) {
   await sleep(1500);
   await page
     .waitForFunction(
-      () => /^書き出し$/.test(document.querySelector(".tb-btn.primary")?.textContent ?? ""),
-      null,
+      (label) => (document.querySelector(".tb-btn.primary")?.textContent ?? "") === label,
+      TEXT.uiExport,
       {
         timeout: 180000,
       },
@@ -876,33 +967,31 @@ function buildHowtoSteps(m) {
     zoom: [m.zoom.t - 0.6, m.play.t - 0.9],
   };
   return [
-    step("add", m.add.t - 1.5, m.add.t + 2.5, "録画を追加します", {
-      speech: { text: "まず、録画を追加します。" },
+    step("add", m.add.t - 1.5, m.add.t + 2.5, TEXT.howtoAdd, {
+      speech: { text: TEXT.howtoAddSpeech },
       pointers: [click(m.add.box, 1.4)],
     }),
-    step("split", ...cut.split, "説明の区切りで、ステップに分けます", {
+    step("split", ...cut.split, TEXT.howtoSplit, {
       zooms: zoom({ x: 120, y: 250, w: 860, h: 510 }, ...cut.split),
     }),
-    step("caption", ...cut.caption, "テロップは、プレビューの上で書けます", {
-      speech: {
-        text: "テロップは、プレビューの上で書けます。右の設定にも同じ文が入り、読み上げが付きます。",
-      },
+    step("caption", ...cut.caption, TEXT.howtoCaption, {
+      speech: { text: TEXT.howtoCaptionSpeech },
       zooms: zoom({ x: 330, y: 90, w: 950, h: 564 }, ...cut.caption),
     }),
-    step("zoom", ...cut.zoom, "ズームは、見せたい範囲を枠で囲みます", { pointers: [click(m.zoom.box, 0.5)] }),
-    step("play", m.play.t - 0.6, m.object.t - 1, "再生して、その場で確かめられます"),
-    step("object", m.object.t - 0.6, m.export.t - 0.6, "四角や矢印も、プレビューの上に置けます", {
+    step("zoom", ...cut.zoom, TEXT.howtoZoom, { pointers: [click(m.zoom.box, 0.5)] }),
+    step("play", m.play.t - 0.6, m.object.t - 1, TEXT.howtoPlay),
+    step("object", m.object.t - 0.6, m.export.t - 0.6, TEXT.howtoObject, {
       pointers: [click(m.object.box, 0.5)],
     }),
-    step("export", m.export.t - 1.2, m.export.t + 2, "「書き出し」を押します", {
-      speech: { text: "最後に、書き出しを押します。" },
+    step("export", m.export.t - 1.2, m.export.t + 2, TEXT.howtoExport, {
+      speech: { text: TEXT.howtoExportSpeech },
       pointers: [click(m.export.box, 1.1)],
     }),
-    step("wait", m.export.t + 2, exportEnd, "書き出しが終わるまで待ちます(早送り)", {
+    step("wait", m.export.t + 2, exportEnd, TEXT.howtoWait, {
       speed: 8,
-      speech: { text: "書き出しが終わるまで、少し待ちます。" },
+      speech: { text: TEXT.howtoWaitSpeech },
     }),
-    step("done", exportEnd, m.end.t - 0.2, "mp4 ができました", { speech: { text: "mp4 ができました。" } }),
+    step("done", exportEnd, m.end.t - 0.2, TEXT.howtoDone, { speech: { text: TEXT.howtoDoneSpeech } }),
   ];
 }
 
@@ -951,7 +1040,7 @@ async function screenshots() {
     fs.copyFileSync(project, path.join(howtoDir, `howto.${Date.now()}.backup.json`));
   const engine = process.env.LP_SPEECH_ENGINE;
   // 使い方の動画の読み上げは Azure AI Speech。アプリの設定で有効にしていなければ、OS 標準の声で代わりに読む
-  const speech = { engine: engine || "azure", voice: process.env.LP_SPEECH_VOICE || "ja-JP-NanamiNeural" };
+  const speech = { engine: engine || "azure", voice: process.env.LP_SPEECH_VOICE || TEXT.voice };
   writeProject("howto", buildHowtoSteps(howto), { source: "stepcut-app.mp4", dir: howtoDir, speech });
   exportHowto();
   process.exit(0);

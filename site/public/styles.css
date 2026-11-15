@@ -18,6 +18,12 @@
   --f-body: "IBM Plex Sans JP", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, system-ui, sans-serif;
 }
 
+/* 英語のページ(/)は欧文の IBM Plex Sans を読み込む。和文の書体は日本語のページ(/ja/)だけ */
+:root:lang(en) {
+  --f-display: "Sora", "IBM Plex Sans", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -109,7 +115,17 @@ section {
   color: var(--muted);
 }
 
+/* 言語の切り替え。狭い画面でナビの一覧が隠れても出す */
+.nav .lang {
+  font-size: 14.5px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 3px 12px;
+}
+
 .nav ul a:hover,
+.nav .lang:hover,
 .foot a:hover {
   color: var(--text);
 }
@@ -681,7 +697,7 @@ details p {
     display: none;
   }
 
-  .nav .wrap > .btn {
+  .nav .lang {
     margin-left: auto;
   }
 
