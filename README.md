@@ -5,9 +5,9 @@
   </picture>
 </h1>
 
-Turn recordings into step-by-step videos, driven by captions.
+Turn recordings into explained videos: captions, narration, zoom, and pointers.
 
-録画済みの動画(画面録画など)をステップに切り分け、テロップを軸に手順を見せる動画(mp4)を作るローカルデスクトップアプリ。
+録画済みの動画(画面録画など)をステップに切り分け、テロップ・読み上げ・ズーム・ポインターで説明を付けた動画(mp4)を作るローカルデスクトップアプリ。操作の手順、製品のデモ、資料の解説などに使う。
 
 - 1 本の画面録画をステップ(場面)に切り分け、各ステップにテロップ・読み上げ・ズームと、オブジェクト(ポインター(蛍光ペンを含む)・四角(画像を入れられる)・矢印・テキスト)を付ける
 - 編集内容はテキスト(JSON)のプロジェクトファイルに保存し、人手でも AI でも編集できる
@@ -55,7 +55,7 @@ npm install
 npx wrangler dev      # 手元で表示する
 ```
 
-- 動画・画像の枠(`.media`)の中の svg は仮の絵。同じ場所に `video` / `img` を置くと差し替わる
+- 動画と編集画面の画像(`site/public/media/`)は StepCut 自身で作る。作り直すときは `node scripts/make-lp-media.cjs`(Linux は `xvfb-run -a` を付ける)。手順は [docs/lp-media.md](docs/lp-media.md)
 - OGP 画像 `site/public/og.png` は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
 - Cloudflare 側の設定(初回のみ): Workers & Pages でこのリポジトリを取り込み、Worker 名 `stepcut-lp`、ルートディレクトリ `site`、デプロイコマンド `npx wrangler deploy`、Build watch paths `site/*`
 

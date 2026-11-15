@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- LP の「資料を解説する」の動画の素材にする、例のスライド。scripts/make-lp-media.cjs が 1 枚ずつ画像にする。配信はしない -->
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>サンプルのスライド</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", "Noto Sans JP", sans-serif; color: #1f2733; }
+      .slide { width: 1280px; height: 720px; background: #fff; padding: 70px 90px; position: relative; }
+      .slide small { color: #2f6fe0; font-weight: 700; font-size: 20px; letter-spacing: 0.08em; }
+      h1 { font-size: 46px; margin: 10px 0 44px; }
+      ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 26px; font-size: 30px; }
+      li::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #2f6fe0; margin-right: 20px; vertical-align: 0.15em; }
+      .flow { display: flex; align-items: center; gap: 26px; font-size: 26px; margin-top: 70px; }
+      .box { flex: 1; border: 2px solid #c9d0db; border-radius: 12px; padding: 34px 16px; text-align: center; background: #f5f6f9; }
+      .box.new { border-color: #2f6fe0; background: #e8f0ff; font-weight: 700; }
+      .to { color: #9aa3b2; font-size: 34px; }
+    </style>
+  </head>
+  <body>
+    <section class="slide" id="slide1">
+      <small>経費精算の新しい流れ</small>
+      <h1>来月から変わること</h1>
+      <ul>
+        <li>申請は<span id="key1">ブラウザーから</span>出せるようになります</li>
+        <li>領収書は写真で添付できます</li>
+        <li>承認の状況は、ホームで確認できます</li>
+      </ul>
+    </section>
+    <section class="slide" id="slide2">
+      <small>経費精算の新しい流れ</small>
+      <h1>承認までの流れ</h1>
+      <div class="flow">
+        <div class="box">申請する</div>
+        <span class="to">→</span>
+        <div class="box new" id="key2">上長に通知が届く</div>
+        <span class="to">→</span>
+        <div class="box">承認される</div>
+      </div>
+    </section>
+  </body>
+</html>
