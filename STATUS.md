@@ -17,8 +17,7 @@ claude/lp-design-refresh-j4toug(main 0209a60 から。紹介ページの作り�
 - 確認: npm run check、ページの表示(1280px・400px)、動画のシーク(範囲指定に応えるサーバーで)。アプリのコードは変えていないので ui-smoke は回していない
 
 ## 次にやること
-- ユーザー: Windows で Azure の鍵を入れ、`node scripts/make-lp-media.cjs` を回す(docs/lp-media.md の「Azure の読み上げを入れる」。Windows での実行は未確認)。使い方の動画を手で直して --howto-export
-- ユーザー: 本番で動画のシークができるか確認(`curl -sI -H "Range: bytes=0-99" <howto.mp4 の URL>` が 206 か)
+- ユーザー: Windows で Azure の鍵を入れ、`node scripts/make-lp-media.cjs` を回す(docs/lp-media.md の「Azure の読み上げを入れる」。Windows での実行は未確認)。使い方の動画を手で直して --howto-export。本番で動画のシークができるかも確認(Range に 206 が返るか)
 - main の残り: リリースのワークフロー、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、リポジトリ名、商標確認、docs/manual-test.html の実機確認、M2 の PRJ-03
 
 ## 課題・ブロッカー
