@@ -68,6 +68,7 @@ async function record() {
   await press("mail", "#mail");
   await sleep(3000);
   marks.row = { box: await page.locator(".row").first().boundingBox() };
+  marks.label = { box: await page.locator("#mail-label").boundingBox() };
   await press("save", "#save");
   await sleep(3000);
   marks.end = { t: (Date.now() - t0) / 1000 };
@@ -427,15 +428,30 @@ async function makeSlides() {
 // LP の地(#1e1f22)になじむ、青の暗いグラデーション
 const background = { gradient: { angle: 160, colors: ["#2F4F8F", "#1B2740", "#141A28"] } };
 
-function writeProject(name, steps, { source = "sample-app.mp4", sources, dir = work, speech } = {}) {
+// tile: 「付けられるもの」の小さな動画用。出力を小さくし、余白をなくして、テロップとポインターを大きめにする
+function writeProject(
+  name,
+  steps,
+  { source = "sample-app.mp4", sources, dir = work, speech, tile = false } = {},
+) {
+  // Windows では既定のフォント(Yu Gothic UI)。ほかの OS ではそのフォントがないので指定する
+  const font = process.platform === "win32" ? {} : { font: "Noto Sans JP" };
+  const caption = { ...font, ...(tile ? { size: 84, background: "#000000B3" } : {}) };
+  const styles = {
+    ...(Object.keys(caption).length ? { caption } : {}),
+    ...(tile ? { pointer: { size: 110 } } : {}),
+  };
   const project = {
     format: "stepcut.project",
     version: 1,
     // 使い方の動画は音声付きで載せるので、字幕(SRT)も書き出す
-    output: { width: W, height: H, fps: 30, quality: "high", ...(speech !== undefined ? { srt: true } : {}) },
-    layout: { background },
-    // Windows では既定のフォント(Yu Gothic UI)。ほかの OS ではそのフォントがないので指定する
-    ...(process.platform === "win32" ? {} : { styles: { caption: { font: "Noto Sans JP" } } }),
+    output: tile
+      ? { width: 640, height: 360, fps: 30, quality: "high" }
+      : { width: W, height: H, fps: 30, quality: "high", ...(speech !== undefined ? { srt: true } : {}) },
+    layout: tile
+      ? { background, margin: { top: 0, right: 0, bottom: 0, left: 0 }, shadow: false }
+      : { background },
+    ...(Object.keys(styles).length ? { styles } : {}),
     ...(speech ? { speech } : {}),
     sources: sources ?? [{ id: "rec", path: source }],
     steps,
@@ -443,6 +459,126 @@ function writeProject(name, steps, { source = "sample-app.mp4", sources, dir = w
   const file = path.join(dir, `${name}.stepcut.json`);
   fs.writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return file;
+}
+
+// ---- 「付けられるもの」の小さな動画 8 本。同じ場面に、1 種類ずつ付ける ----
+function makeKinds(m) {
+  fs.copyFileSync(path.join(root, "build/icon.png"), path.join(work, "logo.png"));
+  const row = m.row.box;
+  const mail = center(m.mail.box);
+  const label = m.label.box;
+  // 「メール通知」の行のあたりを、録画と同じ縦横比で切り出す範囲
+  const vw = Math.round(row.width + 90);
+  const vh = Math.round((vw * H) / W);
+  const view = {
+    x: Math.round(row.x - 45),
+    y: Math.max(0, Math.round(row.y + row.height / 2 - vh * 0.38)),
+    w: vw,
+    h: vh,
+  };
+  const dur = 3.2;
+  // 押す前の止まった場面。click を付けると、押す瞬間を含む場面にする
+  const base = (click) => ({
+    source: "rec",
+    in: round(click ? m.mail.t - 2.4 : m.mail.t - dur - 0.3),
+    out: round(click ? m.mail.t + 0.8 : m.mail.t - 0.3),
+  });
+  // 最初から view に寄ったままにする(動きなし)
+  const fixed = [{ start: 0, end: dur, hold: false, transition: 0, keys: [{ t: 0, rect: view }] }];
+  const kinds = {
+    caption: { ...base(), zooms: fixed, caption: { text: "「メール通知」をオンにします", start: 0.5 } },
+    zoom: {
+      ...base(),
+      zooms: [
+        {
+          start: 1.1,
+          end: dur - 0.5,
+          hold: false,
+          keys: [
+            { t: 1.1, rect: { x: Math.round(mail.x - 330), y: Math.round(mail.y - 110), w: 400, h: 225 } },
+          ],
+        },
+      ],
+    },
+    pointer: {
+      ...base(true),
+      zooms: fixed,
+      pointers: [
+        {
+          mode: "line",
+          path: [
+            { t: 0.6, x: mail.x - 260, y: mail.y + 120 },
+            { t: 2.3, x: mail.x, y: mail.y },
+          ],
+          click: true,
+          enter: "fade",
+        },
+      ],
+    },
+    pen: {
+      ...base(),
+      zooms: fixed,
+      pointers: [
+        {
+          mode: "line",
+          path: [
+            { t: 0.6, x: Math.round(label.x), y: Math.round(label.y + label.height * 0.55) },
+            { t: 2, x: Math.round(label.x + label.width), y: Math.round(label.y + label.height * 0.55) },
+          ],
+          style: { preset: "highlighter" },
+        },
+      ],
+    },
+    rect: {
+      ...base(),
+      zooms: fixed,
+      shapes: [{ type: "rect", start: 0.6, rect: pad(row, 8), enter: "flash" }],
+    },
+    arrow: {
+      ...base(),
+      zooms: fixed,
+      shapes: [
+        {
+          type: "arrow",
+          start: 0.6,
+          from: { x: mail.x - 260, y: mail.y },
+          to: { x: Math.round(m.mail.box.x - 14), y: mail.y },
+          enter: "fade",
+        },
+      ],
+    },
+    text: {
+      ...base(),
+      zooms: fixed,
+      shapes: [
+        {
+          type: "text",
+          start: 0.6,
+          rect: { x: Math.round(row.x + 16), y: Math.round(m.save.box.y - 6), w: 300, h: 56 },
+          text: "ここをオンにします",
+          style: { size: 28 },
+          enter: "fade",
+        },
+      ],
+    },
+    image: {
+      ...base(),
+      zooms: fixed,
+      shapes: [
+        {
+          type: "rect",
+          start: 0.6,
+          rect: { x: Math.round(row.x + 16), y: Math.round(m.save.box.y - 20), w: 90, h: 90 },
+          image: "logo.png",
+          style: { strokeWidth: 0 },
+          enter: "fade",
+        },
+      ],
+    },
+  };
+  for (const [name, step] of Object.entries(kinds)) {
+    exportVideo(writeProject(`kind-${name}`, [{ id: name, ...step }], { tile: true }), `kind-${name}`, 2.6);
+  }
 }
 
 // 動画に、聞こえる音が入っているか(音声の流れがない・ずっと無音なら false)。音量を測って決める
@@ -803,6 +939,7 @@ async function screenshots() {
   const check = cli("validate", all);
   if (check.ok === false) throw new Error(`検証エラー: ${JSON.stringify(check)}`);
   exportVideo(all, "hero", 1.2);
+  makeKinds(marks);
   await makeProcedure();
   await makeDemo();
   await makeSlides();

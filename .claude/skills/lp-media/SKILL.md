@@ -5,7 +5,7 @@ description: 紹介ページ(site/)の動画と編集画面の画像を、今の
 
 # LP の動画と画像を作り直す
 
-紹介ページに載せている動画 5 本と編集画面の画像 4 枚は、StepCut 自身で作っている。アプリを変えたら、ここの手順で作り直す。
+紹介ページに載せている動画(大 5 本と、「付けられるもの」の小 8 本)と編集画面の画像 4 枚は、StepCut 自身で作っている。アプリを変えたら、ここの手順で作り直す。
 何を作るか・中身の決まり・人が Windows で回す手順は [docs/lp-media.md](../../../docs/lp-media.md)。**書かれた順に実行する。**
 
 ## 先に知っておくこと
@@ -43,7 +43,7 @@ fc-list | grep -qi "Noto Sans JP" || {
 
 ## Phase 1: 作り直す
 
-5〜6 分かかる。標準出力はファイルに受ける(パイプで受けない。`.claude/rules/e2e.md`)。
+8〜9 分かかる。標準出力はファイルに受ける(パイプで受けない。`.claude/rules/e2e.md`)。
 
 ```bash
 # Linux
@@ -53,7 +53,7 @@ xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/make-lp-media.cjs > test-ou
 node scripts/make-lp-media.cjs
 ```
 
-終わったらログを読む。`exit 0` で、`hero` `use-steps` `use-demo` `use-slides` `howto` の 5 本と `app` `use-*-app` の画像 4 枚の名前が出ていること。
+終わったらログを読む。`exit 0` で、`hero` `kind-*`(8 本)`use-steps` `use-demo` `use-slides` `howto` の動画と、`app` `use-*-app` の画像 4 枚の名前が出ていること。
 Linux では「ソフトウェアで書き出し」「Opus」「無音で代替」の警告が出るのが正常。
 
 ## Phase 2: 中身を確かめる
@@ -63,6 +63,7 @@ Linux では「ソフトウェアで書き出し」「Opus」「無音で代替�
 | 見るもの | 確かめること |
 |---|---|
 | `sheets/hero.png` | テロップが 3 種類出る。四角が「設定」に、ポインターがスイッチと「保存」に重なる。ズームで行が大きくなる |
+| `sheets/kind-*.png`(8 枚) | 名前どおりのものが 1 種類だけ付いている(テロップ・ズーム・ポインター・蛍光ペン・四角・矢印・テキスト・画像)。スイッチやボタンに重なって隠していない |
 | `sheets/use-steps.png` | 四角とポインターが「申請」と「送信」に重なる。入力の場面のテロップに(早送り)がある |
 | `sheets/use-demo.png` | 左上にロゴ。文字「前の月より増加」が読める。グラフが切り替わったあとズームしている |
 | `sheets/use-slides.png` | 蛍光ペンの線が「ブラウザーから」の上にある。矢印が「上長に通知が届く」を指す |
@@ -88,7 +89,7 @@ Linux では「ソフトウェアで書き出し」「Opus」「無音で代替�
 
 ## Phase 4: 仕上げ
 
-1. 新しくした機能・なくした機能があれば、ページの文(`site/public/index.html` の「できること」「使いみち」)と docs/lp-media.md の表も直す
+1. 新しくした機能・なくした機能があれば、ページの文(`site/public/index.html` の「付けられるもの」「使いみち」)と docs/lp-media.md の表も直す
 2. `npm run check`
 3. `site/public/media/` とスクリプトの変更をコミットする
 4. 報告に書く: 作り直したファイル、Phase 2 で確かめたこと、**使い方の動画に音声が入っているか**(Linux で作ったなら入っていない。音声付きは Windows で `node scripts/make-lp-media.cjs` を回す必要がある、と伝える)

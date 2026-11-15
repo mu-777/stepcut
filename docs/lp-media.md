@@ -9,6 +9,7 @@
 | `hero.mp4` / `hero.jpg` | ヒーロー | 例の画面の録画に、テロップ・四角・ズーム・矢印・ポインターを付けた 3 ステップの動画 |
 | `app.png` | 「機能を絞っています」 | 上のプロジェクトを開いた StepCut の画面(ステップ 2 のテロップを選んだ状態) |
 | `howto.mp4` / `howto.jpg` / `howto.vtt` | 「使い方」 | StepCut を操作するところの録画を、StepCut で編集した動画。Windows で作ると読み上げの音声が入る。`.vtt` は StepCut が書き出した字幕(SRT)を変換したもの |
+| `kind-*.mp4` / `.jpg`(8 組) | 「付けられるもの」 | 同じ場面に 1 種類ずつ付けた小さな動画(640×360)。caption・zoom・pointer・pen・rect・arrow・text・image |
 | `use-steps.mp4` / `.jpg` | 「使いみち」の操作の手順 | 申請の画面で入力して送る。ポインター・四角・早送り |
 | `use-demo.mp4` / `.jpg` | 「使いみち」の製品のデモ | グラフの画面を紹介する。動くズーム・止めて見せるズーム・テキスト・画像(ロゴ)・フェード |
 | `use-slides.mp4` / `.jpg` | 「使いみち」の資料の解説 | スライドの画像 2 枚をステップにする。蛍光ペン・矢印 |
@@ -25,9 +26,9 @@
 2. 実行する
    - Windows: `node scripts/make-lp-media.cjs`
    - Linux: `xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/make-lp-media.cjs`
-3. 6〜7 分で終わる。`site/public/media/` の 15 ファイルが新しくなる。動画ごとの場面の一覧が `test-output/lp-media/sheets/` にできるので、中身はそれで確かめられる
+3. 8〜9 分で終わる。`site/public/media/` の 31 ファイルが新しくなる。動画ごとの場面の一覧が `test-output/lp-media/sheets/` にできるので、中身はそれで確かめられる
 4. 確かめる: `cd site && npx wrangler dev` でページを開き、次を見る
-   - 5 本の動画が再生され、テロップの文字が欠けていない
+   - 動画(大 5 本と小 8 本)が再生され、テロップの文字が欠けていない
    - ポインターが、押す場所(「設定」、スイッチ、「保存」、「書き出し」)に重なっている
    - `app.png` と `use-*-app.png` の画面が日本語で、プレビューに録画が映っている
 5. よければ `site/public/media/` をコミットする
@@ -91,6 +92,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 | 例の画面の見た目・文字 | `site/media-src/sample-app.html`(設定・申請)、`sample-dashboard.html`(グラフ)、`sample-slides.html`(スライド) |
 | 例の画面で押す順番・待つ長さ | `scripts/make-lp-media.cjs` の `record` |
 | ヒーローの動画のテロップ・図形・ズーム | 同 `buildSteps` |
+| 「付けられるもの」の 8 本(付ける位置・大きさ) | 同 `makeKinds` |
 | 使いみちの 3 例(押す操作、テロップ、使う機能) | 同 `makeProcedure` / `makeDemo` / `makeSlides` |
 | 編集画面の画像で選んでおくもの | 同 `screenshots`(画像だけ撮り直すなら `--screens`) |
 | 使い方の動画で見せる操作 | 同 `recordHowto` |
@@ -101,7 +103,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 
 ## 決まり
 
-- 自動で再生する動画(ヒーローと使いみちの 3 例)は音声なしで載せる。使い方の動画は操作の付いた動画で、Windows で作ると読み上げが入る。字幕のトラック(`howto.vtt`)も付ける
+- 自動で再生する動画(ヒーロー、付けられるものの 8 本、使いみちの 3 例)は音声なしで載せる。使い方の動画は操作の付いた動画で、Windows で作ると読み上げが入る。字幕のトラック(`howto.vtt`)も付ける
 - 動画は 1 秒ごとにキーフレームを入れる(シークしたときにすぐ絵が出るように)
 - 画面の言語は日本語に固定する(スクリプトが作業用の設定フォルダーに `language: "ja"` を書く。自分のアプリの設定は変えない)
 - テロップのフォントは、Windows では既定(Yu Gothic UI)、ほかの OS では Noto Sans JP を指定する

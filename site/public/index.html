@@ -44,7 +44,7 @@
         <a href="/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="112" height="34" /></a>
         <ul>
           <li><a href="#howto">使い方</a></li>
-          <li><a href="#features">できること</a></li>
+          <li><a href="#features">付けられるもの</a></li>
           <li><a href="#uses">使いみち</a></li>
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/mu-777/screen-annotator">GitHub</a></li>
@@ -199,56 +199,144 @@
 
       <section id="features">
         <div class="wrap">
-          <h2 class="sec-t">できること</h2>
-          <p class="sec-l">付けられる説明を、タイムラインの段ごとに並べました。</p>
-          <div class="lanesum">
-            <div>
-              <span>映像</span>
-              <ul>
-                <li><b>ステップ</b>録画を区間に切り、並べ替えられます。</li>
-                <li><b>早送り</b>待ち時間の区間だけ、速度を上げます。</li>
-                <li><b>保持</b>映像を止めて、その画面のまま説明します。</li>
-                <li><b>フェード</b>ステップの始まりと終わりに付けます。</li>
-              </ul>
-            </div>
-            <div>
-              <span>テロップ</span>
-              <ul>
-                <li><b>テロップ</b>ステップごとの文。位置・大きさ・背景を変えられます。</li>
-              </ul>
-            </div>
-            <div>
-              <span>読み上げ</span>
-              <ul>
-                <li><b>読み上げ</b>テロップの文を声にします。Windows 標準の音声、VOICEVOX 互換エンジン、Azure AI Speech。</li>
-                <li><b>読みの辞書</b>製品名や固有の用語の読み方を登録します。</li>
-              </ul>
-            </div>
-            <div>
-              <span>ズーム</span>
-              <ul>
-                <li><b>ズーム</b>囲んだ範囲に寄ります。寄ったまま動かすこともできます。</li>
-              </ul>
-            </div>
-            <div>
-              <span>オブジェクト</span>
-              <ul>
-                <li><b>ポインター</b>押す場所へ動かし、クリックを示します。</li>
-                <li><b>蛍光ペン</b>なぞった所に線を引きます。</li>
-                <li><b>四角</b>場所を囲みます。</li>
-                <li><b>矢印</b>場所を指します。</li>
-                <li><b>テキスト</b>画面の上に文字を置きます。</li>
-                <li><b>画像</b>ロゴなどの画像を置きます。</li>
-              </ul>
-            </div>
-            <div>
-              <span>全体</span>
-              <ul>
-                <li><b>背景と余白</b>単色・グラデーション・画像の上に録画を置きます。</li>
-                <li><b>字幕ファイル</b>mp4 と一緒に SRT を書き出します。</li>
-                <li><b>書き出し</b>mp4。4K・60fps まで。</li>
-              </ul>
-            </div>
+          <h2 class="sec-t">付けられるもの</h2>
+          <p class="sec-l">同じ場面に、1 つずつ付けた例です。組み合わせて使えます。</p>
+          <div class="kinds">
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-caption.mp4"
+                  poster="/media/kind-caption.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の下にテロップの文が出る"
+                ></video>
+              </div>
+              <figcaption>テロップ</figcaption>
+            </figure>
+            <figure>
+              <div class="frame voice" role="img" aria-label="テロップの文が、読み上げの音声になる図">
+                <span>「メール通知」をオンにします</span>
+                <span class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              </div>
+              <figcaption>読み上げ</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-zoom.mp4"
+                  poster="/media/kind-zoom.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="スイッチのあたりにズームで寄る"
+                ></video>
+              </div>
+              <figcaption>ズーム</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-pointer.mp4"
+                  poster="/media/kind-pointer.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="ポインターがスイッチへ動いてクリックする"
+                ></video>
+              </div>
+              <figcaption>ポインター</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-pen.mp4"
+                  poster="/media/kind-pen.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="「メール通知」の文字に蛍光ペンの線が引かれる"
+                ></video>
+              </div>
+              <figcaption>蛍光ペン</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-rect.mp4"
+                  poster="/media/kind-rect.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="「メール通知」の行が四角で囲まれる"
+                ></video>
+              </div>
+              <figcaption>四角</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-arrow.mp4"
+                  poster="/media/kind-arrow.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="矢印がスイッチを指す"
+                ></video>
+              </div>
+              <figcaption>矢印</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-text.mp4"
+                  poster="/media/kind-text.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の上に文字が置かれる"
+                ></video>
+              </div>
+              <figcaption>テキスト</figcaption>
+            </figure>
+            <figure>
+              <div class="frame">
+                <video
+                  src="/media/kind-image.mp4"
+                  poster="/media/kind-image.jpg"
+                  width="640"
+                  height="360"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="画面の上にロゴの画像が置かれる"
+                ></video>
+              </div>
+              <figcaption>画像</figcaption>
+            </figure>
           </div>
           <div class="feat">
             <div>

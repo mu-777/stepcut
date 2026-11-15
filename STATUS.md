@@ -11,8 +11,8 @@ claude/lp-design-refresh-j4toug(main 0209a60 から。紹介ページの作り�
 
 ## 現在地
 - 実装済み: site/public の index.html・styles.css を作り直し(構成と決まりは docs/decisions/20261112-landing-page.md)
-- 何のツールかを「録画を、説明付きの動画に」と言う形にした(LP と README)。機能の一覧(できること)と、使いみちの 3 例(動画と編集画面)を載せた
-- 動画 5 本・字幕・編集画面の画像 4 枚を scripts/make-lp-media.cjs で作る(手順は docs/lp-media.md、エージェント用はスキル lp-media)
+- 何のツールかを「録画を、説明付きの動画に」と言う形にした(LP と README)。付けられるもの 9 つ(小さな動画)と、使いみちの 3 例(動画と編集画面)を載せた
+- 動画(大 5 本・小 8 本)・字幕・編集画面の画像 4 枚を scripts/make-lp-media.cjs で作る(手順は docs/lp-media.md、エージェント用はスキル lp-media)
 - 使い方の動画の読み上げは Azure 前提。プロジェクトは test-output/lp-howto/ に出し、--howto-export で書き出し直せる
 - 確認: npm run check、ページの表示(1280px・400px)、動画のシーク。アプリのコードは変えていないので ui-smoke は回していない
 
