@@ -1,4 +1,4 @@
-// アプリの設定の「読み上げエンジン」(TTS-12, TTS-13)。VOICEVOX・Azure AI Speech は既定で使えず、
+// アプリの設定の「読み上げエンジン」(TTS-12, TTS-13)。Azure AI Speech・VOICEVOX は既定で使えず、
 // 有効にするときに規約・費用・送るデータの確認に同意してもらう。エンジン・声・鍵はユーザーが用意する。
 import { useState } from "react";
 import type { AppSettings, SettingsPatch } from "../../shared/api";
@@ -49,56 +49,6 @@ export function EngineSettings(props: {
     <div className="engine-settings">
       <p className="field-label">{t("speechEngines")}</p>
       <p className="hint">{t("speechEnginesHint")}</p>
-
-      <div className="engine-block" data-engine="voicevox">
-        <div className="engine-head">
-          <CheckField
-            label={`${t("engineVoicevox")}: ${t("enableEngine")}`}
-            value={voicevox.enabled}
-            onChange={(v) => enable("voicevox", v)}
-          />
-          <button type="button" className="small" onClick={() => void api.openExternal(SITES.voicevox)}>
-            {t("openTerms")}
-          </button>
-        </div>
-        {voicevox.enabled && (
-          <>
-            <p className="hint">{t("voicevoxTermsHint")}</p>
-            <Field label={t("engineUrl")}>
-              <input
-                type="text"
-                defaultValue={voicevox.url}
-                onBlur={(e) => void props.onChange({ engines: { voicevox: { url: e.target.value } } })}
-              />
-            </Field>
-            <p className="field-label">{t("engineExe")}</p>
-            <div className="dir-row">
-              <span className="dir-path" title={voicevox.exePath ?? ""}>
-                {voicevox.exePath ?? t("engineExeNone")}
-              </span>
-              <button
-                type="button"
-                className="small"
-                onClick={async () => {
-                  const exe = await api.pickExecutable();
-                  if (exe) await props.onChange({ engines: { voicevox: { exePath: exe } } });
-                }}
-              >
-                {t("chooseFile")}
-              </button>
-            </div>
-            <CheckField
-              label={t("engineAutoStart")}
-              value={voicevox.autoStart}
-              onChange={(v) => void props.onChange({ engines: { voicevox: { autoStart: v } } })}
-            />
-            <button type="button" className="small" onClick={() => void runTest("voicevox")}>
-              {t("testConnection")}
-            </button>
-            {testLine("voicevox")}
-          </>
-        )}
-      </div>
 
       <div className="engine-block" data-engine="azure">
         <div className="engine-head">
@@ -167,6 +117,56 @@ export function EngineSettings(props: {
               {t("testConnection")}
             </button>
             {testLine("azure")}
+          </>
+        )}
+      </div>
+
+      <div className="engine-block" data-engine="voicevox">
+        <div className="engine-head">
+          <CheckField
+            label={`${t("engineVoicevox")}: ${t("enableEngine")}`}
+            value={voicevox.enabled}
+            onChange={(v) => enable("voicevox", v)}
+          />
+          <button type="button" className="small" onClick={() => void api.openExternal(SITES.voicevox)}>
+            {t("openTerms")}
+          </button>
+        </div>
+        {voicevox.enabled && (
+          <>
+            <p className="hint">{t("voicevoxTermsHint")}</p>
+            <Field label={t("engineUrl")}>
+              <input
+                type="text"
+                defaultValue={voicevox.url}
+                onBlur={(e) => void props.onChange({ engines: { voicevox: { url: e.target.value } } })}
+              />
+            </Field>
+            <p className="field-label">{t("engineExe")}</p>
+            <div className="dir-row">
+              <span className="dir-path" title={voicevox.exePath ?? ""}>
+                {voicevox.exePath ?? t("engineExeNone")}
+              </span>
+              <button
+                type="button"
+                className="small"
+                onClick={async () => {
+                  const exe = await api.pickExecutable();
+                  if (exe) await props.onChange({ engines: { voicevox: { exePath: exe } } });
+                }}
+              >
+                {t("chooseFile")}
+              </button>
+            </div>
+            <CheckField
+              label={t("engineAutoStart")}
+              value={voicevox.autoStart}
+              onChange={(v) => void props.onChange({ engines: { voicevox: { autoStart: v } } })}
+            />
+            <button type="button" className="small" onClick={() => void runTest("voicevox")}>
+              {t("testConnection")}
+            </button>
+            {testLine("voicevox")}
           </>
         )}
       </div>

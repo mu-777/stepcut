@@ -1115,6 +1115,8 @@ export function App() {
           return w && loc.local >= w.start && loc.local < w.end ? loc.entry.step : null;
         })()
       : null;
+  /** 再生位置のステップにテロップがない(消した)。帯の「テロップ」で作り直せる */
+  const captionMissing = loc !== null && !loc.entry.step.caption;
   /** プレビューの下の追加の段を押せないとき(再生中・枠の編集中・再生位置がない) */
   const addDisabled = playing || !loc || drawingZoom !== null || selection.kind === "video";
   // 再生を始めた・再生位置が別のステップへ移ったなどでテロップが出なくなったら、文字の入力を終える
@@ -1461,14 +1463,25 @@ ${t("renameTip")}`}
                   <AddButton
                     icon="addCaption"
                     label={t("quickCaption")}
-                    title={t("quickCaptionTip")}
-                    disabled={addDisabled || captionStep === null}
+                    title={t(captionMissing ? "quickCaptionAddTip" : "quickCaptionTip")}
+                    // テロップがあっても再生位置で出ていなければ押せない。消したステップでは押すと全期間のテロップを作る
+                    disabled={addDisabled || (captionStep === null && !captionMissing)}
                     onClick={() => {
                       if (!loc) return;
+                      const i = loc.entry.index;
+                      if (captionMissing)
+                        update(
+                          (p) => ({
+                            ...p,
+                            steps: p.steps.map((st, k) => (k === i ? { ...st, caption: { text: "" } } : st)),
+                          }),
+                          "caption-add",
+                        );
                       setSelection({ kind: "caption", step: loc.entry.index });
                       setCaptionEdit(loc.entry.index);
                     }}
                   />
+                  <span className="add-sep" aria-hidden="true" />
                   <AddButton
                     icon="addZoom"
                     label={t("quickZoom")}
@@ -1573,9 +1586,10 @@ ${t("renameTip")}`}
                       type="button"
                       className="small zoom-pct"
                       title={t("previewFit")}
+                      aria-label={viewZoom === 1 ? t("previewFit") : undefined}
                       onClick={() => setViewZoom(1)}
                     >
-                      {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+                      {viewZoom === 1 ? <Icon name="fitView" /> : `${Math.round(viewZoom * 100)}%`}
                     </button>
                     <button
                       type="button"

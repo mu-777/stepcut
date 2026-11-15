@@ -5,9 +5,9 @@
   </picture>
 </h1>
 
-Turn recordings into step-by-step videos, driven by captions.
+Turn recordings into explained videos: captions, narration, zoom, and pointers.
 
-録画済みの動画(画面録画など)をステップに切り分け、テロップを軸に手順を見せる動画(mp4)を作るローカルデスクトップアプリ。
+録画済みの動画(画面録画など)をステップに切り分け、テロップ・読み上げ・ズーム・ポインターで説明を付けた動画(mp4)を作るローカルデスクトップアプリ。操作の手順、製品のデモ、資料の解説などに使う。
 
 - 1 本の画面録画をステップ(場面)に切り分け、各ステップにテロップ・読み上げ・ズームと、オブジェクト(ポインター(蛍光ペンを含む)・四角(画像を入れられる)・矢印・テキスト)を付ける
 - 編集内容はテキスト(JSON)のプロジェクトファイルに保存し、人手でも AI でも編集できる
@@ -47,7 +47,7 @@ main への PR では GitHub Actions が Windows 版をビルドし、run の Ar
 
 ## 紹介ページ(LP)
 
-`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
+`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。英語のページが `/`(`site/public/index.html`)、日本語のページが `/ja/`(`site/public/ja/index.html`)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
 
 ```bash
 cd site
@@ -55,8 +55,8 @@ npm install
 npx wrangler dev      # 手元で表示する
 ```
 
-- 動画・画像の枠(`.media`)の中の svg は仮の絵。同じ場所に `video` / `img` を置くと差し替わる
-- OGP 画像 `site/public/og.png` は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
+- 動画と編集画面の画像は StepCut 自身で作る。日本語用(`site/public/media/`)は `node scripts/make-lp-media.cjs`、英語用(`site/public/media/en/`)は `node scripts/make-lp-media.cjs --lang en`(Linux は `xvfb-run -a` を付ける)。手順は [docs/lp-media.md](docs/lp-media.md)
+- OGP 画像(英語 `site/public/og.png`、日本語 `og-ja.png`)は、ロゴか見出しを変えたときに `node scripts/make-og.cjs` で作り直す
 - Cloudflare 側の設定(初回のみ): Workers & Pages でこのリポジトリを取り込み、Worker 名 `stepcut-lp`、ルートディレクトリ `site`、デプロイコマンド `npx wrangler deploy`、Build watch paths `site/*`
 
 ## 操作
@@ -158,9 +158,9 @@ CLI はアプリの実行ファイルそのもの(Windows のインストーラ�
 - 書き出し中は、ヘッダーの書き出しのボタンが「中止 n%」になる。押すと中止し、途中のファイルは残さない
 - 書き出しが終わるとヘッダーの下の帯に知らせが出て、「フォルダーを開く」で書き出したファイルのフォルダーを開ける
 - 読み上げは OS 標準の音声合成(Windows: WinRT の SpeechSynthesizer、Mac: `say`)。対応していない OS では無音で代替する
-- VOICEVOX 互換エンジンと Azure AI Speech も使える。既定では使えず、アプリの設定(歯車)の「読み上げエンジン」で有効にする。有効にするときに、規約・料金はご自身の責任で確認する旨の確認が出る
-  - VOICEVOX: エンジンはご自身で入れる(アプリには含まない)。エンジンの場所(既定 `http://127.0.0.1:50021`)と、起動していないときに起動するプログラムを指定できる
+- Azure AI Speech と VOICEVOX 互換エンジンも使える。既定では使えず、アプリの設定(歯車)の「読み上げエンジン」で有効にする。有効にするときに、規約・料金はご自身の責任で確認する旨の確認が出る
   - Azure AI Speech: ご自身の Azure の契約の鍵とリージョンを入れる。鍵はこのパソコンで暗号化して保存し、プロジェクトファイルには書かない。読み上げる文は Microsoft に送られ、料金はご自身に請求される
+  - VOICEVOX: エンジンはご自身で入れる(アプリには含まない)。エンジンの場所(既定 `http://127.0.0.1:50021`)と、起動していないときに起動するプログラムを指定できる
   - 使うエンジンは全体の設定の「読み上げ」で選ぶ(プロジェクトごと)。有効にしていないパソコンでプロジェクトを開くと、OS 標準の声で代わりに読む
   - 書き出しのときに、使ったエンジンの規約(と料金)を確認するよう知らせる
 
