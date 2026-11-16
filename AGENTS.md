@@ -35,6 +35,8 @@
 
 クラウドセッションの Linux コンテナでは Windows ビルドできない(Wine なし)。`.github/workflows/build.yml` が base=main の PR で windows-latest ビルドを走らせ、Artifacts(`stepcut-win`)に置く。PR 本文には run の `html_url` を貼る。手順はスキル `/pr-build`(`.claude/skills/pr-build/SKILL.md`)。エージェントは `workflow_dispatch` を叩けない(403)ので試さない。
 
+紹介ページの動画の Windows の版(読み上げ入り)は、PR に `lp-media` ラベルを付けると `.github/workflows/lp-media.yml` が作ってブランチにコミットする。手順はスキル `/lp-media`。
+
 ## 自動確認できないこと(触ったら「実機確認待ち」として報告する)
 
 <!-- WSL・CI で検証できない項目: GUI・IME・OAuth・モバイル実機・OS 固有機能など -->

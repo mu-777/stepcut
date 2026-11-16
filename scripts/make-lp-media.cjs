@@ -5,6 +5,7 @@
 // 前提: npm run build 済み、ffmpeg と Playwright がある。
 //   編集画面の画像だけ撮り直す(直前に作ったプロジェクトを使う): --screens
 //   --overwrite-narrated: 置いてある音声付きの使い方の動画を、無音のものでも上書きする
+//   --require-narration: 使い方の動画が Azure AI Speech で読まれなかったら(無音・OS 標準の声で代替)失敗にする(CI 用)
 //   --lang en: 英語のページ用(アプリの画面・例の画面・テロップを英語にし、site/public/media/en/ に置く)。既定は ja
 // 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。既定は azure)、
 //   LP_SPEECH_VOICE(声の ID。既定は ja-JP-NanamiNeural、--lang en では en-US-JennyNeural)
@@ -700,6 +701,15 @@ function exportVideo(project, name, posterAt, { audio = false } = {}) {
   const warnings = r.warnings || [];
   const out = path.join(outDir, `${name}.mp4`);
   const silent = !hasSound(raw);
+  if (audio && process.argv.includes("--require-narration")) {
+    // CLI の警告は英語に固定。Azure で読むと規約の知らせが出て、代替すると「Used the OS voice instead」が出る
+    const azure = warnings.some((w) => w.includes("Azure AI Speech voices"));
+    const fallback = warnings.filter((w) => w.includes("Used the OS voice instead"));
+    if (silent || !azure || fallback.length)
+      throw new Error(
+        `${name}.mp4 が Azure AI Speech で読まれていません(${silent ? "無音" : "音声あり"}): ${JSON.stringify(warnings)}`,
+      );
+  }
   if (audio && silent && hasSound(out) && !process.argv.includes("--overwrite-narrated")) {
     console.log(
       `${name}.mp4 は音声付きのものが置いてあるので、無音のもので上書きしません(--overwrite-narrated で上書き)`,

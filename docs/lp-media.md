@@ -47,6 +47,19 @@
 
 途中のファイル(録画、プロジェクトファイル、CLI の結果)は `test-output/lp-media/` に残る。うまくいかないときは、ここの `*.stepcut.json` を StepCut で開くと、時刻や座標のずれを目で確かめられる。
 
+## GitHub Actions の Windows で作る
+
+`.github/workflows/lp-media.yml` が windows-latest で日本語・英語の両方を作り直し、PR のブランチにコミットする。読み上げ(Azure AI Speech)入り、Windows のフォントの版になる。決定は [docs/decisions/20261116-lp-media-ci.md](decisions/20261116-lp-media-ci.md)。
+
+1. 準備(初回だけ): リポジトリの Settings → Secrets and variables → Actions に `AZURE_SPEECH_KEY`(音声サービスのキー 1)と `AZURE_SPEECH_REGION`(例: `japaneast`)を入れる。Azure の側で用意するものは下の節の 1
+2. PR(同じリポジトリのブランチ)に `lp-media` ラベルを付ける。手動なら Actions タブの lp-media → Run workflow(main で回すと作るだけでコミットしない)
+3. 20〜30 分ほどで、`lp-media(ci): ...` のコミットがブランチに積まれ、ラベルが外れる。もう一度作るときはラベルを付け直す。ブランチの先頭が前回のこのコミットなら、積まずに置き換える(force push)
+4. 場面の一覧(`sheets/*.png`)・ログ・使い方の動画のプロジェクトは、その run の Artifacts(`lp-media-check`)にある。中身を確かめてからマージする
+
+- 使い方の動画が Azure で読まれなかったら(鍵の誤り、無音、OS 標準の声での代替)失敗にして、コミットしない
+- 動いている間にブランチへ push しない。終わったら手元に取り込んでから続ける(先頭のコミットが置き換わっていることがある)
+- CI のコミットに対しては build.yml(Windows のビルド)は回り直さない
+
 ## 使い方の動画に Azure の読み上げを入れる(Windows)
 
 1. Azure の側で用意するもの(ポータル https://portal.azure.com )
@@ -123,7 +136,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 
 ## いまのファイルについて
 
-いまコミットしてあるものは、日本語・英語の組とも Linux のコンテナで作った。そのため次の違いがある。Windows で作り直すと解消する(Windows での実行は未確認)。
+いまコミットしてあるものは、日本語・英語の組とも Linux のコンテナで作った。そのため次の違いがある。Windows で作り直すと解消する(Windows での実行は未確認。上の「GitHub Actions の Windows で作る」で作れる)。
 
 - 画面の文字が Windows のフォントではない
 - 読み上げが無音で代替されていて、使い方の動画に音声がない(動画の最後に、その知らせと Linux のパスが映る)
