@@ -143,7 +143,7 @@ CLI はアプリの実行ファイルそのもの(Windows のインストーラ�
 このリポジトリは Claude Code のプラグインのマーケットプレイスを兼ねる。Claude Code で次を実行すると、スキル `/stepcut:edit-project` が入る(プロジェクトの編集を頼むと自動でも使われる)。
 
 ```text
-/plugin marketplace add mu-777/screen-annotator
+/plugin marketplace add mu-777/stepcut
 /plugin install stepcut@stepcut
 ```
 

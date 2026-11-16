@@ -2,8 +2,8 @@
 // 入れ替えはしない(ダウンロードページを開くだけ)。docs/decisions/20261113-update-check.md
 import type { UpdateCheckResult } from "../shared/api";
 
-export const RELEASES_API = "https://api.github.com/repos/mu-777/screen-annotator/releases/latest";
-export const RELEASES_PAGE = "https://github.com/mu-777/screen-annotator/releases";
+export const RELEASES_API = "https://api.github.com/repos/mu-777/stepcut/releases/latest";
+export const RELEASES_PAGE = "https://github.com/mu-777/stepcut/releases";
 const TIMEOUT_MS = 10_000;
 
 /** "v1.2.3" / "1.2.3-beta.1" を比べる。a が新しければ正、同じなら 0。読めない部分は 0 とみなす */

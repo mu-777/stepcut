@@ -37,7 +37,7 @@ push 済みでなければ `git push -u origin <branch>` する。
 まず既に PR があるか確認する(ブランチの push で自動作成されていることがある)。
 
 ```
-mcp__github__list_pull_requests(owner="mu-777", repo="screen-annotator", head="mu-777:<branch>", state="all")
+mcp__github__list_pull_requests(owner="mu-777", repo="stepcut", head="mu-777:<branch>", state="all")
 ```
 
 - 無ければ `mcp__github__create_pull_request`(base=main)で作る
@@ -56,7 +56,7 @@ mcp__github__list_pull_requests(owner="mu-777", repo="screen-annotator", head="m
 PR の作成/head への push で `build` ワークフローが自動で走る(dispatch はしない)。
 
 ```
-mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="screen-annotator",
+mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="stepcut",
                           workflow_runs_filter={branch: "<branch>"})
 ```
 
@@ -72,7 +72,7 @@ mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="scr
 ## Phase 3: リンクを PR 本文に追記
 
 ```
-mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", repo="screen-annotator",
+mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", repo="stepcut",
                           resource_id="<run_id>")
 ```
 
