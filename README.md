@@ -41,7 +41,7 @@ npm run dist:win   # Windows 用のインストーラと portable 版を dist/ �
 
 ロゴの元データは `assets/logo/`(SVG)。Windows のアイコン `build/icon.ico` は、`assets/logo/stepcut-icon.svg` を変えたときに `node scripts/make-icon.cjs` で作り直してコミットする(Playwright が要る)。
 
-main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。このビルドの版には短い SHA が付く(`0.1.0-g1a2b3c4`)。
+main への PR では GitHub Actions が lint・型チェック・テストを回す。PR にラベル `build` を付けると Windows 版もビルドし、run の Artifacts(`stepcut-win`、7 日で消える)に置く。作り直すにはラベルを外して付け直す。このビルドの版には短い SHA が付く(`0.1.0-g1a2b3c4`)。
 
 ### リリース
 

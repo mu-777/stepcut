@@ -4,19 +4,19 @@
 2026-11-16
 
 ## ブランチ
-claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を片付ける。PR #24)
+claude/relaxed-bardeen-b45md3(main fa0f8d2 から。PR #24 のブランチを取り込み済み。v0.1.0 のリリース PR #23)
 
 ## ゴール
-0.1.0 の公開前の未決事項を片付け、`/release` で 0.1.0 を出す
+公開前の未決事項(PR #24)を入れたうえで v0.1.0 を GitHub Releases に出し、リリースの流れ(release.yml → build.yml → publish)を通しで確かめる
 
 ## 現在地
-- 商標: ユーザーが確認済み、問題なし(決定記録 20261111-app-name に反映)
-- T-04: 注意書きのまま公開と決定(20261116-os-voice-commercial)。T-03: 特許は利用者の責任と README・THIRD_PARTY_NOTICES に明記して配布と決定(20261116-codec-patents、調査は docs/codec-patents.md)
-- 他者のライセンス表記: THIRD_PARTY_NOTICES.md(本番の依存と Electron・Chromium、FFmpeg のソースの入手先は 20261116-ffmpeg-source)を LICENSE と一緒に extraFiles で exe の隣に置く。Linux の --dir で配置を確認、Windows の配布物では未確認
+- PR #24(ライセンス表記の同梱、T-03・T-04 の決定、商標の確認)をこのブランチに取り込み済み
+- PR の Windows ビルドをラベル `build` を付けたときだけに変更(build.yml、Artifacts は 7 日保存)。/pr-build・AGENTS.md・README・決定記録 20261029-windows-build を更新
+- CHANGELOG に 0.1.0 の節を記入、`npm version minor` で 0.1.0 に上げた。npm run check 通過。PR #23 はマージ待ち
 
 ## 次にやること
-- ユーザー: PR のビルドで、インストール先と Portable に THIRD_PARTY_NOTICES.md・LICENSE があるか見る
-- PR #24 をマージしたあと、0.1.0: `/release` で出す。初回の CHANGELOG は前のタグ以降の差分ではなく、手で全体をまとめる
+- ユーザー: Artifacts の容量が満杯(2026-11-16)。古い Artifacts を消し、再計算(6〜12 時間)後に PR #24 → PR #23 の順にマージする。満杯のままマージすると、タグ v0.1.0 だけできて Release は作られない(#23 だけ先にマージしても #24 の中身は入るが、#24 は空の PR になる)
+- マージ後: release の run が緑か、Release の本文が CHANGELOG の 0.1.0 の節と同じか、`StepCut-Setup.exe`・`StepCut-Portable.exe` が添付されているか、`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)。配布物に THIRD_PARTY_NOTICES.md・LICENSE があるかも見る
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
 ## 課題・ブロッカー

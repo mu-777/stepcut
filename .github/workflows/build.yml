@@ -1,24 +1,29 @@
 name: build
 
 # Windows の配布物(nsis インストーラ + portable)を windows-latest でネイティブに作る。
-#   - pull_request: PR の HEAD をビルドし Artifacts に置く(Release は作らない)
+#   - pull_request: lint・型チェック・テスト(check)は PR の作成・push のたびに回す。Windows のビルド
+#     (build-win)は PR にラベル `build` を付けたときだけ走り、Artifacts に置く(Release は作らない)。
+#     作り直すにはラベルを外して付け直す。Artifacts は容量(アカウントで 500MB)を食うので、
+#     push のたびには作らず、保存も 7 日にしている
 #   - workflow_dispatch: 同じく Artifacts のみ(人が Actions タブから実行する)
 #   - workflow_call: release.yml から呼ばれるリリースの経路。release_tag の GitHub Release を作る。
 #     GITHUB_TOKEN が作ったタグは push イベントを起こさないので、タグ起動ではなくここから直接呼ぶ
 #     (docs/decisions/20261116-release-flow.md)
 # package-lock.json をコミットしておくこと(npm ci に必要)。
 #
-# pull_request で回す理由: レビュー時に実機で触れる Windows バイナリが要る。Linux から
+# ラベルで起動する理由: レビュー時に実機で触れる Windows バイナリが要る。Linux から
 # nsis/portable を作るには Wine が要り、クラウドセッションの環境には入っていない。
 # さらにエージェントのトークンには Actions の write が無く workflow_dispatch を叩けないので、
-# 「PR を作れば必ずバイナリが付く」形にしてある(手順は .claude/skills/pr-build/SKILL.md)。
-# 逆戻りガード: この pull_request トリガを外すと、エージェントから Windows ビルドを出す手段が
-# なくなる(dispatch 権限が付与されない限り)。
+# 「PR にラベルを付ければバイナリが付く」形にしてある(手順は .claude/skills/pr-build/SKILL.md)。
+# 逆戻りガード: この pull_request(labeled)トリガを外すと、エージェントから Windows ビルドを出す
+# 手段がなくなる(dispatch 権限が付与されない限り)。PR ごとに自動でビルドする形に戻すと、
+# Artifacts の容量がすぐ満杯になり、リリース(publish が Artifacts を経由する)も落ちる。
 
 on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -27,9 +32,10 @@ on:
         type: string
         required: true
 
-# PR に続けて push したとき、古いビルドは打ち切って最新だけ残す。
+# PR に続けて push したとき、古い run は打ち切って最新だけ残す。ラベルで起動した Windows ビルドが
+# 後の push の check で打ち切られないよう、ラベルの run は別の組にする。
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
+  group: build-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'labeled' && 'labeled' || 'push' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -39,6 +45,8 @@ jobs:
   # lint・型チェック・単体テスト。Windows ランナーは checkout で改行が CRLF になり
   # Biome の format 確認が落ちるので、Linux で回す。
   check:
+    # ラベルの run では `build` のときだけ(ほかのラベルで回し直さない)
+    if: github.event.action != 'labeled' || github.event.label.name == 'build'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +60,11 @@ jobs:
       - run: npm run check
 
   build-win:
+    # リリース(workflow_call)・手動実行・ラベル `build` を付けたときだけ。PR の作成・push では走らない
+    if: >-
+      inputs.release_tag != '' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'build')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,6 +101,7 @@ jobs:
         with:
           name: stepcut-win
           if-no-files-found: error
+          retention-days: 7
           path: |
             dist/*.exe
 

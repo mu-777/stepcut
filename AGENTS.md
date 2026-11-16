@@ -33,7 +33,7 @@
 
 ## Windows バイナリ(動作確認用)
 
-クラウドセッションの Linux コンテナでは Windows ビルドできない(Wine なし)。`.github/workflows/build.yml` が base=main の PR で windows-latest ビルドを走らせ、Artifacts(`stepcut-win`)に置く。PR 本文には run の `html_url` を貼る。手順はスキル `/pr-build`(`.claude/skills/pr-build/SKILL.md`)。エージェントは `workflow_dispatch` を叩けない(403)ので試さない。
+クラウドセッションの Linux コンテナでは Windows ビルドできない(Wine なし)。`.github/workflows/build.yml` が base=main の PR にラベル `build` を付けたときだけ windows-latest ビルドを走らせ、Artifacts(`stepcut-win`、7 日で消える)に置く。ユーザーに頼まれたときだけ付ける(Artifacts の容量が満杯になるとリリースも落ちる)。PR 本文には run の `html_url` を貼る。手順はスキル `/pr-build`(`.claude/skills/pr-build/SKILL.md`)。エージェントは `workflow_dispatch` を叩けない(403)ので試さない。
 
 ## 自動確認できないこと(触ったら「実機確認待ち」として報告する)
 

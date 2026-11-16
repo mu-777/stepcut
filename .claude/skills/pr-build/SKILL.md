@@ -1,6 +1,6 @@
 ---
 name: pr-build
-description: 作業ブランチの PR を用意し、CI がビルドした Windows バイナリのリンクを PR 本文に貼る。「PR にビルドしたバイナリを付けて」「動作確認用の exe が欲しい」「このブランチの Windows ビルドが欲しい」等の依頼で使う。クラウドセッション(Linux コンテナ)から Windows バイナリを出す唯一の経路。
+description: 作業ブランチの PR を用意し、ラベル build を付けて CI がビルドした Windows バイナリのリンクを PR 本文に貼る。「PR にビルドしたバイナリを付けて」「動作確認用の exe が欲しい」「このブランチの Windows ビルドが欲しい」等の依頼で使う。クラウドセッション(Linux コンテナ)から Windows バイナリを出す唯一の経路。
 ---
 
 # PR にビルド済みバイナリを付ける
@@ -18,8 +18,10 @@ description: 作業ブランチの PR を用意し、CI がビルドした Windo
   (パッケージ化の設定確認だけなら `npm run dist:dir` で Linux 版を作れる)
 - **エージェントのトークンには Actions の write が無い。** `workflow_dispatch` は
   `403 Resource not accessible by integration` で落ちる。**dispatch を試さない。**
-- したがって **`.github/workflows/build.yml` の `pull_request` トリガ**(base=main の PR を作る/更新すると
-  windows-latest でネイティブビルドが走る)に乗る。
+- したがって **`.github/workflows/build.yml` の `pull_request` の `labeled` トリガ**(base=main の PR に
+  ラベル `build` を付けると windows-latest でネイティブビルドが走る)に乗る。PR の作成・push だけではビルドしない
+- **ユーザーに頼まれたときだけラベルを付ける。** Artifacts はアカウントの容量(500MB)を食い、満杯になると
+  アップロードが失敗し、Artifacts を経由するリリースも落ちる。Artifacts は 7 日で消える
 
 ## Phase 0: 事前チェック
 
@@ -51,9 +53,20 @@ mcp__github__list_pull_requests(owner="mu-777", repo="stepcut", head="mu-777:<br
 このブランチの HEAD からビルドした Windows バイナリのリンクを、CI 完了後にここへ追記します。
 ```
 
-## Phase 2: ビルドの完了を待つ
+## Phase 2: ラベルを付けてビルドを起動する
 
-PR の作成/head への push で `build` ワークフローが自動で走る(dispatch はしない)。
+PR にラベル `build` を付ける(dispatch はしない)。すでに付いているなら、外してから付け直す
+(付いたままの push ではビルドし直さない)。
+
+```
+mcp__github__issue_read(method="get_labels", owner="mu-777", repo="stepcut", issue_number=<PR 番号>)
+mcp__github__issue_write(method="update", owner="mu-777", repo="stepcut", issue_number=<PR 番号>,
+                         labels=[<今のラベル>..., "build"])
+```
+
+付け直すときは、`build` を除いた一覧で一度 update してから、`build` を足した一覧で update する。
+
+## Phase 3: ビルドの完了を待つ
 
 ```
 mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="stepcut",
@@ -63,13 +76,17 @@ mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="ste
 `resource_id="build.yml"` は、build.yml が main にまだ無い間は 404 になる。`resource_id` を省いて全 run から
 `name: build` のものを選ぶ。
 
-- 目的の run は `head_sha` がブランチ HEAD と一致し、`event` が `pull_request` のもの
+- 目的の run は `head_sha` がブランチ HEAD と一致し、`event` が `pull_request` で、ジョブ一覧
+  (`list_workflow_jobs`)に `build-win` が走っている(skipped でない)もの。push で起きた run は check だけ
 - `status` が `completed` になるまで待つ。`sleep` ではなく、`send_later` で数分後に自分へチェックインを入れる
 - `conclusion` が `success` 以外なら **リンクは貼らず**、失敗ジョブのログ(`mcp__github__get_job_logs`)を
   読んで原因をユーザーに報告する。`check` ジョブ(lint 等)だけが落ちて `build-win` が成功している場合も、
   その旨を書いたうえでリンクを貼ってよい
+- `Artifact storage quota has been hit` で落ちたら、古い Artifacts を消すようユーザーに頼む(エージェントは
+  消せない)。コマンドは `gh api repos/mu-777/stepcut/actions/artifacts --paginate -q '.artifacts[].id' | xargs -I{} gh api -X DELETE repos/mu-777/stepcut/actions/artifacts/{}`。
+  容量の再計算には 6〜12 時間かかる
 
-## Phase 3: リンクを PR 本文に追記
+## Phase 4: リンクを PR 本文に追記
 
 ```
 mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", repo="stepcut",
@@ -87,7 +104,7 @@ mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", 
 - **[Actions run #<run_number>](<run html_url>)** → ページ下部の Artifacts から `stepcut-win` を取得
   - `StepCut-Setup.exe`(インストーラ)と `StepCut-Portable.exe`(portable)。アプリの版は `<version>-g<short sha>`
 
-ダウンロードには GitHub へのログインが必要で、Artifact は既定で 90 日で失効します。
+ダウンロードには GitHub へのログインが必要で、Artifact は 7 日で失効します。
 未署名のため、初回起動時に SmartScreen の警告が出ます(「詳細情報」→「実行」)。
 ```
 
@@ -95,5 +112,5 @@ mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", 
 
 - **Artifact の直リンクは配らない。** `download_workflow_run_artifact` が返す URL は数分で失効する。
   **run の `html_url` を貼る。**
-- **PR に push するたびにビルドが走り直す。** `concurrency` で古い run は打ち切られるので、
-  リンクは最後の push の後に貼る。貼った後に push したらリンクを更新する
+- **push してもビルドは走り直さない。** リンクの run は貼った時点の HEAD のもの。後から push して
+  新しいバイナリが要るなら、ラベルを付け直して(Phase 2)リンクを更新する
