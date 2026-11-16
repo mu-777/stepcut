@@ -104,8 +104,8 @@ GitHub MCP の `create_pull_request`(既に PR があれば `update_pull_request
 release(タグ)→ build(確認・ビルド・publish)の順に走る(十数分)。自分で確認まで済ませる。
 
 ```
-mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="screen-annotator", resource_id="release.yml")
-mcp__github__get_release_by_tag(owner="mu-777", repo="screen-annotator", tag="v<新しい版>")
+mcp__github__actions_list(method="list_workflow_runs", owner="mu-777", repo="stepcut", resource_id="release.yml")
+mcp__github__get_release_by_tag(owner="mu-777", repo="stepcut", tag="v<新しい版>")
 ```
 
 確認すること:
@@ -113,7 +113,7 @@ mcp__github__get_release_by_tag(owner="mu-777", repo="screen-annotator", tag="v<
 1. release の run が緑(tag ジョブが赤ならタグは打たれていない)
 2. Release の本文が CHANGELOG の節と同じ(案内コメント・リンク定義が混ざっていない)
 3. `StepCut-Setup.exe` と `StepCut-Portable.exe` が添付されている
-4. `https://github.com/mu-777/screen-annotator/releases/latest/download/StepCut-Setup.exe` が新しい版を指す
+4. `https://github.com/mu-777/stepcut/releases/latest/download/StepCut-Setup.exe` が新しい版を指す
 
 ## 失敗したとき
 

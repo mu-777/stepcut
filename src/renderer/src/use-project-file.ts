@@ -12,7 +12,7 @@ import type { Project } from "../../core/schema";
 import { parseProjectText, serializeProject } from "../../core/validate";
 import { api } from "./api";
 import { commit, type History, initHistory } from "./history";
-import { t } from "./i18n";
+import { errorText, msgText, t } from "./i18n";
 import type { Player } from "./player";
 import type { Selection } from "./timeline";
 
@@ -76,7 +76,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
           kind: "error",
           text: [
             `${t("openFailed")}: ${path.replace(/^.*[\\/]/, "")}`,
-            ...r.errors.map((e) => `${e.path}: ${e.message}`),
+            ...r.errors.map((e) => `${e.path}: ${msgText(e)}`),
           ].join("\n"),
         });
         return false;
@@ -149,7 +149,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
         try {
           if ((await save(null, name)) && wantSave === "close") api.closeAfterSave();
         } catch (e) {
-          setBanner({ kind: "error", text: (e as Error).message });
+          setBanner({ kind: "error", text: errorText(e) });
         }
       }
       return;
@@ -158,7 +158,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
     try {
       setFilePath(await api.renameProject(filePath, name));
     } catch (e) {
-      setBanner({ kind: "error", text: (e as Error).message });
+      setBanner({ kind: "error", text: errorText(e) });
     }
   }
 
@@ -199,7 +199,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
           setTitleEdit(true);
         }
       } catch (e) {
-        setBanner({ kind: "error", text: (e as Error).message });
+        setBanner({ kind: "error", text: errorText(e) });
       }
     },
   };
@@ -239,7 +239,7 @@ export function useProjectFile({ project, setHist, setSelection, playerRef, setB
         if (!r.ok) {
           setBanner({
             kind: "error",
-            text: `${t("externalInvalid")}\n${r.errors.map((e) => `${e.path}: ${e.message}`).join("\n")}`,
+            text: `${t("externalInvalid")}\n${r.errors.map((e) => `${e.path}: ${msgText(e)}`).join("\n")}`,
           });
           return;
         }

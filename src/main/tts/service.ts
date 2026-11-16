@@ -1,8 +1,10 @@
 // 読み上げの呼び出しとキャッシュ(TTS-05)、タイムアウトと通知(TTS-09)。
+
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import type { TtsRequest, TtsResult, Voice } from "../../shared/api";
+import { AppError, type Msg, msg } from "../../shared/messages";
 import { writeAtomic } from "../project-files";
 import type { TtsEngine } from "./engine";
 import { wavDuration } from "./wav";
@@ -49,14 +51,14 @@ export class TtsService {
 
   private engine(name: string): TtsEngine {
     const e = this.engines.get(name);
-    if (!e) throw new Error(`読み上げエンジン "${name}" がありません / Unknown speech engine "${name}"`);
+    if (!e) throw new AppError("unknownEngine", { name });
     return e;
   }
 
   async voices(name: string): Promise<Voice[]> {
     const e = this.engine(name);
     const reason = await e.unavailable?.();
-    if (reason) throw new Error(reason);
+    if (reason) throw new AppError(reason.code, reason.params);
     return e.voices();
   }
 
@@ -64,7 +66,7 @@ export class TtsService {
    * 使うエンジン。指定したエンジンが使えない(アプリの設定で有効にしていない)ときは OS 標準で代わりに読み、
    * そのことを知らせる(ほかの人のプロジェクトを開いても書き出しが止まらないように)
    */
-  private async pick(req: TtsRequest): Promise<{ e: TtsEngine; req: TtsRequest; fallback: string | null }> {
+  private async pick(req: TtsRequest): Promise<{ e: TtsEngine; req: TtsRequest; fallback: Msg | null }> {
     const e = this.engine(req.engine);
     const reason = await e.unavailable?.();
     if (!reason) return { e, req, fallback: null };
@@ -72,7 +74,7 @@ export class TtsService {
     return {
       e: os,
       req: { ...req, engine: "os", voice: null },
-      fallback: `${reason}。OS 標準の声で代わりに読みました / Used the OS voice instead`,
+      fallback: msg("engineFallback", { reason }),
     };
   }
 
@@ -110,12 +112,47 @@ export class TtsService {
       return await e.synthesize({ text: req.text, voice: req.voice, params: req.params }, controller.signal);
     } catch (err) {
       if (controller.signal.aborted) {
-        throw new Error(`読み上げがタイムアウトしました(${this.timeoutMs / 1000} 秒) / Speech timed out`);
+        throw new AppError("speechTimeout", { seconds: this.timeoutMs / 1000 });
       }
       throw err;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** キャッシュの使用量(.wav の合計) */
+  async cacheInfo(): Promise<{ bytes: number; limitBytes: number }> {
+    let bytes = 0;
+    for (const f of await this.cacheFiles()) bytes += f.size;
+    return { bytes, limitBytes: this.cacheLimit };
+  }
+
+  /** キャッシュを消す(読み上げ中のものは書き終えた後に残る)。消せなかったファイルは飛ばす */
+  async clearCache(): Promise<{ bytes: number; limitBytes: number }> {
+    await this.pruning;
+    for (const f of await this.cacheFiles()) await rm(f.file, { force: true }).catch(() => {});
+    return this.cacheInfo();
+  }
+
+  private async cacheFiles(): Promise<{ file: string; size: number; mtime: number }[]> {
+    const files: { file: string; size: number; mtime: number }[] = [];
+    let names: string[];
+    try {
+      names = await readdir(this.cacheDir);
+    } catch {
+      return files; // まだキャッシュのフォルダーがない
+    }
+    for (const name of names) {
+      if (!name.endsWith(".wav")) continue;
+      const file = path.join(this.cacheDir, name);
+      try {
+        const st = await stat(file);
+        files.push({ file, size: st.size, mtime: st.mtimeMs });
+      } catch {
+        // 消えたファイルは数えない
+      }
+    }
+    return files;
   }
 
   /** キャッシュを上限以下にする。古いものから消す。失敗は無視し、同時に 2 つは走らせない */
@@ -129,17 +166,7 @@ export class TtsService {
   }
 
   private async doPrune(): Promise<void> {
-    const files: { file: string; size: number; mtime: number }[] = [];
-    for (const name of await readdir(this.cacheDir)) {
-      if (!name.endsWith(".wav")) continue;
-      const file = path.join(this.cacheDir, name);
-      try {
-        const st = await stat(file);
-        files.push({ file, size: st.size, mtime: st.mtimeMs });
-      } catch {
-        // 消えたファイルは数えない
-      }
-    }
+    const files = await this.cacheFiles();
     let total = files.reduce((n, f) => n + f.size, 0);
     files.sort((a, b) => a.mtime - b.mtime);
     for (const f of files) {

@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-16
 tags: [ai, cli, distribution]
 ---
 
@@ -15,7 +15,7 @@ Claude Code・Codex などのコーディングエージェントに、手順書
 - JSON だけでは分からないことを CLI で渡す
   - `frame`(AI-03): 指定した時刻の画を PNG にする。書き出しと同じ見た目(結果に画像の点を映像側の座標へ直す `geometry`)と、素材のフレームそのもの(`--source`。画像のピクセル = 映像側の座標)を選べる
   - `inspect`(AI-08): 計算後の時間。読み上げは実際に生成して長さを測る(JSON には書かれていない)
-- 手引きは Claude Code のスキルだけを用意し、プラグインとして配る(AI-09)。このリポジトリのルートに `.claude-plugin/marketplace.json` を置いてマーケットプレイスにし、プラグインは `plugins/stepcut/`(スキル `edit-project`)。ユーザーは `/plugin marketplace add mu-777/screen-annotator` → `/plugin install stepcut@stepcut` で入れる。`plugin.json` に `version` は書かず、main のコミットがそのまま更新として届く
+- 手引きは Claude Code のスキルだけを用意し、プラグインとして配る(AI-09)。このリポジトリのルートに `.claude-plugin/marketplace.json` を置いてマーケットプレイスにし、プラグインは `plugins/stepcut/`(スキル `edit-project`)。ユーザーは `/plugin marketplace add mu-777/stepcut` → `/plugin install stepcut@stepcut` で入れる。`plugin.json` に `version` は書かず、main のコミットがそのまま更新として届く
 - スキルには仕様の写し(project-format.md・project.schema.json)を同梱する。プラグインはそのフォルダだけが配られ、docs を参照できないため。写しは単体テスト(`src/plugin-files.test.ts`)で docs と一致を確かめる
 - CLI はアプリの実行ファイルそのもの。スキルに同梱した `find-cli.sh` が探す: 環境変数 `STEPCUT_CLI` → 前に覚えた場所(`${CLAUDE_PLUGIN_DATA}/cli-path`)→ インストーラの既定の場所(Windows: `%LOCALAPPDATA%\Programs\StepCut\` と `Program Files`、Mac: `/Applications`)→ PATH。見つからなければスキルがユーザーに場所を聞き、`--save` で覚える。名前が StepCut らしいファイルだけを `help` で確かめる(ほかのアプリを起動しない)
 - スキルは同梱の `run-cli.sh <コマンド> <覚えておく場所> <プロジェクト> …` 経由で CLI を呼ぶ。スクリプトが `find-cli.sh` で場所を探し、`--json --result <file>` を付けて実行し、結果のファイルを標準出力に出す(Windows の GUI アプリは標準出力が届かないことがあり、標準エラーには Chromium のログが出る)

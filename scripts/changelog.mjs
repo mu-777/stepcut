@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = "https://github.com/mu-777/screen-annotator";
+const REPO = "https://github.com/mu-777/stepcut";
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sectionHeading = (version) => new RegExp(`^## \\[${escapeRe(version)}\\]`, "m");

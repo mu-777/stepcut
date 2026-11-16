@@ -18,10 +18,12 @@ import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
 import { audioChunkRanges, buildTimeline, sourceTimeAt, totalDuration } from "../../core/timeline";
 import type { ExportResult } from "../../shared/api";
+import { AppError, msg } from "../../shared/messages";
 import { api } from "./api";
 import { renderStepAudio } from "./audio";
 import { BackgroundStore } from "./backgrounds";
 import { drawFrame } from "./compositor";
+import { msgText } from "./i18n";
 import { ImageStore } from "./images";
 import { openExclusive, type SourceMedia } from "./media";
 import { SAMPLE_RATE, SpeechStore } from "./speech";
@@ -44,9 +46,8 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   const speech = opts.speech ?? new SpeechStore();
 
   const speechErrors = await speech.loadAll(project);
-  if (speechErrors.length)
-    throw new Error(`読み上げを生成できません / Speech failed: ${speechErrors.join("; ")}`);
-  warnings.push(...speech.notices);
+  if (speechErrors.length) throw new Error(msgText(msg("speechFailed", { detail: speechErrors.join("; ") })));
+  warnings.push(...speech.noticeTexts());
 
   const media = new Map<string, SourceMedia>();
   try {
@@ -79,7 +80,7 @@ async function exportWith(
     backgroundImage = await store.load(bg.image, out.width, out.height, opts.projectPath);
     if (!backgroundImage)
       throw new Error(
-        `背景の画像を読めません / Cannot load background: ${bg.image} (${store.error(bg.image, opts.projectPath)})`,
+        `${msgText(msg("cannotLoadBackground", { path: bg.image }))} (${store.error(bg.image, opts.projectPath)})`,
       );
   }
 
@@ -88,13 +89,13 @@ async function exportWith(
   for (const path of objectImages(project)) {
     if (!(await images.load(path, opts.projectPath)))
       throw new Error(
-        `画像を読めません / Cannot load image: ${path} (${images.error(path, opts.projectPath)})`,
+        `${msgText(msg("cannotLoadImage", { path }))} (${images.error(path, opts.projectPath)})`,
       );
   }
 
   const timeline = buildTimeline(project.steps, speech.durations(project));
   const total = totalDuration(timeline);
-  if (total <= 0) throw new Error("書き出すステップがありません / Nothing to export");
+  if (total <= 0) throw new AppError("nothingToExport");
 
   const quality = QUALITY[out.quality];
   const videoBase = { width: out.width, height: out.height, frameRate: out.fps, quality };
@@ -102,11 +103,9 @@ async function exportWith(
   if (!(await canEncodeVideo("avc", { ...videoBase, hardwareAcceleration }))) {
     hardwareAcceleration = "no-preference";
     if (!(await canEncodeVideo("avc", { ...videoBase, hardwareAcceleration }))) {
-      throw new Error(`H.264 で書き出せません(${out.width}x${out.height}) / H.264 encoding is not available`);
+      throw new AppError("h264Unavailable", { width: out.width, height: out.height });
     }
-    warnings.push(
-      "ハードウェアエンコーダーが使えないため、ソフトウェアで書き出しました / Encoded in software",
-    );
+    warnings.push(msgText(msg("encodedInSoftware")));
   }
   const audioOpts = { numberOfChannels: 2, sampleRate: SAMPLE_RATE, quality: QUALITY_HIGH };
   const audioCodec = (await canEncodeAudio("aac", audioOpts))
@@ -114,10 +113,8 @@ async function exportWith(
     : (await canEncodeAudio("opus", audioOpts))
       ? "opus"
       : null;
-  if (audioCodec === "opus")
-    warnings.push("AAC が使えないため、音声を Opus で書き出しました / Audio encoded as Opus");
-  if (!audioCodec)
-    warnings.push("音声を書き出せる形式がないため、音声なしで書き出しました / No audio encoder");
+  if (audioCodec === "opus") warnings.push(msgText(msg("audioOpus")));
+  if (!audioCodec) warnings.push(msgText(msg("noAudioEncoder")));
 
   const totalFrames = Math.round(total * out.fps);
   // 一時ファイルに書き、最後まで書けたときだけ書き出し先に置き換える(失敗・中止で前のファイルを壊さない)
@@ -181,7 +178,7 @@ async function exportWith(
           });
           await videoSource.add(k / out.fps, 1 / out.fps);
           opts.onProgress?.(k + 1, totalFrames);
-          if (opts.signal?.aborted) throw new Error("中止しました / Canceled");
+          if (opts.signal?.aborted) throw new AppError("canceled");
         };
         if (m) {
           let i = 0;

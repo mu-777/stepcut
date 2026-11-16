@@ -1,7 +1,17 @@
 import { existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+  net,
+  shell,
+} from "electron";
 import iconIco from "../../build/icon.ico?asset";
 import iconPng from "../../build/icon.png?asset";
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
@@ -14,6 +24,7 @@ import {
   type SettingsPatch,
   type TtsRequest,
 } from "../shared/api";
+import { AppError, encodeError } from "../shared/messages";
 import { AccessList, isValidProjectName } from "./access";
 import {
   type CliArgs,
@@ -25,6 +36,7 @@ import {
   validateFile,
 } from "./cli";
 import { FileReaders } from "./file-readers";
+import { mt, setMainLanguage } from "./i18n";
 import { OutputFiles } from "./output-files";
 import { resolveStoredPath } from "./paths";
 import { ProjectWatcher, rebaseSourcePaths, writeAtomic } from "./project-files";
@@ -35,6 +47,7 @@ import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 import { createVoicevoxEngine } from "./tts/voicevox-engine";
 import { stepUiZoom, type UiZoomCommand, uiZoomCommand } from "./ui-zoom";
+import { checkForUpdate, RELEASES_API } from "./update-check";
 
 const PROJECT_FILTER = { name: "StepCut Project", extensions: ["json"] };
 
@@ -169,24 +182,24 @@ function buildMenu(): void {
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: "appMenu" as const }] : []),
     {
-      label: "File",
+      label: mt("file"),
       submenu: [
-        { label: "New", accelerator: "CmdOrCtrl+N", click: sendMenu("new") },
-        { label: "Open…", accelerator: "CmdOrCtrl+O", click: sendMenu("open") },
-        { label: "Save", accelerator: "CmdOrCtrl+S", click: sendMenu("save") },
+        { label: mt("new"), accelerator: "CmdOrCtrl+N", click: sendMenu("new") },
+        { label: mt("open"), accelerator: "CmdOrCtrl+O", click: sendMenu("open") },
+        { label: mt("save"), accelerator: "CmdOrCtrl+S", click: sendMenu("save") },
         { type: "separator" },
-        { label: "Add Recording…", click: sendMenu("addSource") },
-        { label: "Export…", accelerator: "CmdOrCtrl+E", click: sendMenu("export") },
+        { label: mt("addRecording"), click: sendMenu("addSource") },
+        { label: mt("export"), accelerator: "CmdOrCtrl+E", click: sendMenu("export") },
         { type: "separator" },
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
     {
-      label: "Edit",
+      label: mt("edit"),
       submenu: [
         // テキスト入力中は入力欄の Undo、それ以外はプロジェクトの Undo(レンダラー側で振り分ける)
-        { label: "Undo", accelerator: "CmdOrCtrl+Z", click: sendMenu("undo") },
-        { label: "Redo", accelerator: "CmdOrCtrl+Shift+Z", click: sendMenu("redo") },
+        { label: mt("undo"), accelerator: "CmdOrCtrl+Z", click: sendMenu("undo") },
+        { label: mt("redo"), accelerator: "CmdOrCtrl+Shift+Z", click: sendMenu("redo") },
         { type: "separator" },
         { role: "cut" },
         { role: "copy" },
@@ -195,7 +208,7 @@ function buildMenu(): void {
       ],
     },
     {
-      label: "View",
+      label: mt("view"),
       submenu: [
         { role: "reload" },
         { role: "forceReload" },
@@ -203,19 +216,19 @@ function buildMenu(): void {
         { type: "separator" },
         // キーは setupUiZoom が受ける(ここは表示だけ。registerAccelerator: false)
         {
-          label: "Zoom In",
+          label: mt("zoomIn"),
           accelerator: "CmdOrCtrl+Plus",
           registerAccelerator: false,
           click: () => void applyUiZoom("in"),
         },
         {
-          label: "Zoom Out",
+          label: mt("zoomOut"),
           accelerator: "CmdOrCtrl+-",
           registerAccelerator: false,
           click: () => void applyUiZoom("out"),
         },
         {
-          label: "Actual Size",
+          label: mt("actualSize"),
           accelerator: "CmdOrCtrl+0",
           registerAccelerator: false,
           click: () => void applyUiZoom("reset"),
@@ -226,7 +239,7 @@ function buildMenu(): void {
     },
     {
       role: "help",
-      submenu: [{ label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", click: sendMenu("shortcuts") }],
+      submenu: [{ label: mt("shortcuts"), accelerator: "CmdOrCtrl+/", click: sendMenu("shortcuts") }],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -243,19 +256,43 @@ async function readProject(filePath: string): Promise<OpenedProject> {
 const readers = new FileReaders();
 const outputs = new OutputFiles();
 
+/** 画面の言語に合わせる(メニューを作り直す)。auto なら OS の言語 */
+function applyMainLanguage(lang: "auto" | "ja" | "en"): void {
+  setMainLanguage(lang, app.getLocale());
+  if (!cli) buildMenu();
+}
+
+/**
+ * ipcMain.handle に、AppError を画面で訳せる形にして返す処理を足したもの(shared/messages.ts)。
+ * Electron の invoke はエラーの message しか渡さないため
+ */
+function handle<A extends unknown[]>(
+  channel: string,
+  fn: (e: IpcMainInvokeEvent, ...args: A) => unknown,
+): void {
+  ipcMain.handle(channel, async (e, ...args) => {
+    try {
+      return await fn(e, ...(args as A));
+    } catch (err) {
+      throw encodeError(err);
+    }
+  });
+}
+
 function registerIpc(): void {
-  ipcMain.handle("settings:get", () => loadSettings());
-  ipcMain.handle("settings:set", async (_e, patch: SettingsPatch) => {
+  handle("settings:get", () => loadSettings());
+  handle("settings:set", async (_e, patch: SettingsPatch) => {
     // 起動する実行ファイルは、ファイル選択で選んだものか今の設定のものだけ
     acl.assertExe(patch?.engines?.voicevox?.exePath, (await loadSettings()).engines.voicevox.exePath);
     const saved = await saveSettings(patch);
+    if (patch?.language !== undefined) applyMainLanguage(saved.language);
     // アプリの設定で数字を入れたときは、すぐ画面に当てる
     if (patch?.uiZoom !== undefined && mainWindow && !mainWindow.isDestroyed())
       mainWindow.webContents.setZoomFactor(saved.uiZoom);
     return saved;
   });
-  ipcMain.handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
-  ipcMain.handle("dialog:pick-exe", async () => {
+  handle("settings:azure-key", (_e, key: string | null) => setAzureKey(key));
+  handle("dialog:pick-exe", async () => {
     const r = await dialog.showOpenDialog({
       filters: process.platform === "win32" ? [{ name: "Program", extensions: ["exe"] }] : [],
       properties: ["openFile"],
@@ -265,17 +302,31 @@ function registerIpc(): void {
     return exe;
   });
   // 規約の案内を開く。https だけ
-  ipcMain.handle("shell:open-external", async (_e, url: string) => {
+  handle("shell:open-external", async (_e, url: string) => {
     if (url.startsWith("https://")) await shell.openExternal(url);
   });
-  ipcMain.handle("dialog:pick-dir", async (_e, defaultPath: string | null) => {
+  // 新しい版の確認(GitHub Releases)。テストでは STEPCUT_UPDATE_URL で確認先を差し替える
+  const checkUpdate = () =>
+    checkForUpdate(
+      app.getVersion(),
+      (url, init) => net.fetch(url, init),
+      process.env.STEPCUT_UPDATE_URL || RELEASES_API,
+    );
+  handle("update:check", () => checkUpdate());
+  handle("update:auto", async () => {
+    // 開発中(パッケージしていない)と CLI では自動で確認しない。E2E が外へ通信しないように
+    if (cli || (!app.isPackaged && !process.env.STEPCUT_UPDATE_URL)) return null;
+    if (!(await loadSettings()).checkUpdates) return null;
+    return checkUpdate();
+  });
+  handle("dialog:pick-dir", async (_e, defaultPath: string | null) => {
     const r = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
       ...(defaultPath ? { defaultPath } : {}),
     });
     return r.filePaths[0] ?? null;
   });
-  ipcMain.handle("project:open-dialog", async () => {
+  handle("project:open-dialog", async () => {
     const dir = (await loadSettings()).projectDir;
     const r = await dialog.showOpenDialog({
       filters: [PROJECT_FILTER],
@@ -285,9 +336,9 @@ function registerIpc(): void {
     const file = r.filePaths[0];
     return file ? readProject(file) : null;
   });
-  ipcMain.handle("project:read", (_e, filePath: string) => readProject(acl.assertProject(filePath)));
-  ipcMain.handle("project:initial", () => (initialProject ? readProject(initialProject) : null));
-  ipcMain.handle(
+  handle("project:read", (_e, filePath: string) => readProject(acl.assertProject(filePath)));
+  handle("project:initial", () => (initialProject ? readProject(initialProject) : null));
+  handle(
     "project:save",
     async (_e, filePath: string | null, text: string, prevPath: string | null, name?: string) => {
       if (filePath !== null) acl.assertProject(filePath);
@@ -317,36 +368,33 @@ function registerIpc(): void {
     },
   );
   // プロジェクトの名前の変更: 同じフォルダーでファイル名を変える(素材のパスは同じフォルダーからの相対なので変わらない)
-  ipcMain.handle("project:rename", async (_e, from: string, name: string) => {
+  handle("project:rename", async (_e, from: string, name: string) => {
     acl.assertProject(from);
-    if (!isValidProjectName(name)) throw new Error(`この名前は使えません / Invalid name: ${String(name)}`);
+    if (!isValidProjectName(name)) throw new AppError("invalidName", { name: String(name) });
     const ext = /\.stepcut\.json$/i.test(from) ? ".stepcut.json" : path.extname(from);
     const target = path.join(path.dirname(from), `${name}${ext}`);
     if (target === from) return target;
-    if (await exists(target)) throw new Error(`同じ名前のファイルがあります / Already exists: ${target}`);
+    if (await exists(target)) throw new AppError("nameExists", { path: target });
     await rename(from, target);
     acl.allowProject(target);
     watcher.watch(target, await readFile(target, "utf8"));
     return target;
   });
-  ipcMain.handle(
-    "recovery:write",
-    async (_e, projectPath: string | null, name: string | null, text: string) => {
-      const p = assertRecoveryPath(projectPath);
-      if (typeof text !== "string") return;
-      recoveryKeyOf = { projectPath: p };
-      await inRecoveryQueue(() =>
-        writeRecovery(recoveryDir(), p, typeof name === "string" ? name : null, text),
-      );
-    },
-  );
-  ipcMain.handle("recovery:read", (_e, projectPath: string | null) =>
+  handle("recovery:write", async (_e, projectPath: string | null, name: string | null, text: string) => {
+    const p = assertRecoveryPath(projectPath);
+    if (typeof text !== "string") return;
+    recoveryKeyOf = { projectPath: p };
+    await inRecoveryQueue(() =>
+      writeRecovery(recoveryDir(), p, typeof name === "string" ? name : null, text),
+    );
+  });
+  handle("recovery:read", (_e, projectPath: string | null) =>
     readRecovery(recoveryDir(), assertRecoveryPath(projectPath)),
   );
-  ipcMain.handle("recovery:clear", (_e, projectPath: string | null) =>
+  handle("recovery:clear", (_e, projectPath: string | null) =>
     inRecoveryQueue(() => clearRecovery(recoveryDir(), assertRecoveryPath(projectPath))),
   );
-  ipcMain.handle("sources:pick", async () => {
+  handle("sources:pick", async () => {
     const r = await dialog.showOpenDialog({
       filters: [
         { name: "MP4 / Image", extensions: ["mp4", ...IMAGE_SOURCE_EXTENSIONS] },
@@ -358,7 +406,7 @@ function registerIpc(): void {
     for (const p of r.filePaths) acl.allowRead(p);
     return r.filePaths;
   });
-  ipcMain.handle("image:pick", async () => {
+  handle("image:pick", async () => {
     const r = await dialog.showOpenDialog({
       filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }],
       properties: ["openFile"],
@@ -368,14 +416,14 @@ function registerIpc(): void {
     return img;
   });
   // 書き出したファイルをエクスプローラー(Finder)で選んだ状態で開く
-  ipcMain.handle("file:reveal", (_e, absPath: string) => shell.showItemInFolder(acl.assertReveal(absPath)));
-  ipcMain.handle("export:pick", async (_e, defaultPath: string) => {
+  handle("file:reveal", (_e, absPath: string) => shell.showItemInFolder(acl.assertReveal(absPath)));
+  handle("export:pick", async (_e, defaultPath: string) => {
     const r = await dialog.showSaveDialog({ filters: [{ name: "MP4", extensions: ["mp4"] }], defaultPath });
     const out = r.canceled ? null : (r.filePath ?? null);
     if (out) acl.allowExport(out);
     return out;
   });
-  ipcMain.handle("sources:resolve", (_e, projectPath: string | null, stored: string) => {
+  handle("sources:resolve", (_e, projectPath: string | null, stored: string) => {
     const resolved = projectPath ? resolveStoredPath(path.dirname(projectPath), stored) : stored;
     acl.allowResolved(projectPath, resolved);
     return resolved;
@@ -397,31 +445,35 @@ function registerIpc(): void {
     if (typeof p === "string" && p) acl.allowRead(p);
   });
 
-  ipcMain.handle("file:size", async (_e, p: string) => (await stat(acl.assertRead(p))).size);
-  ipcMain.handle("file:read-range", (_e, p: string, start: number, end: number) =>
+  handle("file:size", async (_e, p: string) => (await stat(acl.assertRead(p))).size);
+  handle("file:read-range", (_e, p: string, start: number, end: number) =>
     readers.read(acl.assertRead(p), start, end),
   );
-  ipcMain.handle("output:open", (e, p: string) => outputs.open(acl.assertWrite(p), e.sender.id));
-  ipcMain.handle("output:write", (_e, handle: number, position: number, data: Uint8Array) =>
+  handle("output:open", (e, p: string) => outputs.open(acl.assertWrite(p), e.sender.id));
+  handle("output:write", (_e, handle: number, position: number, data: Uint8Array) =>
     outputs.write(handle, position, data),
   );
-  ipcMain.handle("output:close", (_e, handle: number, commit: boolean) =>
-    outputs.close(handle, commit === true),
-  );
-  ipcMain.handle("file:write-text", (_e, p: string, text: string) =>
-    writeFile(acl.assertWrite(p), text, "utf8"),
-  );
+  handle("output:close", (_e, handle: number, commit: boolean) => outputs.close(handle, commit === true));
+  handle("file:write-text", (_e, p: string, text: string) => writeFile(acl.assertWrite(p), text, "utf8"));
 
-  ipcMain.handle("tts:voices", (_e, engine: string) => {
+  handle("tts:voices", (_e, engine: string) => {
     ttsService ??= tts();
     return ttsService.voices(engine);
   });
-  ipcMain.handle("tts:synthesize", (_e, req: TtsRequest) => {
+  handle("tts:synthesize", (_e, req: TtsRequest) => {
     ttsService ??= tts();
     return ttsService.synthesize(req);
   });
+  handle("tts:cache-info", () => {
+    ttsService ??= tts();
+    return ttsService.cacheInfo();
+  });
+  handle("tts:cache-clear", () => {
+    ttsService ??= tts();
+    return ttsService.clearCache();
+  });
 
-  ipcMain.handle("export:job", () => exportJob);
+  handle("export:job", () => exportJob);
   ipcMain.on("export:progress", (_e, done: number, total: number) => {
     if (!cliJson && total > 0) process.stderr.write(`\rexport ${Math.round((done / total) * 100)}%`);
   });
@@ -492,7 +544,7 @@ app.whenReady().then(async () => {
     app.exit(code);
     return;
   }
-  buildMenu();
+  applyMainLanguage((await loadSettings().catch(() => null))?.language ?? "auto");
   mainWindow = createWindow({ show: true });
   setupUiZoom(mainWindow);
   // メニューバーは出さない(操作は画面のヘッダーにある)。メニューは残し、Ctrl+S などのキーとコピー・貼り付けに使う
@@ -502,10 +554,10 @@ app.whenReady().then(async () => {
     if (busy) {
       const keep = dialog.showMessageBoxSync(mainWindow, {
         type: "warning",
-        buttons: ["中止して閉じる / Cancel export and close", "閉じない / Keep open"],
+        buttons: [mt("cancelExportAndClose"), mt("keepOpen")],
         defaultId: 1,
         cancelId: 1,
-        message: "書き出し中です。中止して閉じますか？ / An export is running. Cancel it and close?",
+        message: mt("exportRunning"),
       });
       if (keep === 1) {
         e.preventDefault();
@@ -519,10 +571,10 @@ app.whenReady().then(async () => {
     }
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: "warning",
-      buttons: ["保存して閉じる / Save and close", "破棄して閉じる / Discard", "キャンセル / Cancel"],
+      buttons: [mt("saveAndClose"), mt("discardAndClose"), mt("cancel")],
       defaultId: 2,
       cancelId: 2,
-      message: "保存していない変更があります。/ You have unsaved changes.",
+      message: mt("unsavedChanges"),
     });
     if (choice === 0) {
       // 保存できたらレンダラーが closeAfterSave で閉じる。取り消し・失敗なら閉じない

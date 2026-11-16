@@ -15,7 +15,7 @@ tags: [build, ci, release]
 - `.github/workflows/release.yml` が main への push で走り、`v<version>` のタグがなければ CHANGELOG のその版の節に中身があるかを確かめ(`scripts/changelog.mjs extract`)、タグを作り、`build.yml` を `workflow_call` で呼ぶ。タグがあれば何もしない
 - `build.yml` は確認(`npm run check`)とビルドが両方通ったときだけ、別のジョブ(書き込み権限はそこだけ)で GitHub Release を作る。本文は CHANGELOG の節
 - 通常のリリースとして出す(プレリリースにしない)。配布物の名前は版を含めず `StepCut-Setup.exe` / `StepCut-Portable.exe` に固定し、紹介ページは `releases/latest/download/<名前>` で最新版を直接指す
-- PR・手動実行のビルドは version に短い SHA を足す(`0.1.0-g1a2b3c4`)。CI の作業場所だけの書き換えでコミットしない
+- PR・手動実行のビルドは version に短い SHA を足す(`0.1.0-g1a2b3c4`)。CI の作業場所だけの書き換えでコミットしない。semver ではこれは `0.1.0` より古い扱いなので、アプリの新しい版の確認([20261113-update-check.md](20261113-update-check.md))は、同じ番号の版が出たあとの PR ビルドで「新しい版がある」と出る(許容)
 - 仕組みを入れた時点の版は 0.0.9 とし、タグ `v0.0.9` は人が手で打つ(Release は作らない)。最初のリリースは `/release` で 0.1.0 にする
 
 ## 理由

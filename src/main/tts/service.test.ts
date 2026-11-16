@@ -35,6 +35,23 @@ describe("TtsService", () => {
   const tmp = () => mkdtemp(path.join(os.tmpdir(), "tts-test-"));
   const req = (text: string) => ({ engine: "fake", voice: null, params: {}, text });
 
+  it("キャッシュの使用量を数え、消せる(フォルダーがなければ 0)", async () => {
+    const engine: TtsEngine = {
+      name: "fake",
+      version: "1",
+      voices: async () => [],
+      synthesize: async () => silentWav(1),
+    };
+    const dir = path.join(await tmp(), "cache");
+    const svc = new TtsService(dir, [engine], { cacheLimitBytes: 10_000_000 });
+    expect(await svc.cacheInfo()).toEqual({ bytes: 0, limitBytes: 10_000_000 });
+    await svc.synthesize(req("a"));
+    await svc.synthesize(req("b"));
+    expect((await svc.cacheInfo()).bytes).toBeGreaterThan(0);
+    expect((await svc.clearCache()).bytes).toBe(0);
+    expect((await readdir(dir)).filter((n) => n.endsWith(".wav"))).toEqual([]);
+  });
+
   it("同時数の上限を守る", async () => {
     let running = 0;
     let max = 0;
@@ -102,7 +119,7 @@ describe("TtsService", () => {
       const caught = third.catch((e: Error) => e);
       await until(() => releases.length === 3);
       await vi.advanceTimersByTimeAsync(1100);
-      expect(String(await caught)).toMatch(/タイムアウト/);
+      expect(await caught).toMatchObject({ code: "speechTimeout" });
     } finally {
       vi.useRealTimers();
     }

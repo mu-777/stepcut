@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- LP の「製品のデモ」の動画の素材にする、録画用の例の画面。scripts/make-lp-media.cjs が開いて操作し、録画する。配信はしない -->
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>サンプルボード</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { zoom: 1.25; margin: 0; font: 14px/1.5 "Segoe UI", "Yu Gothic UI", "Noto Sans JP", sans-serif; color: #1f2733; background: #f5f6f9; }
+      header { height: 48px; background: #17243d; color: #fff; display: flex; align-items: center; padding: 0 24px; font-weight: 700; font-size: 15px; }
+      main { padding: 24px 32px; display: grid; gap: 18px; }
+      .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .kpi { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 14px 16px; color: #5a6474; }
+      .kpi b { display: block; font-size: 24px; color: #1f2733; }
+      .panel { background: #fff; border: 1px solid #dfe3ea; border-radius: 8px; padding: 16px 18px; }
+      .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; font-weight: 700; }
+      .seg { display: flex; border: 1px solid #c9d0db; border-radius: 6px; overflow: hidden; }
+      .seg button { border: 0; background: #fff; font: inherit; padding: 5px 14px; cursor: pointer; color: #5a6474; }
+      .seg button.on { background: #2f6fe0; color: #fff; }
+      .chart { display: flex; align-items: flex-end; gap: 14px; height: 200px; padding: 0 6px; border-bottom: 1px solid #c9d0db; }
+      .chart i { flex: 1; background: #7aa9ff; border-radius: 4px 4px 0 0; transition: height 0.5s; }
+      .chart i.top { background: #2f6fe0; }
+    </style>
+  </head>
+  <body>
+    <header data-en="Sample Board">サンプルボード</header>
+    <main>
+      <div class="kpis">
+        <div class="kpi" data-en="Sales this month&lt;b&gt;$128,400&lt;/b&gt;">今月の売上<b>1,284 万円</b></div>
+        <div class="kpi" data-en="vs. last month&lt;b id=&quot;growth&quot;&gt;+18%&lt;/b&gt;">前月比<b id="growth">+18%</b></div>
+        <div class="kpi" data-en="New clients&lt;b&gt;7&lt;/b&gt;">新規の取引先<b>7 社</b></div>
+      </div>
+      <div class="panel">
+        <div class="head">
+          <span data-en="Sales trend">売上の推移</span>
+          <div class="seg">
+            <button type="button" id="monthly" class="on" data-en="Monthly">月別</button>
+            <button type="button" id="weekly" data-en="Weekly">週別</button>
+          </div>
+        </div>
+        <div class="chart" id="chart"></div>
+      </div>
+    </main>
+    <script>
+      const data = { monthly: [38, 44, 41, 52, 60, 57, 68, 80], weekly: [52, 61, 48, 70, 66, 74, 58, 82, 77, 69, 85, 92] };
+      const chart = document.getElementById("chart");
+      const draw = (name) => {
+        const max = Math.max(...data[name]);
+        chart.innerHTML = data[name].map((v) => `<i class="${v === max ? "top" : ""}" style="height:${v}%"></i>`).join("");
+        for (const key of Object.keys(data)) document.getElementById(key).classList.toggle("on", key === name);
+      };
+      document.getElementById("monthly").onclick = () => draw("monthly");
+      document.getElementById("weekly").onclick = () => draw("weekly");
+      draw("monthly");
+    </script>
+    <script>
+      // ?lang=en で英語の画面にする(scripts/make-lp-media.cjs の --lang en)。data-en の HTML で中身を差し替える
+      if (new URLSearchParams(location.search).get("lang") === "en") {
+        document.documentElement.lang = "en";
+        for (const el of document.querySelectorAll("[data-en]")) el.innerHTML = el.dataset.en;
+        for (const el of document.querySelectorAll("[data-en-label]")) el.setAttribute("aria-label", el.dataset.enLabel);
+        for (const el of document.querySelectorAll("[data-en-ph]")) el.placeholder = el.dataset.enPh;
+      }
+    </script>
+  </body>
+</html>

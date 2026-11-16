@@ -15,8 +15,8 @@ const base = `# Changelog
 ### Fixed
 - 直したこと
 
-[Unreleased]: https://github.com/mu-777/screen-annotator/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/mu-777/screen-annotator/releases/tag/v0.1.0
+[Unreleased]: https://github.com/mu-777/stepcut/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mu-777/stepcut/releases/tag/v0.1.0
 `;
 
 describe("stamp", () => {
@@ -24,8 +24,8 @@ describe("stamp", () => {
     const out = stamp(base, "0.2.0", "2026-11-16");
     expect(out).toContain("## [Unreleased]\n\n## [0.2.0] - 2026-11-16\n\n### Added\n- 新しい機能");
     expect(out).toContain(
-      "[Unreleased]: https://github.com/mu-777/screen-annotator/compare/v0.2.0...HEAD\n" +
-        "[0.2.0]: https://github.com/mu-777/screen-annotator/releases/tag/v0.2.0\n" +
+      "[Unreleased]: https://github.com/mu-777/stepcut/compare/v0.2.0...HEAD\n" +
+        "[0.2.0]: https://github.com/mu-777/stepcut/releases/tag/v0.2.0\n" +
         "[0.1.0]:",
     );
     expect(extract(out, "0.2.0")).toBe("### Added\n- 新しい機能\n");

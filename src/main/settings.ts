@@ -1,5 +1,6 @@
 // アプリの設定(プロジェクトによらない)。ユーザーデータのフォルダーの settings.json に置く。
 // Azure AI Speech の鍵は OS の仕組み(safeStorage)で暗号化して同じファイルの secrets に置き、画面には渡さない。
+
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { app, safeStorage } from "electron";
@@ -10,6 +11,7 @@ import {
   type SettingsPatch,
   type SpeechEngineSettings,
 } from "../shared/api";
+import { AppError } from "../shared/messages";
 import { writeAtomic } from "./project-files";
 import { sanitizeUiZoom } from "./ui-zoom";
 
@@ -62,6 +64,8 @@ export async function loadSettings(): Promise<AppSettings> {
       ),
       engines: sanitizeEngines(raw.engines, !!secrets.azureKey),
       uiZoom: sanitizeUiZoom(raw.uiZoom),
+      checkUpdates: bool(raw.checkUpdates, true),
+      dismissedUpdate: strOrNull(raw.dismissedUpdate),
     };
   } catch {
     // ない・読めないときは既定値(壊れたファイルは次の保存で書き直す)
@@ -89,6 +93,9 @@ export async function saveSettings(patch: SettingsPatch): Promise<AppSettings> {
     ...rest,
     engines: sanitizeEngines(merged, !!secrets.azureKey),
     uiZoom: sanitizeUiZoom(rest.uiZoom ?? cur.uiZoom),
+    checkUpdates: bool(rest.checkUpdates, cur.checkUpdates),
+    dismissedUpdate:
+      rest.dismissedUpdate === undefined ? cur.dismissedUpdate : strOrNull(rest.dismissedUpdate),
   });
 }
 
@@ -97,10 +104,7 @@ export async function setAzureKey(key: string | null): Promise<AppSettings> {
   const cur = await loadSettings();
   const k = key?.trim() ?? "";
   if (k) {
-    if (!safeStorage.isEncryptionAvailable())
-      throw new Error(
-        "この環境では鍵を安全に保存できません(OS の資格情報の保管を使えません)/ Secure storage is not available",
-      );
+    if (!safeStorage.isEncryptionAvailable()) throw new AppError("secureStorageUnavailable");
     secrets = { azureKey: safeStorage.encryptString(k).toString("base64") };
   } else secrets = {};
   return write({

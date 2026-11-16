@@ -67,7 +67,7 @@ function patchStep(update: Update, index: number, key: string) {
 }
 
 /** 選べる読み上げエンジン。os 以外はユーザーがアプリの設定で有効にしたときだけ選べる */
-const SPEECH_ENGINES = ["os", "voicevox", "azure"] as const;
+const SPEECH_ENGINES = ["os", "azure", "voicevox"] as const;
 const ENGINE_LABEL = { os: "engineOs", voicevox: "engineVoicevox", azure: "engineAzure" } as const;
 
 function VoiceSelect(props: {

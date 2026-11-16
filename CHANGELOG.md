@@ -14,4 +14,4 @@ Fixed / Security)。`npm version` のときに scripts/changelog.mjs がこの�
 
 ## [Unreleased]
 
-[Unreleased]: https://github.com/mu-777/screen-annotator/compare/v0.0.9...HEAD
+[Unreleased]: https://github.com/mu-777/stepcut/compare/v0.0.9...HEAD

@@ -50,7 +50,7 @@ import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
 import { commit, type History, initHistory, redo, undo } from "./history";
-import { t } from "./i18n";
+import { errorText, msgText, t } from "./i18n";
 import { Icon, type IconName } from "./icons";
 import { ImageStore } from "./images";
 import {
@@ -156,7 +156,7 @@ export function App() {
       (e: Error) => {
         if (!alive) return;
         setVoices([]);
-        setVoiceError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+        setVoiceError(errorText(e));
       },
     );
     return () => {
@@ -179,6 +179,22 @@ export function App() {
   const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [banner, setBanner] = useState<Banner | null>(null);
+  /** 新しい版の知らせ。閉じるとその版を覚えて、次からは知らせない */
+  const [newVersion, setNewVersion] = useState<{ version: string; url: string } | null>(null);
+  useEffect(() => {
+    // 起動の邪魔をしないよう少し待ってから 1 回だけ確認する。失敗は知らせない(オフラインでも普通に使えるように)
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await api.autoCheckUpdate();
+        if (r?.status !== "available") return;
+        if ((await api.getSettings()).dismissedUpdate === r.version) return;
+        setNewVersion({ version: r.version, url: r.url });
+      } catch {
+        // 確認できなくても何もしない
+      }
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   /** 設定パネルに出しているもの(全体の設定か、ステップの詳細) */
   const [view, setView] = useState<PanelView>("step");
@@ -245,7 +261,7 @@ export function App() {
       relink: m.id as string | undefined,
     })),
     ...issues.map((i) => ({
-      text: `${issuePath(i.path)}: ${i.message}`,
+      text: `${issuePath(i.path)}: ${msgText(i)}`,
       error: false,
       relink: undefined as string | undefined,
     })),
@@ -305,7 +321,7 @@ export function App() {
           used.push(path);
           next.set(s.id, await openMedia(path));
         } catch (e) {
-          const message = (e as Error).message;
+          const message = errorText(e);
           errors.push({ id: s.id, path: s.path, message, missing: /ENOENT/.test(message) });
         }
       }
@@ -413,7 +429,7 @@ export function App() {
         };
         at++;
       } catch (e) {
-        setBanner({ kind: "error", text: (e as Error).message });
+        setBanner({ kind: "error", text: errorText(e) });
       }
     }
     if (at === first) return;
@@ -1280,6 +1296,25 @@ ${t("renameTip")}`}
           </button>
         </div>
       )}
+      {newVersion && (
+        <div className="banner info update-banner">
+          <pre>{`${t("updateAvailable")}: v${newVersion.version}`}</pre>
+          <button type="button" className="small" onClick={() => void api.openExternal(newVersion.url)}>
+            {t("openDownloadPage")}
+          </button>
+          <button
+            type="button"
+            className="small"
+            aria-label={t("close")}
+            onClick={() => {
+              void api.setSettings({ dismissedUpdate: newVersion.version });
+              setNewVersion(null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* プロジェクトの問題(検証のエラー・警告、読めない録画)。閉じられる。閉じた後に問題が増えたら(中身が変わったら)また出す */}
       {problemLines.length > 0 && problemKey !== dismissedProblems && (
         <div className="banner issues">
@@ -1446,6 +1481,7 @@ ${t("renameTip")}`}
                       setCaptionEdit(loc.entry.index);
                     }}
                   />
+                  <span className="add-sep" aria-hidden="true" />
                   <AddButton
                     icon="addZoom"
                     label={t("quickZoom")}
@@ -1550,9 +1586,10 @@ ${t("renameTip")}`}
                       type="button"
                       className="small zoom-pct"
                       title={t("previewFit")}
+                      aria-label={viewZoom === 1 ? t("previewFit") : undefined}
                       onClick={() => setViewZoom(1)}
                     >
-                      {viewZoom === 1 ? t("previewFit") : `${Math.round(viewZoom * 100)}%`}
+                      {viewZoom === 1 ? <Icon name="fitView" /> : `${Math.round(viewZoom * 100)}%`}
                     </button>
                     <button
                       type="button"
