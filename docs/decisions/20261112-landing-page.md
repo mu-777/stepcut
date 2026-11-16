@@ -11,8 +11,8 @@ tags: [infra, web]
 
 ## 決定
 
-- ソースはこのリポジトリの `site/`。静的な HTML と CSS だけ(フレームワーク・JavaScript なし)
-- 英語と日本語の 2 枚。英語を `/`(`site/public/index.html`)、日本語を `/ja/`(`site/public/ja/index.html`)に置く。ナビに相手の言語へのリンクを置き、`hreflang`(`x-default` は英語)と `og:locale:alternate` で互いを指す。ブラウザーの言語による自動の振り分けはしない。2 枚は手で書き、片方を変えたらもう片方も直す(`.claude/rules/lp-media.md`)。404 のページは両方の言語を並べる
+- ソースはこのリポジトリの `site/`。静的な HTML と CSS だけ(フレームワークなし。JavaScript は下の言語の振り分けの数行だけ)
+- 英語と日本語の 2 枚。英語を `/`(`site/public/index.html`)、日本語を `/ja/`(`site/public/ja/index.html`)に置く。ナビに相手の言語へのリンクを置き、`hreflang`(`x-default` は英語)と `og:locale:alternate` で互いを指す。`/` を開いたとき、ブラウザーの言語(`navigator.languages[0]`)が `ja` なら `/ja/` へ転送する(`<head>` のインラインの JS、`location.replace`)。ナビの言語リンクを押すと選んだ言語を localStorage の `stepcut-lang` に覚え、以後はブラウザーの言語より優先する(`en` なら転送しない、`ja` なら転送する)。`/ja/` から来たとき(保存できない環境で English を押した場合)は転送しない。`/ja/` と 404 では転送しない。2 枚は手で書き、片方を変えたらもう片方も直す(`.claude/rules/lp-media.md`)。404 のページは両方の言語を並べる
 - 動画・画像・OGP 画像も言語ごとに作る(英語は `media/en/` と `og.png`、日本語は `media/` と `og-ja.png`)。英語の書体は IBM Plex Sans と Sora
 - 配信は Cloudflare Workers の静的アセット。Worker 名 `stepcut-lp`、Custom Domain `stepcut.mu-777.dev`(`site/wrangler.toml`)
 - デプロイは Cloudflare の Workers Builds(Git 連携)。main への push で、`site/` に変更があれば `npx wrangler deploy` が走る。ルートディレクトリ・watch paths は Cloudflare のダッシュボード側の設定
@@ -34,7 +34,8 @@ tags: [infra, web]
 - 1 ページで、動きは動画だけなので、ビルドの要る仕組みは持たない。アプリの依存(package.json)にも足さない(wrangler は `site/package.json` だけ)
 - 構成は、動画編集ツールのページ(Screen Studio・Cap・Tella・Descript・Guidde)と DayGlassBar を要素に分け、StepCut に条件がそろっているものだけを採った。機能ごとに「得られる結果の見出し + 証拠の動画」(Screen Studio)、小さな機能の格子(同)、制作の流れを 1 本で見せる(Descript)、最後のダウンロードが締めの呼びかけを兼ねる(DayGlassBar)
 - 動画を StepCut で作ると、ページそのものがアプリで作れるものの見本になる。スクリプトにしてあるので、画面を変えたら作り直せる
-- 英語を `/` にするのは、アプリの UI が英語を主にしている(NF-07)ため。言語での自動の振り分けをしないのは、静的ファイルだけでは振り分けられない(Worker のスクリプトが要る)ことと、Google が言語を推測した自動リダイレクトを避けるよう勧めている([Managing multi-regional and multilingual sites](https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites))ため
+- 英語を `/` にするのは、アプリの UI が英語を主にしている(NF-07)ため。言語で自動で振り分けるのは、日本語の利用者が英語のページから入らずに済むようにするため(ユーザーの要望)。Google は言語を推測した自動リダイレクトを避けるよう勧めている([Managing multi-regional and multilingual sites](https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites))。理由は、利用者と検索エンジンがほかの言語版を見られなくなること。これには次のように対処した: Googlebot は `Accept-Language` なしで米国から来る([Locale-adaptive pages](https://developers.google.com/search/docs/specialty/international/locale-adaptive-pages))ので `/`(英語、`x-default`)がそのまま返り、`/ja/` は `hreflang` とリンクで見つかる。転送は `/` だけで、言語リンクで選び直した言語を覚えるので、利用者はどちらの版も開ける
+- 振り分けをページの JS でするのは、静的ファイルのまま(Worker のスクリプトなし)で済むため
 - 英語のページに日本語の動画を載せると、テロップと画面が読めない。動画はスクリプトで作るので、言語ごとに作っても手間は実行 1 回分
 
 ## 不採用案と理由(逆戻りガード)
@@ -61,7 +62,10 @@ tags: [infra, web]
 - **ヒーローの機能タブ、利用者の声・スター数、作品集、料金表** — モードも実績も作例もまだなく、無料でアカウントもない
 - **CSS で描いた仮の絵のまま載せる** — StepCut で作った実物の方が、アプリの見本になる
 - **日本語を `/` のままにし、英語を `/en/` に置く** — 今のリンクは変わらないが、UI が英語を主にしている(NF-07)ことと合わない。ユーザーが英語を `/` にする方を選んだ
-- **ブラウザーの言語で自動で振り分ける** — Worker のスクリプトが要り、検索エンジンが片方の言語しか見られなくなるおそれがある
+- **Worker で `Accept-Language` を見て振り分ける** — 英語のページが一瞬見えることはないが、Worker のスクリプトとデプロイの設定が増え、キャッシュを言語ごとに分ける配慮が要る
+- **自動では振り分けず、日本語のブラウザーに「日本語版があります」の帯を出す** — Google の勧めにいちばん沿うが、1 クリック要る。ユーザーが自動の転送を選んだ
+- **ブラウザーの言語の 2 番目以降も見る** — `en-US, ja` の人は英語を先に置いている。先頭だけで判断する
+- **振り分けない** — 日本語の利用者が英語のページから入る
 - **テンプレートから 2 言語をビルドで作る** — ずれは防げるが、ビルドの仕組みを持たない決定に反する
 - **英語のページに日本語の動画をそのまま載せる** — 手間はないが、テロップと画面が読めない
 
