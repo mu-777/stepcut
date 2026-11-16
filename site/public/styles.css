@@ -109,7 +109,7 @@ section {
 }
 
 .brand {
-  width: 112px;
+  width: 102px;
   height: 34px;
 }
 
@@ -258,7 +258,7 @@ section {
 
 .hero-logo {
   /* ロゴの文字の高さを h1 の和文の字面(約 35px)にそろえる */
-  width: 320px;
+  width: 293px;
   height: 98px;
   margin: 0 0 16px -8px;
 }
@@ -729,7 +729,7 @@ details p {
   }
 
   .hero-logo {
-    width: 236px;
+    width: 216px;
     height: 72px;
     margin-left: -6px;
   }
