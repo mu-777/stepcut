@@ -30,7 +30,8 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 16px;
+  /* 固定したヘッダーの高さ(62px)+ 余白 */
+  scroll-padding-top: 78px;
 }
 
 body {
@@ -90,6 +91,13 @@ section {
 
 /* ---------- 共通部品 ---------- */
 .nav {
+  /* スクロールしてもロゴとダウンロードを出す */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(30, 31, 34, 0.86);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 
@@ -101,7 +109,7 @@ section {
 }
 
 .brand {
-  width: 112px;
+  width: 102px;
   height: 34px;
 }
 
@@ -248,8 +256,15 @@ section {
   align-items: center;
 }
 
+.hero-logo {
+  /* ロゴの文字の高さを h1 の和文の字面(約 35px)にそろえる */
+  width: 293px;
+  height: 98px;
+  margin: 0 0 16px -8px;
+}
+
 .hero h1 {
-  font-size: clamp(28px, 3.5vw, 44px);
+  font-size: clamp(28px, 3.2vw, 40px);
   font-weight: 800;
   margin: 18px 0;
 }
@@ -711,6 +726,12 @@ details p {
 
   .hero .wrap {
     gap: 36px;
+  }
+
+  .hero-logo {
+    width: 216px;
+    height: 72px;
+    margin-left: -6px;
   }
 
   .pairs .hd {
