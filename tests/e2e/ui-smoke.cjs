@@ -1941,7 +1941,7 @@ function fakeVoicevox() {
       res.end(
         JSON.stringify({
           tag_name: "v9.9.9",
-          html_url: "https://github.com/mu-777/screen-annotator/releases/tag/v9.9.9",
+          html_url: "https://github.com/mu-777/stepcut/releases/tag/v9.9.9",
         }),
       );
     });

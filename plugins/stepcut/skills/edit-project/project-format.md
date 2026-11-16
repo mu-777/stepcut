@@ -1,4 +1,4 @@
-<!-- docs/project-format.md の写し(npm run check で一致を確かめる。直すのは docs 側)。相対リンクの先はリポジトリ https://github.com/mu-777/screen-annotator の docs/ にある -->
+<!-- docs/project-format.md の写し(npm run check で一致を確かめる。直すのは docs 側)。相対リンクの先はリポジトリ https://github.com/mu-777/stepcut の docs/ にある -->
 
 # プロジェクトファイル仕様(version 1)
 

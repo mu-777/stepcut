@@ -8,7 +8,7 @@ const root = new URL("../", import.meta.url);
 const skill = new URL("plugins/stepcut/skills/edit-project/", root);
 
 const HEADER =
-  "<!-- docs/project-format.md の写し(npm run check で一致を確かめる。直すのは docs 側)。相対リンクの先はリポジトリ https://github.com/mu-777/screen-annotator の docs/ にある -->\n\n";
+  "<!-- docs/project-format.md の写し(npm run check で一致を確かめる。直すのは docs 側)。相対リンクの先はリポジトリ https://github.com/mu-777/stepcut の docs/ にある -->\n\n";
 
 const copies: [string, (src: string) => string][] = [
   ["project-format.md", (src) => HEADER + src],

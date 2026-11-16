@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-11-13
+updated: 2026-11-16
 tags: [update, network, settings]
 ---
 
@@ -10,7 +11,7 @@ tags: [update, network, settings]
 
 ## 決定
 
-- 起動の 3 秒後に 1 回、メインプロセスから `https://api.github.com/repos/mu-777/screen-annotator/releases/latest` を読む(下書き・プレリリースは GitHub が除く)。タイムアウト 10 秒。失敗(オフライン・制限・404)は何も知らせない
+- 起動の 3 秒後に 1 回、メインプロセスから `https://api.github.com/repos/mu-777/stepcut/releases/latest` を読む(下書き・プレリリースは GitHub が除く)。タイムアウト 10 秒。失敗(オフライン・制限・404)は何も知らせない
 - 今の版(`app.getVersion()`、package.json の version)より新しければ、ヘッダーの下の帯に「新しい版があります: vX.Y.Z」と「ダウンロードページを開く」を出す。入れ替えはしない
 - 帯を × で閉じると、その版をアプリの設定(`dismissedUpdate`)に覚え、次からは知らせない。より新しい版が出たらまた知らせる
 - アプリの設定の「一般」に「起動時に新しい版を確認する」(`checkUpdates`。既定オン、有効にする前の確認なし)と「今すぐ確認」を置く
@@ -33,5 +34,5 @@ tags: [update, network, settings]
 
 ## 前提と再検討の条件
 
-- リポジトリ名は未決(STATUS.md)。名前を変えたら `src/main/update-check.ts` の URL を直す(GitHub は旧名の API を転送するが頼らない)
+- リポジトリ名を変えたら `src/main/update-check.ts` の URL を直す(GitHub は旧名の API を転送するが頼らない。旧名 `mu-777/screen-annotator` で配った版はこの転送に頼る)
 - 署名付きのインストーラーを配るようになり、手での入れ替えが負担になったら、自動の入れ替えを見直す
