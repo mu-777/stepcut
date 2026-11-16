@@ -26,6 +26,7 @@ Fixed / Security)。`npm version` のときに scripts/changelog.mjs がこの�
 - Claude Code のプラグイン(/stepcut:edit-project)でプロジェクトを編集できる
 - 画面の言語(日本語・英語)の切り替えと、キー操作の割り当ての変更
 - 新しい版があれば起動時に知らせる(アプリの設定で止められる)
+- 同梱している他者のソフトウェアのライセンス表記(THIRD_PARTY_NOTICES.md)と LICENSE を、実行ファイルと同じフォルダーに置く。H.264・AAC の特許への対応は利用者の責任とする旨もそこに記載
 
 [Unreleased]: https://github.com/mu-777/stepcut/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/mu-777/stepcut/releases/tag/v0.1.0
