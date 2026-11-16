@@ -1,17 +1,19 @@
 ---
 status: accepted
 date: 2026-10-29
+updated: 2026-11-16
 tags: [build, ci]
 ---
 
 # Windows 版は electron-builder で作り、PR ごとに GitHub Actions でビルドする(2026-10-29 決定)
 
-Windows 向け配布物の作り方と、開発中の動作確認用バイナリをどこで作るかについての決定。リリース(タグ・GitHub Releases)の手順はまだ決めていない。
+Windows 向け配布物の作り方と、開発中の動作確認用バイナリをどこで作るかについての決定。リリース(タグ・GitHub Releases)の経路は [20261116-release-flow.md](20261116-release-flow.md)。
 
 ## 決定
 
 - パッケージ化は electron-builder(MIT)。Windows はインストーラ(nsis)と portable の 2 種類。コード署名はしない(NF-08)
-- `.github/workflows/build.yml` が base=main の PR(と手動実行)で windows-latest 上でビルドし、Artifacts `stepcut-win` に置く。PR 本文には run のリンクを貼る(スキル `/pr-build`)
+- `.github/workflows/build.yml` が base=main の PR(と手動実行)で windows-latest 上でビルドし、Artifacts `stepcut-win` に置く。PR 本文には run のリンクを貼る(スキル `/pr-build`)。このビルドの version には短い SHA を足す(`0.1.0-g1a2b3c4`)
+- 配布物の名前は `StepCut-Setup.exe` / `StepCut-Portable.exe` に固定する(版は含めない)
 - lint・型チェック・テストは同じワークフローの Linux ジョブで回す
 
 ## 理由
@@ -29,4 +31,3 @@ Windows 向け配布物の作り方と、開発中の動作確認用バイナリ
 ## 前提と再検討の条件
 
 - Mac 版を出す段階(M3)で macos ランナーのジョブを足す
-- 匿名でダウンロードできるリンクが必要になったら、Artifacts ではなく GitHub Releases(プレリリース)を使う
