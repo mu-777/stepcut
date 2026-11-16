@@ -11,10 +11,11 @@ claude/relaxed-bardeen-b45md3(main fa0f8d2 から。PR #24 のブランチを取
 
 ## 現在地
 - PR #24(ライセンス表記の同梱、T-03・T-04 の決定、商標の確認)をこのブランチに取り込み済み
+- PR の Windows ビルドをラベル `build` を付けたときだけに変更(build.yml、Artifacts は 7 日保存)。/pr-build・AGENTS.md・README・決定記録 20261029-windows-build を更新
 - CHANGELOG に 0.1.0 の節を記入、`npm version minor` で 0.1.0 に上げた。npm run check 通過。PR #23 はマージ待ち
 
 ## 次にやること
-- ユーザー: PR #24 → PR #23 の順にマージする(#23 だけ先にマージしても #24 の中身は入るが、#24 は空の PR になる)
+- ユーザー: Artifacts の容量が満杯(2026-11-16)。古い Artifacts を消し、再計算(6〜12 時間)後に PR #24 → PR #23 の順にマージする。満杯のままマージすると、タグ v0.1.0 だけできて Release は作られない(#23 だけ先にマージしても #24 の中身は入るが、#24 は空の PR になる)
 - マージ後: release の run が緑か、Release の本文が CHANGELOG の 0.1.0 の節と同じか、`StepCut-Setup.exe`・`StepCut-Portable.exe` が添付されているか、`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)。配布物に THIRD_PARTY_NOTICES.md・LICENSE があるかも見る
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
