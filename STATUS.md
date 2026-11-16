@@ -4,7 +4,7 @@
 2026-11-16
 
 ## ブランチ
-claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を片付ける)
+claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を片付ける。PR #24)
 
 ## ゴール
 0.1.0 の公開前の未決事項を片付け、`/release` で 0.1.0 を出す
@@ -16,7 +16,7 @@ claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を�
 
 ## 次にやること
 - ユーザー: PR のビルドで、インストール先と Portable に THIRD_PARTY_NOTICES.md・LICENSE があるか見る
-- PR を作ってマージしたあと、0.1.0: `/release` で出す。初回の CHANGELOG は前のタグ以降の差分ではなく、手で全体をまとめる
+- PR #24 をマージしたあと、0.1.0: `/release` で出す。初回の CHANGELOG は前のタグ以降の差分ではなく、手で全体をまとめる
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
 ## 課題・ブロッカー
