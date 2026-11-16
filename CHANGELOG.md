@@ -14,6 +14,8 @@ Fixed / Security)。`npm version` のときに scripts/changelog.mjs がこの�
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-16
+
 ### Added
 - 最初の公開版(Windows。インストーラ版と portable 版)
 - 録画(mp4)と画像をステップに切り分け、テロップ・読み上げ・ズーム・オブジェクト(ポインター・蛍光ペン・四角・矢印・テキスト・画像)を付けて mp4 に書き出す
@@ -25,4 +27,5 @@ Fixed / Security)。`npm version` のときに scripts/changelog.mjs がこの�
 - 画面の言語(日本語・英語)の切り替えと、キー操作の割り当ての変更
 - 新しい版があれば起動時に知らせる(アプリの設定で止められる)
 
-[Unreleased]: https://github.com/mu-777/stepcut/compare/v0.0.9...HEAD
+[Unreleased]: https://github.com/mu-777/stepcut/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mu-777/stepcut/releases/tag/v0.1.0

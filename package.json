@@ -1,7 +1,7 @@
 {
   "name": "stepcut",
   "productName": "StepCut",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "Turn recordings into step-by-step videos, driven by captions",
   "license": "Apache-2.0",
   "author": "mu-777",
