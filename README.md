@@ -178,3 +178,5 @@ CLI はアプリの実行ファイルそのもの(Windows のインストーラ�
 ## ライセンス
 
 Apache-2.0([LICENSE](LICENSE))
+
+同梱している他者のソフトウェアのライセンス表記は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。配布物では exe と同じフォルダーに LICENSE と一緒に置く

@@ -1,4 +1,4 @@
-# NOTICE
+# Third-party notices
 
 StepCut
 Copyright 2026 mu-777
