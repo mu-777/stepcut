@@ -4,30 +4,26 @@
 2026-11-15
 
 ## ブランチ
-ccr-3af7821f-jucw34(main 1757b6a から。紹介ページの英語対応)
+ccr-c06781c7-x6h5p1(main b036870 を取り込み済み。アプリの設定の区分分け・新しい版の確認・読み上げのキャッシュ。PR 作成済み・未マージ)
 
 ## ゴール
-紹介ページ(site/)を英語と日本語の 2 言語にする(英語が `/`、日本語が `/ja/`)
+アプリの設定を左のメニューで区分(一般 / 読み上げ / キー操作)に分け、新しい版の確認と読み上げのキャッシュの消去を足す
 
 ## 現在地
-- 実装済み: 英語のページ `site/public/index.html`、日本語のページを `site/public/ja/index.html` に移動、相互リンク・hreflang・og:locale、404 を 2 言語併記、OGP 画像を言語別(`og.png` 英語 / `og-ja.png` 日本語)
-- `scripts/make-lp-media.cjs --lang en` で英語の動画・画像を `site/public/media/en/` に作る。例の画面(`site/media-src/`)は `?lang=en` で英語になる
-- 英語の動画・画像は Linux のコンテナで作成済み(使い方の動画は無音)。日本語の動画は作り直していない
-- 決定記録・docs/lp-media.md・スキル lp-media・.claude/rules/lp-media.md・README を更新
-- 確認: npm run check、ページの表示(1280px・400px、英日とも横はみ出しなし)、英語の動画の場面の一覧
+- 実装済み: 設定の区分分け(縦のタブ。歯車からは「一般」、キー操作の一覧・読み上げからはその区分)。新しい版の確認(src/main/update-check.ts。起動 3 秒後に GitHub Releases の latest を読み、帯で知らせる。閉じた版は覚える。「一般」に既定オンのチェックと今すぐ確認。開発中・CLI は自動で確認しない)。読み上げのキャッシュの使用量と「キャッシュを消す」(「読み上げ」)
+- 更新: 決定 20261113-update-check.md(新規)・20261109-header-and-app-settings.md、requirements C1・NF-03・TTS-05・UI-19・UI-24(新規)、README
+- 確認: npm run check、ui-smoke(全項目)、CLI 書き出し、スクショ(test-output/ui/22〜27)。未確認: 配布版での実際の GitHub への確認(リリースがまだないので 404 → 最新扱い)
 
 ## 次にやること
-- ユーザー: 英語の文面の確認。Windows で `node scripts/make-lp-media.cjs` と `--lang en` を回し、音声付きの使い方の動画を作る(docs/lp-media.md)
-- 本番で `/`・`/ja/`・存在しない URL(404)を開き、動画のシーク(Range に 206)を確かめる
-- main の残り: リリースのワークフロー、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、リポジトリ名、商標確認、docs/manual-test.html の実機確認、M2 の PRJ-03
+- ユーザー: PR を確認してマージ
+- main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、リリースのワークフロー、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、リポジトリ名、商標確認、docs/manual-test.html の実機確認、M2 の PRJ-03
 
 ## 課題・ブロッカー
-- いまの動画と画像は Linux のコンテナ製(文字が Windows のフォントでない、読み上げが無音、使い方の動画の最後にその知らせと Linux のパスが映る)
+- 紹介ページの動画と画像は Linux のコンテナ製(Windows のフォントでない、読み上げが無音)
 - tts の単体テストが初回に 1 件落ちることがある、ui-smoke が最後の app.close() で終わらないことがある(原因は未確認)
 
 ## 未決事項
-- 英語の文面は仮(ネイティブの確認なし)。英語の読み上げの声は仮に en-US-JennyNeural
-- 例の画面の英語版の人名(Alex Kim)・金額(USD)は仮
-- AGENTS.md と docs/requirements.md の目的は「手順書動画を作る」のまま(LP・README と言い方が違う。直すかは未決)
-- ページの記述のうち、実装済みか未確認のもの: フラッシュでの場面の切り替え、「ほかにも」の 4 項目
-- 見送り・保留・仮決め(以前から): 空の画面へのロゴ、ヘルプの「StepCut について」、インストーラーのヘッダー画像、初回の案内、frame の --every、拡張子 .stepcut.json ほか
+- リポジトリ名を変えたら src/main/update-check.ts の URL を直す
+- 紹介ページ: 英語の文面・英語の声(en-US-JennyNeural)・例の人名と金額は仮。AGENTS.md と requirements の目的の言い方(直すかは未決)
+- ロゴ・名前の商標と類似は未確認。ステップの録画の選択欄: ファイル名だけにしてフルパスはツールチップか、画像付きの一覧か、触らないか
+- 見送り・保留・仮決め(以前から): 空の画面へのロゴ、「StepCut について」、初回の案内、frame の --every、拡張子 .stepcut.json、読み上げのキャッシュ 500MB ほか

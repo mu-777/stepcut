@@ -43,6 +43,10 @@ export interface AppSettings {
   engines: SpeechEngineSettings;
   /** 画面全体の表示の大きさ(1 = 等倍、0.5〜3)。Ctrl+プラス / Ctrl+マイナス / Ctrl+0 か、アプリの設定の数字で変える */
   uiZoom: number;
+  /** 起動時に新しい版を確認する(GitHub Releases。既定オン) */
+  checkUpdates: boolean;
+  /** 知らせを閉じた版(この版までは知らせない) */
+  dismissedUpdate: string | null;
 }
 
 /**
@@ -91,7 +95,21 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   shortcuts: {},
   engines: DEFAULT_ENGINE_SETTINGS,
   uiZoom: 1,
+  checkUpdates: true,
+  dismissedUpdate: null,
 };
+
+/** 新しい版の確認の結果 */
+export type UpdateCheckResult =
+  | { status: "latest"; current: string }
+  | { status: "available"; current: string; version: string; url: string }
+  | { status: "error"; current: string; message: string };
+
+/** 読み上げのキャッシュの使用量 */
+export interface TtsCacheInfo {
+  bytes: number;
+  limitBytes: number;
+}
 
 /** 設定の変更。エンジンの設定は項目ごとに書き足す(hasKey は鍵の保存・削除で変わる) */
 export type SettingsPatch = Partial<Omit<AppSettings, "engines">> & {
@@ -182,8 +200,12 @@ export interface Api {
   setAzureKey(key: string | null): Promise<AppSettings>;
   /** 実行ファイルを選ぶ(VOICEVOX のエンジン) */
   pickExecutable(): Promise<string | null>;
-  /** ブラウザーで開く(https のみ。規約の案内) */
+  /** ブラウザーで開く(https のみ。規約の案内・新しい版のページ) */
   openExternal(url: string): Promise<void>;
+  /** 新しい版を今すぐ確認する */
+  checkUpdate(): Promise<UpdateCheckResult>;
+  /** 起動時の確認。設定でオフ・開発中・CLI のときは確認せず null */
+  autoCheckUpdate(): Promise<UpdateCheckResult | null>;
   /** フォルダーを選ぶ(絶対パス) */
   pickDirectory(defaultPath: string | null): Promise<string | null>;
   /** ドラッグ&ドロップされたファイルの絶対パス */
@@ -213,6 +235,9 @@ export interface Api {
   // 読み上げ
   ttsVoices(engine: string): Promise<Voice[]>;
   ttsSynthesize(req: TtsRequest): Promise<TtsResult>;
+  ttsCacheInfo(): Promise<TtsCacheInfo>;
+  /** 読み上げのキャッシュを消す */
+  ttsClearCache(): Promise<TtsCacheInfo>;
   // CLI からの書き出し(非表示ウィンドウ)
   getExportJob(): Promise<ExportJob | null>;
   reportExportProgress(done: number, total: number): void;

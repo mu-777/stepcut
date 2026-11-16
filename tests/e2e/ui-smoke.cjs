@@ -1542,6 +1542,39 @@ function fakeVoicevox() {
       (await page.locator(".settings-dialog .dir-row").count()) === 1,
     "ヘッダーの「設定」でアプリの設定(言語・プロジェクトの保存先)を開く",
   );
+  // 左のメニューで区分を切り替える(何も指定せずに開くと「一般」)
+  {
+    const tabs = page.locator(".settings-nav [role=tab]");
+    const panel = page.locator(".settings-panel");
+    check(
+      (await tabs.count()) === 3 && (await panel.getAttribute("data-section")) === "general",
+      "アプリの設定は左に 3 つの区分のメニューがあり、「一般」から開く",
+    );
+    await shot(page, "22-settings-general");
+    await tabs.nth(1).click();
+    await page.waitForTimeout(100);
+    check(
+      (await panel.getAttribute("data-section")) === "engines" &&
+        (await page.locator(".settings-dialog .engine-block").count()) === 2 &&
+        (await page.locator(".settings-dialog .dir-row").count()) === 0,
+      "メニューで「読み上げエンジン」を選ぶとその区分だけを出す",
+    );
+    await shot(page, "23-settings-engines");
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(100);
+    check(
+      (await panel.getAttribute("data-section")) === "shortcuts" &&
+        (await page.locator(".settings-dialog .keys-table").count()) === 1,
+      "メニューで下キーを押すと次の区分(キー操作)に移る",
+    );
+    await shot(page, "24-settings-keys");
+    const box = await page.locator(".settings-dialog").boundingBox();
+    const pbox = await panel.boundingBox();
+    check(
+      box && pbox && pbox.y + pbox.height <= box.y + box.height,
+      "キー操作の表が長くても、ダイアログの中で右側だけがスクロールする",
+    );
+  }
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
   check((await page.locator(".settings-dialog").count()) === 0, "Esc でアプリの設定を閉じる");
@@ -1619,6 +1652,10 @@ function fakeVoicevox() {
     await page.getByRole("button", { name: /^(Keyboard shortcuts|キー操作の一覧)$/i }).click();
     await page.getByRole("button", { name: /Change keys|キー操作を変更/ }).click();
     await page.waitForTimeout(200);
+    check(
+      (await page.locator(".settings-panel").getAttribute("data-section")) === "shortcuts",
+      "キー操作の一覧の「キー操作を変更…」でアプリの設定をキー操作の区分で開く",
+    );
     const splitKey = page.getByRole("button", {
       name: /^(Split the step at the playhead|再生位置でステップを分割): /,
     });
@@ -1735,6 +1772,10 @@ function fakeVoicevox() {
     );
     await page.getByRole("button", { name: /Speech engine settings|読み上げエンジンの設定/ }).click();
     await page.waitForTimeout(200);
+    check(
+      (await page.locator(".settings-panel").getAttribute("data-section")) === "engines",
+      "読み上げの「読み上げエンジンの設定…」でアプリの設定を読み上げエンジンの区分で開く",
+    );
     let confirmText = "";
     page.once("dialog", (d) => {
       confirmText = d.message();
@@ -1886,6 +1927,104 @@ function fakeVoicevox() {
     check(r.dialogs.length === 0, "断ったあとの起動では尋ねない");
     check(r.dialogs.length === 0 && recFiles().length === 0, "変更なしで閉じたあとに復旧ファイルが残らない");
     await r.a.close();
+  }
+
+  // 新しい版の知らせと読み上げのキャッシュ(別のアプリの設定フォルダーで起動し直す)。
+  // 確認先は STEPCUT_UPDATE_URL でテスト用のサーバーに差し替える(GitHub には通信しない)
+  {
+    const upDir = path.join(outDir, "user-data-update");
+    fs.rmSync(upDir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(upDir, "tts-cache"), { recursive: true });
+    fs.writeFileSync(path.join(upDir, "tts-cache", "seed.wav"), Buffer.alloc(2 * 1024 * 1024));
+    const relServer = http.createServer((_req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          tag_name: "v9.9.9",
+          html_url: "https://github.com/mu-777/screen-annotator/releases/tag/v9.9.9",
+        }),
+      );
+    });
+    await new Promise((resolve) => relServer.listen(0, "127.0.0.1", resolve));
+    const launchUp = async () => {
+      const a = await electron.launch({
+        executablePath: require(path.join(root, "node_modules/electron")),
+        args: [root, "--no-sandbox", `--user-data-dir=${upDir}`],
+        cwd: root,
+        env: { ...process.env, STEPCUT_UPDATE_URL: `http://127.0.0.1:${relServer.address().port}/latest` },
+      });
+      const w = await a.firstWindow();
+      await w.setViewportSize({ width: 1400, height: 860 });
+      return { a, w };
+    };
+    let u = await launchUp();
+    await u.w.waitForSelector(".update-banner", { timeout: 10000 }).catch(() => {});
+    check(
+      /9\.9\.9/.test(
+        (await u.w
+          .locator(".update-banner")
+          .textContent()
+          .catch(() => "")) ?? "",
+      ),
+      "起動時の確認で新しい版があれば、ヘッダーの下の帯で知らせる",
+    );
+    await shot(u.w, "25-update-banner");
+    await u.w
+      .locator(".update-banner")
+      .getByRole("button", { name: /^(Close|閉じる)$/ })
+      .click();
+    await u.w.waitForTimeout(300);
+    const upSaved = JSON.parse(fs.readFileSync(path.join(upDir, "settings.json"), "utf8"));
+    check(
+      (await u.w.locator(".update-banner").count()) === 0 && upSaved.dismissedUpdate === "9.9.9",
+      "知らせを閉じると、その版を覚える",
+    );
+    // アプリの設定の「一般」: 起動時の確認(既定オン)と今すぐ確認
+    await u.w.getByRole("button", { name: /^(Settings|設定)$/ }).click();
+    await u.w.waitForTimeout(200);
+    const upCheck = u.w.locator(".update-field input[type=checkbox]");
+    check(await upCheck.isChecked(), "起動時に新しい版を確認する(既定オン)");
+    await u.w.getByRole("button", { name: /^(Check now|今すぐ確認)$/ }).click();
+    await u.w.waitForTimeout(800);
+    check(
+      /9\.9\.9/.test((await u.w.locator(".update-result").textContent()) ?? "") &&
+        (await u.w
+          .getByRole("button", { name: /^(Open the download page|ダウンロードページを開く)$/ })
+          .count()) === 1,
+      "「今すぐ確認」で結果とダウンロードページのボタンを出す",
+    );
+    await shot(u.w, "26-settings-update");
+    // 読み上げの区分: キャッシュの使用量と消すボタン
+    await u.w.locator(".settings-nav [role=tab]").nth(1).click();
+    await u.w.waitForTimeout(500);
+    const usage = u.w.locator(".tts-cache-usage");
+    check(
+      /^2\.0 MB/.test((await usage.textContent()) ?? ""),
+      `読み上げのキャッシュの使用量を出す (${await usage.textContent()})`,
+    );
+    await shot(u.w, "27-settings-speech-cache");
+    let cacheConfirm = "";
+    u.w.once("dialog", (d) => {
+      cacheConfirm = d.message();
+      void d.accept();
+    });
+    await u.w.getByRole("button", { name: /^(Clear cache|キャッシュを消す)$/ }).click();
+    await u.w.waitForTimeout(500);
+    check(
+      /Azure/.test(cacheConfirm) &&
+        /^0\.0 MB/.test((await usage.textContent()) ?? "") &&
+        !fs.existsSync(path.join(upDir, "tts-cache", "seed.wav")),
+      "キャッシュを消す前に確認し(Azure の料金にふれる)、消すと 0 MB になる",
+    );
+    u.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 500));
+    // 閉じた版は、次に起動しても知らせない
+    u = await launchUp();
+    await u.w.waitForTimeout(5000);
+    check((await u.w.locator(".update-banner").count()) === 0, "閉じた版は次の起動では知らせない");
+    u.a.process().kill("SIGKILL");
+    await new Promise((res) => setTimeout(res, 500));
+    relServer.close();
   }
 
   // 読めない録画の選び直し・開けないプロジェクトの知らせ・保持で伸びた長さ・書き出しの中止(別のフォルダーで起動し直す)

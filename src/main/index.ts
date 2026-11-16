@@ -1,7 +1,16 @@
 import { existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  type MenuItemConstructorOptions,
+  net,
+  shell,
+} from "electron";
 import iconIco from "../../build/icon.ico?asset";
 import iconPng from "../../build/icon.png?asset";
 import { IMAGE_SOURCE_EXTENSIONS } from "../core/defaults";
@@ -35,6 +44,7 @@ import { createOsEngine } from "./tts/os-engine";
 import { TtsService } from "./tts/service";
 import { createVoicevoxEngine } from "./tts/voicevox-engine";
 import { stepUiZoom, type UiZoomCommand, uiZoomCommand } from "./ui-zoom";
+import { checkForUpdate, RELEASES_API } from "./update-check";
 
 const PROJECT_FILTER = { name: "StepCut Project", extensions: ["json"] };
 
@@ -268,6 +278,20 @@ function registerIpc(): void {
   ipcMain.handle("shell:open-external", async (_e, url: string) => {
     if (url.startsWith("https://")) await shell.openExternal(url);
   });
+  // 新しい版の確認(GitHub Releases)。テストでは STEPCUT_UPDATE_URL で確認先を差し替える
+  const checkUpdate = () =>
+    checkForUpdate(
+      app.getVersion(),
+      (url, init) => net.fetch(url, init),
+      process.env.STEPCUT_UPDATE_URL || RELEASES_API,
+    );
+  ipcMain.handle("update:check", () => checkUpdate());
+  ipcMain.handle("update:auto", async () => {
+    // 開発中(パッケージしていない)と CLI では自動で確認しない。E2E が外へ通信しないように
+    if (cli || (!app.isPackaged && !process.env.STEPCUT_UPDATE_URL)) return null;
+    if (!(await loadSettings()).checkUpdates) return null;
+    return checkUpdate();
+  });
   ipcMain.handle("dialog:pick-dir", async (_e, defaultPath: string | null) => {
     const r = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
@@ -419,6 +443,14 @@ function registerIpc(): void {
   ipcMain.handle("tts:synthesize", (_e, req: TtsRequest) => {
     ttsService ??= tts();
     return ttsService.synthesize(req);
+  });
+  ipcMain.handle("tts:cache-info", () => {
+    ttsService ??= tts();
+    return ttsService.cacheInfo();
+  });
+  ipcMain.handle("tts:cache-clear", () => {
+    ttsService ??= tts();
+    return ttsService.clearCache();
   });
 
   ipcMain.handle("export:job", () => exportJob);
