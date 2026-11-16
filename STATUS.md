@@ -25,7 +25,6 @@ claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を�
 
 ## 未決事項
 - 公開(0.1.0)前: T-03(Electron に H.264 のエンコーダー OpenH264・デコーダー FFmpeg が同梱されていること自体が対象。Via LA への問い合わせを検討)、T-04、NOTICE.md の同梱方法(A/B)とファイル名(NOTICE のままか THIRD_PARTY_NOTICES か)
-- メッセージの英語の文面は仮(ネイティブの確認なし)
-- 紹介ページ: 英語の文面・英語の声(en-US-JennyNeural)・例の人名と金額は仮。AGENTS.md と requirements の目的の言い方(直すかは未決)
+- 英語の文面(メッセージ・紹介ページ)はネイティブの確認なしで仮。紹介ページ:・英語の声(en-US-JennyNeural)・例の人名と金額は仮。AGENTS.md と requirements の目的の言い方(直すかは未決)
 - ステップの録画の選択欄: ファイル名だけにしてフルパスはツールチップか、画像付きの一覧か、触らないか
 - 見送り・保留・仮決め(以前から): 空の画面へのロゴ、「StepCut について」、初回の案内、frame の --every、拡張子 .stepcut.json、読み上げのキャッシュ 500MB ほか
