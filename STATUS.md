@@ -4,7 +4,7 @@
 2026-11-16
 
 ## ブランチ
-claude/modest-bell-i9i81a(main adb2df5 から。PR #23・#24 はマージ済み)
+claude/modest-bell-i9i81a(main adb2df5 から。PR #25。PR #23・#24 はマージ済み)
 
 ## ゴール
 紹介ページの不具合を直し、言語を自動で振り分ける。v0.1.0 のリリースの結果を確かめる
@@ -16,7 +16,7 @@ claude/modest-bell-i9i81a(main adb2df5 から。PR #23・#24 はマージ済み)
 
 ## 次にやること
 - release の run が緑か、Release の本文が CHANGELOG の 0.1.0 の節と同じか、`StepCut-Setup.exe`・`StepCut-Portable.exe` が添付されているか、`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)。配布物に THIRD_PARTY_NOTICES.md・LICENSE があるかも見る
-- このブランチの PR を作ってマージし、本番で `/` の振り分けを日本語・英語のブラウザーで確認する
+- PR #25 をマージし、本番で `/` の振り分けを日本語・英語のブラウザーで確認する
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
 ## 課題・ブロッカー
