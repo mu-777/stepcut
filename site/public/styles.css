@@ -257,13 +257,14 @@ section {
 }
 
 .hero-logo {
-  width: 236px;
-  height: 72px;
-  margin: 0 0 20px -6px;
+  /* ロゴの文字の高さを h1 の和文の字面(約 35px)にそろえる */
+  width: 320px;
+  height: 98px;
+  margin: 0 0 16px -8px;
 }
 
 .hero h1 {
-  font-size: clamp(28px, 3.5vw, 44px);
+  font-size: clamp(28px, 3.2vw, 40px);
   font-weight: 800;
   margin: 18px 0;
 }
@@ -725,6 +726,12 @@ details p {
 
   .hero .wrap {
     gap: 36px;
+  }
+
+  .hero-logo {
+    width: 236px;
+    height: 72px;
+    margin-left: -6px;
   }
 
   .pairs .hd {
