@@ -64,6 +64,8 @@ export async function loadSettings(): Promise<AppSettings> {
       ),
       engines: sanitizeEngines(raw.engines, !!secrets.azureKey),
       uiZoom: sanitizeUiZoom(raw.uiZoom),
+      checkUpdates: bool(raw.checkUpdates, true),
+      dismissedUpdate: strOrNull(raw.dismissedUpdate),
     };
   } catch {
     // ない・読めないときは既定値(壊れたファイルは次の保存で書き直す)
@@ -91,6 +93,9 @@ export async function saveSettings(patch: SettingsPatch): Promise<AppSettings> {
     ...rest,
     engines: sanitizeEngines(merged, !!secrets.azureKey),
     uiZoom: sanitizeUiZoom(rest.uiZoom ?? cur.uiZoom),
+    checkUpdates: bool(rest.checkUpdates, cur.checkUpdates),
+    dismissedUpdate:
+      rest.dismissedUpdate === undefined ? cur.dismissedUpdate : strOrNull(rest.dismissedUpdate),
   });
 }
 

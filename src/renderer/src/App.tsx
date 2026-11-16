@@ -179,6 +179,22 @@ export function App() {
   const [speechPlaying, setSpeechPlaying] = useState<number | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [banner, setBanner] = useState<Banner | null>(null);
+  /** 新しい版の知らせ。閉じるとその版を覚えて、次からは知らせない */
+  const [newVersion, setNewVersion] = useState<{ version: string; url: string } | null>(null);
+  useEffect(() => {
+    // 起動の邪魔をしないよう少し待ってから 1 回だけ確認する。失敗は知らせない(オフラインでも普通に使えるように)
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await api.autoCheckUpdate();
+        if (r?.status !== "available") return;
+        if ((await api.getSettings()).dismissedUpdate === r.version) return;
+        setNewVersion({ version: r.version, url: r.url });
+      } catch {
+        // 確認できなくても何もしない
+      }
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   /** 設定パネルに出しているもの(全体の設定か、ステップの詳細) */
   const [view, setView] = useState<PanelView>("step");
@@ -1276,6 +1292,25 @@ ${t("renameTip")}`}
             </button>
           )}
           <button type="button" className="small" onClick={() => setBanner(null)}>
+            ×
+          </button>
+        </div>
+      )}
+      {newVersion && (
+        <div className="banner info update-banner">
+          <pre>{`${t("updateAvailable")}: v${newVersion.version}`}</pre>
+          <button type="button" className="small" onClick={() => void api.openExternal(newVersion.url)}>
+            {t("openDownloadPage")}
+          </button>
+          <button
+            type="button"
+            className="small"
+            aria-label={t("close")}
+            onClick={() => {
+              void api.setSettings({ dismissedUpdate: newVersion.version });
+              setNewVersion(null);
+            }}
+          >
             ×
           </button>
         </div>

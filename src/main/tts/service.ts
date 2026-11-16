@@ -120,6 +120,41 @@ export class TtsService {
     }
   }
 
+  /** キャッシュの使用量(.wav の合計) */
+  async cacheInfo(): Promise<{ bytes: number; limitBytes: number }> {
+    let bytes = 0;
+    for (const f of await this.cacheFiles()) bytes += f.size;
+    return { bytes, limitBytes: this.cacheLimit };
+  }
+
+  /** キャッシュを消す(読み上げ中のものは書き終えた後に残る)。消せなかったファイルは飛ばす */
+  async clearCache(): Promise<{ bytes: number; limitBytes: number }> {
+    await this.pruning;
+    for (const f of await this.cacheFiles()) await rm(f.file, { force: true }).catch(() => {});
+    return this.cacheInfo();
+  }
+
+  private async cacheFiles(): Promise<{ file: string; size: number; mtime: number }[]> {
+    const files: { file: string; size: number; mtime: number }[] = [];
+    let names: string[];
+    try {
+      names = await readdir(this.cacheDir);
+    } catch {
+      return files; // まだキャッシュのフォルダーがない
+    }
+    for (const name of names) {
+      if (!name.endsWith(".wav")) continue;
+      const file = path.join(this.cacheDir, name);
+      try {
+        const st = await stat(file);
+        files.push({ file, size: st.size, mtime: st.mtimeMs });
+      } catch {
+        // 消えたファイルは数えない
+      }
+    }
+    return files;
+  }
+
   /** キャッシュを上限以下にする。古いものから消す。失敗は無視し、同時に 2 つは走らせない */
   prune(): Promise<void> {
     this.pruning ??= this.doPrune()
@@ -131,17 +166,7 @@ export class TtsService {
   }
 
   private async doPrune(): Promise<void> {
-    const files: { file: string; size: number; mtime: number }[] = [];
-    for (const name of await readdir(this.cacheDir)) {
-      if (!name.endsWith(".wav")) continue;
-      const file = path.join(this.cacheDir, name);
-      try {
-        const st = await stat(file);
-        files.push({ file, size: st.size, mtime: st.mtimeMs });
-      } catch {
-        // 消えたファイルは数えない
-      }
-    }
+    const files = await this.cacheFiles();
     let total = files.reduce((n, f) => n + f.size, 0);
     files.sort((a, b) => a.mtime - b.mtime);
     for (const f of files) {
