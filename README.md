@@ -178,3 +178,7 @@ CLI はアプリの実行ファイルそのもの(Windows のインストーラ�
 ## ライセンス
 
 Apache-2.0([LICENSE](LICENSE))
+
+同梱している他者のソフトウェアのライセンス表記は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。配布物では exe と同じフォルダーに LICENSE と一緒に置く
+
+H.264・AAC には特許があり、StepCut は特許のライセンスを受けていない。同梱の Electron(Chromium)が H.264 のエンコーダー(OpenH264)と H.264・AAC のデコーダー(FFmpeg)を含む。書き出した動画の使い方に応じた特許への対応は利用者の責任とする([docs/codec-patents.md](docs/codec-patents.md))

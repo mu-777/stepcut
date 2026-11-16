@@ -34,8 +34,9 @@ npm run check                             # → 通る
 
 続けて、公開前に人の判断が要る事項がまだ残っているかを見て、残っていればユーザーに示し、進めてよいか確認する。
 
-- docs/requirements.md の未決事項のうち配布に関わるもの(T-03 H.264/AAC の特許、T-04 OS 標準音声の商用利用など)
-- STATUS.md の「未決事項」の商標の確認と、他者のライセンス表記の同梱
+- docs/requirements.md の未決事項のうち配布に関わるもの
+- STATUS.md の「未決事項」のうち公開前とされているもの
+- 本番の依存(`dependencies`)や Electron の版を変えたなら、THIRD_PARTY_NOTICES.md がそれに合っているか
 
 ## Phase 1: 前のタグ以降の変更を集める
 

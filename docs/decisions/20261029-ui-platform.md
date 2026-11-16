@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-10-29
+updated: 2026-11-16
 tags: [platform, export]
 ---
 
@@ -36,7 +37,7 @@ Electron を使う。開発言語は TypeScript。描画はレンダラー(Chrom
 
 ## 前提と再検討の条件
 
-- H.264/AAC の特許(T-03)は Electron でも未解決のまま。Chromium に入っている OpenH264 は Chromium が自前でビルドしたもので、Cisco がバイナリ配布に付けている特許ライセンスの対象外。Electron も同様。ハードウェアエンコーダーを優先し(`hardwareAcceleration: "prefer-hardware"`)、ソフトウェア代替を使うかは T-03 の確認後に決める
+- H.264/AAC の特許(T-03)は Electron でも解消しない。Chromium に入っている OpenH264 は Chromium が自前でビルドしたもので、Cisco がバイナリ配布に付けている特許ライセンスの対象外。Electron も同様。ハードウェアエンコーダーを優先し(`hardwareAcceleration: "prefer-hardware"`)、ソフトウェア代替も使う。特許は利用者の責任と明記して配布する([20261116-codec-patents.md](20261116-codec-patents.md))
 - 実機確認待ち: Windows で `VideoEncoder.isConfigSupported()`(H.264)と `AudioEncoder.isConfigSupported()`(AAC)が true になること。Windows N エディションは Media Foundation が入っておらず、AAC が使えない
 - 配布サイズやメモリが問題になった場合、または WKWebView の WebCodecs 対応が広がった場合は Tauri を再検討する
 

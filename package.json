@@ -49,6 +49,10 @@
       "out/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
