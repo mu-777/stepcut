@@ -24,6 +24,22 @@ distributed under its own license, reproduced or referenced in this file.
 
 Electron's own license is also shipped as `LICENSE.electron.txt` next to the executable.
 
+## FFmpeg (LGPL-2.1-or-later, inside Electron)
+
+Electron ships Chromium's build of FFmpeg as a separate shared library
+(`ffmpeg.dll` on Windows). It is an LGPL build, not a GPL one, and you may
+replace it with your own build of the same version. Its license text is in
+`LICENSES.chromium.html`.
+
+- Electron 45.1.0 uses Chromium 156.0.8078.49
+  (https://github.com/electron/electron/blob/v45.1.0/DEPS)
+- Chromium 156.0.8078.49 uses FFmpeg revision
+  `9db86ce5b5b454dfc96c435f9f0723012980c37f`
+  (`ffmpeg_revision` in https://chromium.googlesource.com/chromium/src/+/refs/tags/156.0.8078.49/DEPS)
+- Corresponding source:
+  https://chromium.googlesource.com/chromium/third_party/ffmpeg/+/9db86ce5b5b454dfc96c435f9f0723012980c37f
+  (archive: https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/9db86ce5b5b454dfc96c435f9f0723012980c37f.tar.gz)
+
 ## Mediabunny (MPL-2.0)
 
 Mediabunny is used without modification. Its Source Code Form is available at

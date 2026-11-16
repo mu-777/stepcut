@@ -12,7 +12,7 @@ claude/sweet-mccarthy-mw62qq(main fa0f8d2 から。公開前の未決事項を�
 ## 現在地
 - 商標: ユーザーが確認済み、問題なし(決定記録 20261111-app-name に反映)
 - T-04: 注意書きのまま公開と決定(20261116-os-voice-commercial)。T-03: 特許は利用者の責任と README・THIRD_PARTY_NOTICES に明記して配布と決定(20261116-codec-patents、調査は docs/codec-patents.md)
-- 他者のライセンス表記: THIRD_PARTY_NOTICES.md(本番の依存と Electron・Chromium)を LICENSE と一緒に extraFiles で exe の隣に置く。Linux の --dir で配置を確認、Windows の配布物では未確認
+- 他者のライセンス表記: THIRD_PARTY_NOTICES.md(本番の依存と Electron・Chromium、FFmpeg のソースの入手先は 20261116-ffmpeg-source)を LICENSE と一緒に extraFiles で exe の隣に置く。Linux の --dir で配置を確認、Windows の配布物では未確認
 
 ## 次にやること
 - ユーザー: PR のビルドで、インストール先と Portable に THIRD_PARTY_NOTICES.md・LICENSE があるか見る
