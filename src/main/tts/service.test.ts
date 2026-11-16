@@ -119,7 +119,7 @@ describe("TtsService", () => {
       const caught = third.catch((e: Error) => e);
       await until(() => releases.length === 3);
       await vi.advanceTimersByTimeAsync(1100);
-      expect(String(await caught)).toMatch(/タイムアウト/);
+      expect(await caught).toMatchObject({ code: "speechTimeout" });
     } finally {
       vi.useRealTimers();
     }

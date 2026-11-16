@@ -1,6 +1,7 @@
 // 素材(録画・画像)の読み込み。ファイルの中身はメインプロセスから範囲指定で受け取る。
 import { ALL_FORMATS, AudioBufferSink, CanvasSink, CustomSource, Input } from "mediabunny";
 import { isImageSource } from "../../core/defaults";
+import { AppError } from "../../shared/messages";
 import { api } from "./api";
 
 type FrameCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -60,7 +61,7 @@ async function loadImage(absPath: string): Promise<SourceMedia> {
   try {
     img = await createImageBitmap(new Blob([(await readAll(absPath)) as BlobPart]));
   } catch {
-    throw new Error(`この画像は読めません / Cannot read image: ${absPath}`);
+    throw new AppError("cannotReadImage", { path: absPath });
   }
   const sink = stillSink(drawScaled(img, img.width));
   return {
@@ -89,9 +90,8 @@ async function loadVideo(absPath: string): Promise<SourceMedia> {
     }),
   });
   const videoTrack = await input.getPrimaryVideoTrack();
-  if (!videoTrack) throw new Error(`映像がありません / No video track: ${absPath}`);
-  if (!(await videoTrack.canDecode()))
-    throw new Error(`この映像は再生できません / Cannot decode: ${absPath}`);
+  if (!videoTrack) throw new AppError("noVideoTrack", { path: absPath });
+  if (!(await videoTrack.canDecode())) throw new AppError("cannotDecode", { path: absPath });
   const audioTrack = await input.getPrimaryAudioTrack();
   const canAudio = audioTrack ? await audioTrack.canDecode() : false;
   return {

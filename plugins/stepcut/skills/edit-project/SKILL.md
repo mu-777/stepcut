@@ -40,7 +40,7 @@ bash ${CLAUDE_SKILL_DIR}/scripts/run-cli.sh <コマンド> ${CLAUDE_PLUGIN_DATA}
 | `frame <p> --step <番号\|id> --time <秒> --source --out a.png` | 座標を決める。素材(録画・画像)のフレームをそのまま出す。**この画像のピクセル = 映像側の座標**なので、見た位置をそのまま書ける | `imageSize`、`sourceTime` |
 | `frame <p> --step <番号\|id> --time <秒> --out b.png` | 仕上がりを確かめる(書き出しと同じ見た目) | `geometry`: 画像の点 → 映像側の座標は `x = view.x + (px − box.x) / scale` |
 | `frame <p> --at <秒>` | 全体の時刻で指定する | 同上 |
-| `validate <p>` | 書いたら毎回。エラーの `path` が直す場所。素材・背景・図形・ポインターの画像ファイルがなくてもエラーになる | `errors[]`、`warnings[]` |
+| `validate <p>` | 書いたら毎回。エラーの `path` が直す場所。素材・背景・図形・ポインターの画像ファイルがなくてもエラーになる | `errors[]`、`warnings[]`(各 `{ path, code, message }`。`message` は英語、`code` は種類) |
 | `export <p> --out v.mp4` | 動画にする(時間がかかる。ユーザーが望んだときだけ) | `outPath`、`duration` |
 
 `--step` は 1 始まりの番号かステップの `id`。`--time` はステップ内の出力時刻(秒)。出した PNG は Read で見る。

@@ -1,15 +1,16 @@
 // OS 標準の音声合成(TTS-01)。Windows は WinRT の SpeechSynthesizer を PowerShell 経由で、Mac は say コマンドで呼ぶ。
 // どちらも使えない環境(開発用の Linux など)では、文字数に応じた長さの無音を返す。
+
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Voice } from "../../shared/api";
+import { msg } from "../../shared/messages";
 import type { SynthesizeInput, TtsEngine } from "./engine";
 import { silentWav } from "./wav";
 
-const COMMERCIAL_NOTICE =
-  "OS 標準の音声を商用で使う場合の条件は、OS の提供元の規約を確認してください。/ Check the OS vendor's terms before using OS voices commercially.";
+const COMMERCIAL_NOTICE = msg("osNotice");
 
 // ASCII のみで書く(PowerShell 5.1 は BOM なしの UTF-8 スクリプトを正しく読まないため)
 const WINDOWS_SCRIPT = String.raw`
@@ -66,7 +67,7 @@ function run(cmd: string, args: string[], signal?: AbortSignal): Promise<string>
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve(out);
-      else reject(new Error(`${path.basename(cmd)} が失敗しました(${code}): ${err.trim()}`));
+      else reject(new Error(`${path.basename(cmd)} failed (${code}): ${err.trim()}`));
     });
   });
 }
@@ -164,8 +165,7 @@ function silentEngine(): TtsEngine {
   return {
     name: "os",
     version: "silent-1",
-    notice:
-      "この OS では読み上げに対応していないため、無音で代替しています。/ Speech is not supported on this OS; using silence.",
+    notice: msg("osSilentNotice"),
     voices: async () => [],
     synthesize: async (input) => silentWav(Math.max(0.5, [...input.text].length * 0.15)),
   };

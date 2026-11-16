@@ -1,11 +1,12 @@
 // VOICEVOX 互換エンジン(TTS-12)。ユーザーが自分で入れて起動したエンジンの HTTP API につなぐ。エンジン・声は同梱しない。
 // アプリの設定で有効にしたとき(規約の確認に同意したとき)だけ使う。つながらなければ、指定があればエンジンを起動して待つ。
+
 import { spawn } from "node:child_process";
 import type { Voice, VoicevoxSettings } from "../../shared/api";
+import { AppError, msg } from "../../shared/messages";
 import type { SynthesizeInput, TtsEngine } from "./engine";
 
-export const VOICEVOX_NOTICE =
-  "VOICEVOX を使った音声は、VOICEVOX の利用規約と、使った声(キャラクター)ごとの利用規約に従って使ってください(クレジットの表記などはそれぞれの規約を確認してください)。/ Follow the VOICEVOX terms and each character's terms when using VOICEVOX voices.";
+export const VOICEVOX_NOTICE = msg("voicevoxNotice");
 
 /** 起動を待つ長さ(秒) */
 const START_WAIT_S = 60;
@@ -54,25 +55,18 @@ export function createVoicevoxEngine(
   async function waitReady(): Promise<string> {
     const s = await getSettings();
     if (await reachable(s)) return base(s);
-    if (!s.autoStart || !s.exePath)
-      throw new Error(
-        `VOICEVOX のエンジンにつながりません(${s.url})。エンジンを起動するか、アプリの設定で場所と自動起動を指定してください / Cannot reach the VOICEVOX engine`,
-      );
+    if (!s.autoStart || !s.exePath) throw new AppError("voicevoxUnreachable", { url: s.url });
     try {
       await start(s.exePath);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `VOICEVOX のエンジンを起動できません(${s.exePath}): ${reason} / Cannot start the VOICEVOX engine`,
-      );
+      throw new AppError("voicevoxStartFailed", { path: s.exePath, reason });
     }
     for (let i = 0; i < START_WAIT_S * 2; i++) {
       await sleep(500);
       if (await reachable(s)) return base(s);
     }
-    throw new Error(
-      `VOICEVOX のエンジンが起動しません(${START_WAIT_S} 秒待ちました)/ The VOICEVOX engine did not start`,
-    );
+    throw new AppError("voicevoxStartTimeout", { seconds: START_WAIT_S });
   }
 
   // 同時の呼び出し(声の一覧と複数の読み上げ)で起動と待ちを 1 回にする
@@ -86,7 +80,7 @@ export function createVoicevoxEngine(
 
   async function speakers(url: string, signal?: AbortSignal): Promise<Speaker[]> {
     const r = await fetchFn(`${url}/speakers`, { signal });
-    if (!r.ok) throw new Error(`VOICEVOX: 声の一覧を取れません(${r.status})`);
+    if (!r.ok) throw new AppError("voicevoxVoicesFailed", { status: r.status });
     return (await r.json()) as Speaker[];
   }
 
@@ -105,9 +99,7 @@ export function createVoicevoxEngine(
     },
     async unavailable() {
       const s = await getSettings();
-      return s.enabled
-        ? null
-        : "VOICEVOX はアプリの設定で有効にしていません / VOICEVOX is not enabled in the app settings";
+      return s.enabled ? null : msg("voicevoxDisabled");
     },
     async voices(): Promise<Voice[]> {
       const url = await ready();
@@ -119,12 +111,12 @@ export function createVoicevoxEngine(
       const url = await ready();
       // 声の指定がなければ、エンジンの最初の声
       const id = input.voice ?? String((await speakers(url, signal))[0]?.styles[0]?.id ?? "");
-      if (!/^\d+$/.test(id)) throw new Error(`VOICEVOX: この声はありません / Unknown voice: ${id}`);
+      if (!/^\d+$/.test(id)) throw new AppError("voicevoxUnknownVoice", { id });
       const q = await fetchFn(`${url}/audio_query?text=${encodeURIComponent(input.text)}&speaker=${id}`, {
         method: "POST",
         signal,
       });
-      if (!q.ok) throw new Error(`VOICEVOX: 読みを作れません(${q.status})`);
+      if (!q.ok) throw new AppError("voicevoxQueryFailed", { status: q.status });
       const query = (await q.json()) as Record<string, unknown>;
       const rate = input.params.rate;
       if (typeof rate === "number" && Number.isFinite(rate)) query.speedScale = rate;
@@ -134,7 +126,7 @@ export function createVoicevoxEngine(
         body: JSON.stringify(query),
         signal,
       });
-      if (!w.ok) throw new Error(`VOICEVOX: 音声を作れません(${w.status})`);
+      if (!w.ok) throw new AppError("voicevoxSynthFailed", { status: w.status });
       return new Uint8Array(await w.arrayBuffer());
     },
   };

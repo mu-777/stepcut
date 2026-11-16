@@ -15,7 +15,7 @@ describe("CLI の引数", () => {
 
   it("コマンドの打ち間違いは引数の誤りにする(GUI を開かない)", () => {
     expect(parseCli(["inspct", "p.json"], () => false)).toEqual({
-      error: "コマンドが違います / Unknown command: inspct",
+      error: "Unknown command: inspct",
     });
     expect(parseCli(["--no-sandbox", "bogus"], () => false)).toHaveProperty("error");
     expect(parseCli(["bogus", "--help"], () => false)).toEqual({ command: "help", json: false });
@@ -112,11 +112,9 @@ describe("validateFile: 画像の存在", () => {
       );
       const r = await validateFile(file);
       expect(r.errors.map((e) => e.message)).toEqual(
-        expect.arrayContaining([
-          "ファイルがありません: bg-missing.png",
-          "ファイルがありません: shape-missing.png",
-        ]),
+        expect.arrayContaining(["File not found: bg-missing.png", "File not found: shape-missing.png"]),
       );
+      expect(r.errors.every((e) => e.code === "fileMissing")).toBe(true);
       expect(r.errors.find((e) => e.path === "layout.background.image")).toBeTruthy();
       expect(r.errors.some((e) => e.message.includes("ok.png"))).toBe(false);
       expect(r.ok).toBe(false);

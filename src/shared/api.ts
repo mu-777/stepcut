@@ -1,4 +1,5 @@
 // メインプロセスとレンダラーの間の API(preload で window.api として公開する)。
+import type { Msg } from "./messages";
 
 export interface Voice {
   id: string;
@@ -17,8 +18,8 @@ export interface TtsRequest {
 export interface TtsResult {
   wav: Uint8Array;
   duration: number;
-  /** 利用者への案内(OS 標準音声の商用利用など、TTS-11) */
-  notice?: string;
+  /** 利用者への案内(OS 標準音声の商用利用など、TTS-11)。画面の言語で文にする */
+  notice?: Msg;
 }
 
 /**

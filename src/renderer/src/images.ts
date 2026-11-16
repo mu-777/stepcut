@@ -1,5 +1,6 @@
 // 図形の画像・ポインターの画像。ファイルを 1 度だけ読んで使い回す(パスとプロジェクトの場所ごと)。
 import { api } from "./api";
+import { errorText } from "./i18n";
 
 type Img = CanvasImageSource & { width: number; height: number };
 
@@ -47,7 +48,7 @@ export class ImageStore {
         return (await createImageBitmap(new Blob([bytes as BlobPart]))) as Img;
       })()
         .catch((e) => {
-          this.errors.set(k, (e as Error).message);
+          this.errors.set(k, errorText(e));
           return null;
         })
         .then((img) => {

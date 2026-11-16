@@ -50,7 +50,7 @@ import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { frameGeometry, screenGeometry, toOutput, toSource } from "./compositor";
 import { commit, type History, initHistory, redo, undo } from "./history";
-import { t } from "./i18n";
+import { errorText, msgText, t } from "./i18n";
 import { Icon, type IconName } from "./icons";
 import { ImageStore } from "./images";
 import {
@@ -156,7 +156,7 @@ export function App() {
       (e: Error) => {
         if (!alive) return;
         setVoices([]);
-        setVoiceError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+        setVoiceError(errorText(e));
       },
     );
     return () => {
@@ -261,7 +261,7 @@ export function App() {
       relink: m.id as string | undefined,
     })),
     ...issues.map((i) => ({
-      text: `${issuePath(i.path)}: ${i.message}`,
+      text: `${issuePath(i.path)}: ${msgText(i)}`,
       error: false,
       relink: undefined as string | undefined,
     })),
@@ -321,7 +321,7 @@ export function App() {
           used.push(path);
           next.set(s.id, await openMedia(path));
         } catch (e) {
-          const message = (e as Error).message;
+          const message = errorText(e);
           errors.push({ id: s.id, path: s.path, message, missing: /ENOENT/.test(message) });
         }
       }
@@ -429,7 +429,7 @@ export function App() {
         };
         at++;
       } catch (e) {
-        setBanner({ kind: "error", text: (e as Error).message });
+        setBanner({ kind: "error", text: errorText(e) });
       }
     }
     if (at === first) return;

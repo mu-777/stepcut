@@ -3,7 +3,7 @@ import type { Project } from "../../core/schema";
 import type { Issue } from "../../core/validate";
 import { api } from "./api";
 import { exportProject } from "./exporter";
-import { t } from "./i18n";
+import { errorText, msgText, t } from "./i18n";
 import type { Player } from "./player";
 import type { SpeechStore } from "./speech";
 import type { Banner } from "./use-project-file";
@@ -30,7 +30,7 @@ export function useExport({ project, filePath, issues, issuePath, playerRef, spe
 
   async function doExport() {
     if (issues.length > 0) {
-      setBanner({ kind: "error", text: issues.map((e) => `${issuePath(e.path)}: ${e.message}`).join("\n") });
+      setBanner({ kind: "error", text: issues.map((e) => `${issuePath(e.path)}: ${msgText(e)}`).join("\n") });
       return;
     }
     const outPath = await api.pickExportPath(
@@ -60,7 +60,7 @@ export function useExport({ project, filePath, issues, issuePath, playerRef, spe
       });
     } catch (e) {
       if (ac.signal.aborted) setBanner({ kind: "info", text: t("exportCanceled") });
-      else setBanner({ kind: "error", text: `${t("exportFailed")}: ${(e as Error).message}` });
+      else setBanner({ kind: "error", text: `${t("exportFailed")}: ${errorText(e)}` });
     } finally {
       abort.current = null;
       api.setBusy(false);
