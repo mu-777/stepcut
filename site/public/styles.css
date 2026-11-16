@@ -30,7 +30,8 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 16px;
+  /* 固定したヘッダーの高さ(62px)+ 余白 */
+  scroll-padding-top: 78px;
 }
 
 body {
@@ -90,6 +91,13 @@ section {
 
 /* ---------- 共通部品 ---------- */
 .nav {
+  /* スクロールしてもロゴとダウンロードを出す */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(30, 31, 34, 0.86);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 
@@ -246,6 +254,12 @@ section {
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   gap: 52px;
   align-items: center;
+}
+
+.hero-logo {
+  width: 236px;
+  height: 72px;
+  margin: 0 0 20px -6px;
 }
 
 .hero h1 {
