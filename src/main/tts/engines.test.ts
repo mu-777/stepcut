@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ENGINE_SETTINGS } from "../../shared/api";
+import { formatEn, type Msg, msg } from "../../shared/messages";
 import { sanitizeEngines } from "../settings";
 import { AZURE_DEFAULT_VOICE, azureSsml, createAzureEngine } from "./azure-engine";
 import type { TtsEngine } from "./engine";
@@ -88,7 +89,7 @@ describe("VOICEVOX", () => {
       },
     );
     await expect(e.voices()).rejects.toThrow(
-      /VOICEVOX のエンジンを起動できません\(C:\/none\.exe\): spawn ENOENT/,
+      /Cannot start the VOICEVOX engine \(C:\/none\.exe\): spawn ENOENT/,
     );
   });
 
@@ -130,12 +131,12 @@ describe("VOICEVOX", () => {
   it("つながらず起動の指定もなければ、分かる言葉で失敗する", async () => {
     const { fn } = fakeFetch(() => null);
     const e = createVoicevoxEngine(async () => vv, fn);
-    await expect(e.voices()).rejects.toThrow(/VOICEVOX のエンジンにつながりません/);
+    await expect(e.voices()).rejects.toMatchObject({ code: "voicevoxUnreachable" });
   });
 
   it("有効にしていなければ使えない", async () => {
     const e = createVoicevoxEngine(async () => DEFAULT_ENGINE_SETTINGS.voicevox);
-    expect(await e.unavailable?.()).toMatch(/有効にしていません/);
+    expect(await e.unavailable?.()).toEqual(msg("voicevoxDisabled"));
   });
 });
 
@@ -169,23 +170,23 @@ describe("Azure AI Speech", () => {
       async () => null,
       fakeFetch(() => null).fn,
     );
-    await expect(noKey.voices()).rejects.toThrow(/鍵/);
+    await expect(noKey.voices()).rejects.toMatchObject({ code: "azureNotConfigured" });
     const bad = createAzureEngine(
       async () => az,
       async () => "k",
       fakeFetch(() => new Response("", { status: 401 })).fn,
     );
-    await expect(bad.voices()).rejects.toThrow(/401。鍵かリージョンが違います/);
+    await expect(bad.voices()).rejects.toMatchObject({ code: "azureUnauthorized", params: { status: 401 } });
   });
 });
 
 describe("使えないエンジンは OS 標準で代わりに読む", () => {
   it("知らせを付けて OS 標準の声で読む", async () => {
     const used: string[] = [];
-    const fake = (name: string, reason: string | null): TtsEngine => ({
+    const fake = (name: string, reason: Msg | null): TtsEngine => ({
       name,
       version: "1",
-      notice: `${name} notice`,
+      notice: msg("osNotice"),
       voices: async () => [],
       unavailable: async () => reason,
       synthesize: async () => {
@@ -195,12 +196,15 @@ describe("使えないエンジンは OS 標準で代わりに読む", () => {
     });
     const svc = new TtsService(await mkdtemp(path.join(os.tmpdir(), "tts-fb-")), [
       fake("os", null),
-      fake("voicevox", "VOICEVOX は無効"),
+      fake("voicevox", msg("voicevoxDisabled")),
     ]);
     const r = await svc.synthesize({ engine: "voicevox", voice: "3", params: {}, text: "a" });
     expect(used).toEqual(["os"]);
-    expect(r.notice).toMatch(/VOICEVOX は無効。OS 標準の声で代わりに読みました/);
-    await expect(svc.voices("voicevox")).rejects.toThrow("VOICEVOX は無効");
+    expect(r.notice).toEqual(msg("engineFallback", { reason: msg("voicevoxDisabled") }));
+    expect(formatEn(r.notice as Msg)).toBe(
+      "VOICEVOX is not enabled in the app settings. Used the OS voice instead",
+    );
+    await expect(svc.voices("voicevox")).rejects.toMatchObject({ code: "voicevoxDisabled" });
   });
 });
 

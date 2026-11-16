@@ -1,8 +1,10 @@
 // 読み上げの呼び出しとキャッシュ(TTS-05)、タイムアウトと通知(TTS-09)。
+
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import type { TtsRequest, TtsResult, Voice } from "../../shared/api";
+import { AppError, type Msg, msg } from "../../shared/messages";
 import { writeAtomic } from "../project-files";
 import type { TtsEngine } from "./engine";
 import { wavDuration } from "./wav";
@@ -49,14 +51,14 @@ export class TtsService {
 
   private engine(name: string): TtsEngine {
     const e = this.engines.get(name);
-    if (!e) throw new Error(`読み上げエンジン "${name}" がありません / Unknown speech engine "${name}"`);
+    if (!e) throw new AppError("unknownEngine", { name });
     return e;
   }
 
   async voices(name: string): Promise<Voice[]> {
     const e = this.engine(name);
     const reason = await e.unavailable?.();
-    if (reason) throw new Error(reason);
+    if (reason) throw new AppError(reason.code, reason.params);
     return e.voices();
   }
 
@@ -64,7 +66,7 @@ export class TtsService {
    * 使うエンジン。指定したエンジンが使えない(アプリの設定で有効にしていない)ときは OS 標準で代わりに読み、
    * そのことを知らせる(ほかの人のプロジェクトを開いても書き出しが止まらないように)
    */
-  private async pick(req: TtsRequest): Promise<{ e: TtsEngine; req: TtsRequest; fallback: string | null }> {
+  private async pick(req: TtsRequest): Promise<{ e: TtsEngine; req: TtsRequest; fallback: Msg | null }> {
     const e = this.engine(req.engine);
     const reason = await e.unavailable?.();
     if (!reason) return { e, req, fallback: null };
@@ -72,7 +74,7 @@ export class TtsService {
     return {
       e: os,
       req: { ...req, engine: "os", voice: null },
-      fallback: `${reason}。OS 標準の声で代わりに読みました / Used the OS voice instead`,
+      fallback: msg("engineFallback", { reason }),
     };
   }
 
@@ -110,7 +112,7 @@ export class TtsService {
       return await e.synthesize({ text: req.text, voice: req.voice, params: req.params }, controller.signal);
     } catch (err) {
       if (controller.signal.aborted) {
-        throw new Error(`読み上げがタイムアウトしました(${this.timeoutMs / 1000} 秒) / Speech timed out`);
+        throw new AppError("speechTimeout", { seconds: this.timeoutMs / 1000 });
       }
       throw err;
     } finally {

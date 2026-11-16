@@ -1,10 +1,11 @@
 // Azure AI Speech(TTS-13)。ユーザーが自分の Azure の契約で取った鍵とリージョンで REST API を呼ぶ(SDK は使わない)。
 // アプリの設定で有効にしたとき(規約・料金の確認と、読む文を Microsoft に送ることへの同意)だけ使う。費用はユーザーが持つ。
+
 import type { AzureSpeechSettings, Voice } from "../../shared/api";
+import { AppError, msg } from "../../shared/messages";
 import type { SynthesizeInput, TtsEngine } from "./engine";
 
-export const AZURE_NOTICE =
-  "Azure AI Speech を使った音声は、Microsoft の利用規約と、ご自身の Azure の契約の条件・料金に従って使ってください。読み上げる文は Microsoft のサーバーに送られます。/ Follow Microsoft's terms and your Azure subscription's conditions and pricing. The text is sent to Microsoft's servers.";
+export const AZURE_NOTICE = msg("azureNotice");
 
 /** 声を指定していないときの声 */
 export const AZURE_DEFAULT_VOICE = "ja-JP-NanamiNeural";
@@ -40,17 +41,14 @@ export function createAzureEngine(
   async function target(): Promise<{ host: string; key: string }> {
     const s = await getSettings();
     const key = await getKey();
-    if (!s.region || !key)
-      throw new Error(
-        "Azure AI Speech のリージョンと鍵をアプリの設定で入れてください / Set the Azure region and key in the app settings",
-      );
-    if (!/^[a-z0-9]+$/.test(s.region)) throw new Error(`Azure: リージョンの書き方が違います: ${s.region}`);
+    if (!s.region || !key) throw new AppError("azureNotConfigured");
+    if (!/^[a-z0-9]+$/.test(s.region)) throw new AppError("azureBadRegion", { region: s.region });
     return { host: `https://${s.region}.tts.speech.microsoft.com`, key };
   }
-  const fail = async (r: Response, what: string) =>
-    new Error(
-      `Azure AI Speech: ${what}(${r.status}${r.status === 401 ? "。鍵かリージョンが違います" : r.status === 429 ? "。回数の上限です" : ""})`,
-    );
+  const fail = (r: Response, code: "azureVoicesFailed" | "azureSynthFailed") =>
+    new AppError(r.status === 401 ? "azureUnauthorized" : r.status === 429 ? "azureRateLimited" : code, {
+      status: r.status,
+    });
 
   return {
     name: "azure",
@@ -60,8 +58,7 @@ export function createAzureEngine(
     notice: AZURE_NOTICE,
     async unavailable() {
       const s = await getSettings();
-      if (!s.enabled)
-        return "Azure AI Speech はアプリの設定で有効にしていません / Azure AI Speech is not enabled in the app settings";
+      if (!s.enabled) return msg("azureDisabled");
       return null;
     },
     async voices(): Promise<Voice[]> {
@@ -70,7 +67,7 @@ export function createAzureEngine(
         headers: { "Ocp-Apim-Subscription-Key": key },
         signal: AbortSignal.timeout(15000),
       });
-      if (!r.ok) throw await fail(r, "声の一覧を取れません");
+      if (!r.ok) throw fail(r, "azureVoicesFailed");
       return ((await r.json()) as AzureVoice[]).map((v) => ({
         id: v.ShortName,
         name: `${v.LocalName ?? v.DisplayName ?? v.ShortName} (${v.ShortName})`,
@@ -90,7 +87,7 @@ export function createAzureEngine(
         body: azureSsml(input, input.voice ?? AZURE_DEFAULT_VOICE),
         signal,
       });
-      if (!r.ok) throw await fail(r, "音声を作れません");
+      if (!r.ok) throw fail(r, "azureSynthFailed");
       return new Uint8Array(await r.arrayBuffer());
     },
   };

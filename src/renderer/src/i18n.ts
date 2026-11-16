@@ -1,4 +1,7 @@
 // UI の文言(NF-07: 英語が主、日本語にも対応)。既定は OS の言語(日本語なら日本語)、アプリの設定で変えられる。
+import { z } from "zod";
+import { en as zodEn, ja as zodJa } from "zod/v4/locales";
+import { decodeError, fillTemplate, formatEn, type MessageCode, type Msg } from "../../shared/messages";
 
 const en = {
   new: "New",
@@ -840,14 +843,101 @@ const ja: typeof en = {
 
 export type MessageKey = keyof typeof en;
 
+/** メインプロセス・検証の文言(コードは shared/messages.ts。英語の文もそこ) */
+const MESSAGE_JA: Record<MessageCode, string> = {
+  invalidJson: "JSON として読めません: {detail}",
+  schema: "{detail}",
+  duplicateId: 'id "{id}" が重複しています',
+  unknownSource: 'sources に id "{id}" がありません',
+  outBeforeIn: "out は in より後にしてください",
+  holdAfterVideo: "保持の開始 {at} 秒がステップの映像より後です",
+  holdsOverlap:
+    '保持が重なっています({a} 秒と {b} 秒。hold が true か "transition" のズームも保持に含みます)',
+  endBeforeStart: "end は start より後にしてください",
+  zoomsOverlap: "ズームが重なっています",
+  speechAfterVideo: "読み上げの開始がステップの映像より後です",
+  speechTextMissing: "2 つ目以降の読み上げは text を書いてください",
+  zoomKeyOutside: "枠の時刻 {t} 秒がズームの区間({start}〜{end} 秒)の外です",
+  zoomKeysOrder: "枠は時刻の早い順に、同じ時刻を重ねずに並べてください",
+  pointsOrder: "点は時刻の早い順に並べてください",
+  endBeforeFirstPoint: "end は最初の点の時刻より後にしてください",
+  fileMissing: "ファイルがありません: {path}",
+  cannotRead: "ファイルを読めません: {detail}",
+  pathDenied: "許可されていないパスです: {path}",
+  invalidName: "この名前は使えません: {name}",
+  nameExists: "同じ名前のファイルがあります: {path}",
+  secureStorageUnavailable: "この環境では鍵を安全に保存できません(OS の資格情報の保管を使えません)",
+  unknownEngine: '読み上げエンジン "{name}" がありません',
+  speechTimeout: "読み上げがタイムアウトしました({seconds} 秒)",
+  engineFallback: "{reason}。OS 標準の声で代わりに読みました",
+  osNotice: "OS 標準の音声を商用で使う場合の条件は、OS の提供元の規約を確認してください。",
+  osSilentNotice: "この OS では読み上げに対応していないため、無音で代替しています。",
+  azureNotice:
+    "Azure AI Speech を使った音声は、Microsoft の利用規約と、ご自身の Azure の契約の条件・料金に従って使ってください。読み上げる文は Microsoft のサーバーに送られます。",
+  azureDisabled: "Azure AI Speech はアプリの設定で有効にしていません",
+  azureNotConfigured: "Azure AI Speech のリージョンと鍵をアプリの設定で入れてください",
+  azureBadRegion: "Azure: リージョンの書き方が違います: {region}",
+  azureVoicesFailed: "Azure AI Speech: 声の一覧を取れません({status})",
+  azureSynthFailed: "Azure AI Speech: 音声を作れません({status})",
+  azureUnauthorized: "Azure AI Speech: 鍵かリージョンが違います({status})",
+  azureRateLimited: "Azure AI Speech: 回数の上限です({status})",
+  voicevoxNotice:
+    "VOICEVOX を使った音声は、VOICEVOX の利用規約と、使った声(キャラクター)ごとの利用規約に従って使ってください(クレジットの表記などはそれぞれの規約を確認してください)。",
+  voicevoxDisabled: "VOICEVOX はアプリの設定で有効にしていません",
+  voicevoxUnreachable:
+    "VOICEVOX のエンジンにつながりません({url})。エンジンを起動するか、アプリの設定で場所と自動起動を指定してください",
+  voicevoxStartFailed: "VOICEVOX のエンジンを起動できません({path}): {reason}",
+  voicevoxStartTimeout: "VOICEVOX のエンジンが起動しません({seconds} 秒待ちました)",
+  voicevoxVoicesFailed: "VOICEVOX: 声の一覧を取れません({status})",
+  voicevoxUnknownVoice: "VOICEVOX: この声はありません: {id}",
+  voicevoxQueryFailed: "VOICEVOX: 読みを作れません({status})",
+  voicevoxSynthFailed: "VOICEVOX: 音声を作れません({status})",
+  unknownPreset: "背景のプリセットがありません: {name}",
+  cannotReadImage: "この画像は読めません: {path}",
+  noVideoTrack: "映像がありません: {path}",
+  cannotDecode: "この映像は再生できません: {path}",
+  cannotReadSource: "素材を読めません: {id}",
+  cannotLoadBackground: "背景の画像を読めません: {path}",
+  cannotLoadImage: "画像を読めません: {path}",
+  speechFailed: "読み上げを生成できません: {detail}",
+  speechFailedZero: "読み上げを生成できません(長さ 0 として計算): {detail}",
+  noSteps: "ステップがありません",
+  stepNotFound: "ステップが見つかりません: {step}",
+  timePastEnd: "--time {time} はステップの長さ({duration} 秒)を超えるので、末尾のフレームにしました",
+  nothingToExport: "書き出すステップがありません",
+  h264Unavailable: "H.264 で書き出せません({width}x{height})",
+  encodedInSoftware: "ハードウェアエンコーダーが使えないため、ソフトウェアで書き出しました",
+  audioOpus: "AAC が使えないため、音声を Opus で書き出しました",
+  noAudioEncoder: "音声を書き出せる形式がないため、音声なしで書き出しました",
+  canceled: "中止しました",
+};
+
 const osJa = () => navigator.language.toLowerCase().startsWith("ja");
 let dict = osJa() ? ja : en;
+applyZodLocale();
 
-/** 言語を切り替える(アプリの設定)。auto なら OS の言語。切り替えた後の描画から効く */
+/** Zod(プロジェクトの形の検証)の文を画面の言語にする */
+function applyZodLocale(): void {
+  z.config(dict === ja ? zodJa() : zodEn());
+}
+
+/** 言語を切り替える(アプリの設定)。auto なら OS の言語。切り替えた後の描画から効く。CLI の書き出しの画面は en に固定する */
 export function setLanguage(lang: "auto" | "ja" | "en"): void {
   dict = lang === "ja" || (lang === "auto" && osJa()) ? ja : en;
+  applyZodLocale();
 }
 
 export function t(key: MessageKey): string {
   return dict[key];
+}
+
+/** メインプロセス・検証の文言(Msg)を画面の言語の文にする */
+export function msgText(m: Msg): string {
+  return dict === ja ? fillTemplate(MESSAGE_JA[m.code] ?? m.code, m.params, msgText) : formatEn(m);
+}
+
+/** IPC などで受けたエラーを画面の言語の文にする(AppError ならコードから訳す。それ以外は元の文) */
+export function errorText(e: unknown): string {
+  const d = decodeError(e);
+  return typeof d === "string" ? d : msgText(d);
 }

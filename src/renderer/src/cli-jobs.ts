@@ -22,9 +22,11 @@ import {
   totalDuration,
 } from "../../core/timeline";
 import type { CliJobResult, FrameRequest } from "../../shared/api";
+import { msg } from "../../shared/messages";
 import { api } from "./api";
 import { BackgroundStore } from "./backgrounds";
 import { drawFrame, frameGeometry } from "./compositor";
+import { errorText, msgText } from "./i18n";
 import { ImageStore } from "./images";
 import { openExclusive, type SourceMedia } from "./media";
 import { SpeechStore } from "./speech";
@@ -45,8 +47,8 @@ async function prepare(
   const speech = new SpeechStore();
   const errors = await speech.loadAll(project);
   const warnings = [
-    ...errors.map((e) => `読み上げを生成できません(長さ 0 として計算) / Speech failed: ${e}`),
-    ...speech.notices,
+    ...errors.map((e) => msgText(msg("speechFailedZero", { detail: e }))),
+    ...speech.noticeTexts(),
   ];
   return { speech, timeline: buildTimeline(project.steps, speech.durations(project)), warnings };
 }
@@ -60,7 +62,7 @@ async function openSources(project: Project, projectPath: string, warnings: stri
       opened.push(m);
       media.set(s.id, m);
     } catch (e) {
-      warnings.push(`${s.id}: ${(e as Error).message}`);
+      warnings.push(`${s.id}: ${errorText(e)}`);
     }
   }
   return media;
@@ -108,7 +110,7 @@ async function frameJob(
   opened: SourceMedia[],
 ): Promise<CliJobResult> {
   const { timeline, warnings } = await prepare(project);
-  if (timeline.length === 0) return { ok: false, warnings, error: "ステップがありません / No steps" };
+  if (timeline.length === 0) return { ok: false, warnings, error: msgText(msg("noSteps")) };
   let entry: TimelineEntry | null;
   let local: number;
   if (req.at !== undefined) {
@@ -119,12 +121,10 @@ async function frameJob(
     entry = findEntry(timeline, req.step ?? "1");
     local = req.time ?? 0;
   }
-  if (!entry) return { ok: false, warnings, error: `ステップが見つかりません / Step not found: ${req.step}` };
+  if (!entry) return { ok: false, warnings, error: msgText(msg("stepNotFound", { step: String(req.step) })) };
   // ステップの長さを超える時刻は末尾に丸め、丸めたことを知らせる(黙って別のフレームを返さない)
   if (req.at === undefined && local > entry.duration + 1e-6)
-    warnings.push(
-      `--time ${local} はステップの長さ(${r3(entry.duration)} 秒)を超えるので、末尾のフレームにしました / --time is past the end of the step; used the last frame`,
-    );
+    warnings.push(msgText(msg("timePastEnd", { time: local, duration: r3(entry.duration) })));
   // 終わりちょうどは最後のフレーム
   local = Math.min(Math.max(0, local), Math.max(0, entry.duration - 1e-3));
   const step = entry.step;
@@ -149,7 +149,7 @@ async function frameJob(
   if (req.source) {
     // 素材のフレームをそのままの大きさで(この画像のピクセル = 映像側の座標)
     if (!m || !frame)
-      return { ok: false, warnings, error: `素材を読めません / Cannot read source: ${step.source}` };
+      return { ok: false, warnings, error: msgText(msg("cannotReadSource", { id: step.source })) };
     const canvas = new OffscreenCanvas(m.width, m.height);
     (canvas.getContext("2d") as OffscreenCanvasRenderingContext2D).drawImage(frame, 0, 0, m.width, m.height);
     await writePng(canvas, outPath);
@@ -161,7 +161,7 @@ async function frameJob(
   let backgroundImage: Img | null = null;
   if (typeof bg !== "string" && "image" in bg) {
     backgroundImage = await new BackgroundStore().load(bg.image, out.width, out.height, projectPath);
-    if (!backgroundImage) warnings.push(`背景の画像を読めません / Cannot load background: ${bg.image}`);
+    if (!backgroundImage) warnings.push(msgText(msg("cannotLoadBackground", { path: bg.image })));
   }
   const images = new ImageStore();
   for (const p of objectImages(project)) await images.load(p, projectPath);

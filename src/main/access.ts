@@ -1,8 +1,10 @@
 // レンダラーから受け取るパスの許可リスト(docs/decisions/20261111-ipc-restrictions.md)。
 // レンダラーが任意のファイルを読み書きできないよう、メインプロセスが渡した・選ばせたパスだけを許す。
-import path from "node:path";
 
-export const denied = (p: string) => new Error(`許可されていないパスです / Path not allowed: ${p}`);
+import path from "node:path";
+import { AppError } from "../shared/messages";
+
+export const denied = (p: string) => new AppError("pathDenied", { path: p });
 
 /** プロジェクトの名前の変更に使える名前か(フォルダーを抜けられない・使えない文字がない) */
 export function isValidProjectName(name: unknown): name is string {

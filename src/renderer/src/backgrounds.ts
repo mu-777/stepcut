@@ -1,7 +1,9 @@
 // 背景(LAY-04)。色・グラデーションは毎フレーム描き、画像は出力の大きさで 1 度だけ用意して使い回す。
 // プリセット画像はコードで描く(画像ファイルを同梱しないので、出力の大きさに合わせて劣化なく作れ、ライセンスの心配もない)。
 import type { Background } from "../../core/schema";
+import { AppError } from "../../shared/messages";
 import { api } from "./api";
+import { errorText } from "./i18n";
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Img = CanvasImageSource & { width: number; height: number };
@@ -157,7 +159,7 @@ export class BackgroundStore {
     if (!p) {
       p = render(image, w, h, projectPath)
         .catch((e) => {
-          this.errors.set(`${image}|${projectPath ?? ""}`, (e as Error).message);
+          this.errors.set(`${image}|${projectPath ?? ""}`, errorText(e));
           return null;
         })
         .then((img) => {
@@ -177,7 +179,7 @@ async function render(image: string, w: number, h: number, projectPath: string |
   const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
   if (image.startsWith("preset:")) {
     const preset = PRESETS.find((p) => `preset:${p.id}` === image);
-    if (!preset) throw new Error(`背景のプリセットがありません / Unknown preset: ${image}`);
+    if (!preset) throw new AppError("unknownPreset", { name: image });
     drawPreset(ctx, w, h, preset);
     return canvas;
   }

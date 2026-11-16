@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { AppSettings, SettingsPatch } from "../../shared/api";
 import { api } from "./api";
 import { CheckField, Field } from "./fields";
-import { t } from "./i18n";
+import { errorText, t } from "./i18n";
 
 /** 規約を確かめる入口(各サービスのトップ。規約の場所が変わってもアプリを直さずに済むように) */
 const SITES = {
@@ -37,7 +37,7 @@ export function EngineSettings(props: {
     } catch (e) {
       setTest({
         engine,
-        text: (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""),
+        text: errorText(e),
         ok: false,
       });
     }
@@ -102,9 +102,7 @@ export function EngineSettings(props: {
                       setKeyText("");
                       setError(null);
                     } catch (e) {
-                      setError(
-                        (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""),
-                      );
+                      setError(errorText(e));
                     }
                   }}
                 >

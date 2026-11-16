@@ -5,7 +5,9 @@ import type { Project, Step } from "../../core/schema";
 import { applyDictionary } from "../../core/text";
 import { speechTimes } from "../../core/timeline";
 import type { TtsRequest } from "../../shared/api";
+import type { Msg } from "../../shared/messages";
 import { api } from "./api";
+import { errorText, msgText } from "./i18n";
 
 export const SAMPLE_RATE = 48000;
 
@@ -51,8 +53,10 @@ export function usedSpeechKeys(project: Project, key: (req: TtsRequest) => strin
 export class SpeechStore {
   private results = new Map<string, SpeechAudio>();
   private pending = new Map<string, Promise<SpeechAudio>>();
-  private errors = new Map<string, string>();
-  notices = new Set<string>();
+  /** 生成の失敗(エラーそのもの。文にするのは表示のとき) */
+  private errors = new Map<string, unknown>();
+  /** 利用者への案内。同じものは 1 つにまとめる(鍵は JSON) */
+  notices = new Map<string, Msg>();
 
   private key(req: TtsRequest): string {
     return requestKey(req);
@@ -76,7 +80,7 @@ export class SpeechStore {
     for (let k = 0; k < speechPieces(step).length; k++) {
       const req = speechRequest(project, step, k);
       const e = req ? this.errors.get(this.key(req)) : undefined;
-      if (e) return e;
+      if (e !== undefined) return errorText(e);
     }
     return null;
   }
@@ -126,21 +130,26 @@ export class SpeechStore {
       p = api
         .ttsSynthesize(req)
         .then(async (r) => {
-          if (r.notice) this.notices.add(r.notice);
+          if (r.notice) this.notices.set(JSON.stringify(r.notice), r.notice);
           const buffer = await decodeWav(r.wav);
           const audio = { buffer, duration: buffer.duration };
           this.results.set(key, audio);
           this.errors.delete(key);
           return audio;
         })
-        .catch((e: Error) => {
-          this.errors.set(key, e.message);
+        .catch((e: unknown) => {
+          this.errors.set(key, e);
           throw e;
         })
         .finally(() => this.pending.delete(key));
       this.pending.set(key, p);
     }
     return p;
+  }
+
+  /** 案内を画面の言語の文にする */
+  noticeTexts(): string[] {
+    return [...this.notices.values()].map(msgText);
   }
 
   /** 全ステップの読み上げを用意する。1 件終わるごとに onProgress を呼ぶ */
@@ -150,8 +159,8 @@ export class SpeechStore {
       project.steps.flatMap((step) =>
         speechPieces(step).map((_, k) =>
           this.load(project, step, k)
-            ?.catch((e: Error) => {
-              errors.push(`${step.id}: ${e.message}`);
+            ?.catch((e: unknown) => {
+              errors.push(`${step.id}: ${errorText(e)}`);
             })
             .finally(() => onProgress?.()),
         ),

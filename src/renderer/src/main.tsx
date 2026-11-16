@@ -8,6 +8,8 @@ import "./styles.css";
 
 const mode = new URLSearchParams(location.search).get("mode");
 if (mode === "export") {
+  // CLI の結果(警告・エラー)は英語に固定する(docs/decisions/20261116-message-i18n.md)
+  setLanguage("en");
   runExportJob();
 } else {
   // 画面の言語とキー操作はアプリの設定に従う(読めなければ OS の言語・既定のキーのまま)

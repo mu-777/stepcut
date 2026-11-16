@@ -3,6 +3,7 @@ import { parseProjectText } from "../../core/validate";
 import { api } from "./api";
 import { runFrame, runInspect } from "./cli-jobs";
 import { exportProject } from "./exporter";
+import { errorText, msgText } from "./i18n";
 
 export async function runExportJob(): Promise<void> {
   const job = await api.getExportJob();
@@ -15,7 +16,7 @@ export async function runExportJob(): Promise<void> {
     api.finishExport({
       ok: false,
       warnings: [],
-      error: parsed.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
+      error: parsed.errors.map((e) => `${e.path}: ${msgText(e)}`).join("; "),
     });
     return;
   }
@@ -25,10 +26,10 @@ export async function runExportJob(): Promise<void> {
         job.kind === "frame"
           ? await runFrame(parsed.project, job.projectPath, job.outPath, job.frame ?? {})
           : await runInspect(parsed.project, job.projectPath);
-      result.warnings.unshift(...parsed.warnings.map((w) => `${w.path}: ${w.message}`));
+      result.warnings.unshift(...parsed.warnings.map((w) => `${w.path}: ${msgText(w)}`));
       api.finishExport(result);
     } catch (e) {
-      api.finishExport({ ok: false, warnings: [], error: (e as Error).message });
+      api.finishExport({ ok: false, warnings: [], error: errorText(e) });
     }
     return;
   }
@@ -46,9 +47,9 @@ export async function runExportJob(): Promise<void> {
         }
       },
     });
-    result.warnings.unshift(...parsed.warnings.map((w) => `${w.path}: ${w.message}`));
+    result.warnings.unshift(...parsed.warnings.map((w) => `${w.path}: ${msgText(w)}`));
     api.finishExport(result);
   } catch (e) {
-    api.finishExport({ ok: false, warnings: [], error: (e as Error).message });
+    api.finishExport({ ok: false, warnings: [], error: errorText(e) });
   }
 }
