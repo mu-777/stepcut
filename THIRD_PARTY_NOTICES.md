@@ -56,6 +56,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Patents (H.264 / AAC)
+
+H.264/AVC and AAC are covered by patents. StepCut is not licensed under any
+patent pool for them. The bundled Electron (Chromium) includes an H.264 encoder
+(OpenH264) and H.264/AAC decoders (FFmpeg), and StepCut uses hardware or OS encoders when available.
+You are responsible for any patent licenses required by how you use StepCut
+and the videos you make with it.
+
 ## Not bundled
 
 These are used by StepCut only when the user sets them up, and are not distributed with it:

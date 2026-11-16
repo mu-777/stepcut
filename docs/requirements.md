@@ -86,7 +86,7 @@
 | C1 | ローカルで完結する | アプリ本体は、読み上げを含めネット接続なしで全機能が動く。ユーザーが自分で有効にした外部の接続（Azure AI Speech など）だけはネットにつながり、その費用はユーザーが持つ。例外として、新しい版の確認（GitHub Releases を読むだけ。既定オン、アプリの設定で止められる。失敗しても何も起きない）は通信する（[decisions/20261113-update-check.md](decisions/20261113-update-check.md)）。プラグインが外部と通信するかはプラグイン次第（[decisions/20261111-external-tts.md](decisions/20261111-external-tts.md)） |
 | C2 | Windowsから始め、Macへ移植できる構造にする | OS依存部分（読み上げ、エンコード、フォント）を差し替え可能な層に分離する |
 | C3 | Apache-2.0で公開する | 依存ライブラリにGPLなど公開ライセンスと両立しないものを含めない |
-| C4 | H.264/AACの特許への配慮 | OSまたはハードウェアのエンコーダーを使う方式を基本にする（OpenScreenに前例あり）。法的な確認は別途必要 |
+| C4 | H.264/AACの特許への配慮 | OSまたはハードウェアのエンコーダーを使う方式を基本にする（OpenScreenに前例あり）。特許への対応は利用者の責任と明記して配布する（T-03） |
 | C5 | 人とAIの両方が編集できる | プロジェクトファイルの仕様を公開し、安定させる |
 | C6 | プラグインがなくても全機能が動く | プラグインはすべて追加の選択肢という位置づけ |
 | C7 | 機能は最小限にする | 3.2の対象外を維持する判断基準 |
@@ -397,8 +397,8 @@
 | # | 事項 | 備考 |
 |---|---|---|
 | T-01 | ElectronかTauriか | 決定：Electron（[decisions/20261029-ui-platform.md](decisions/20261029-ui-platform.md)） |
-| T-02 | ハードウェアエンコーダーがない環境での代替手段 | 仮決め：Chromium 内蔵の OpenH264（BSD）、AAC がなければ Opus（[decisions/20261026-encoder.md](decisions/20261026-encoder.md)）。特許（T-03）の確認後に正式に決める |
-| T-03 | H.264/AACの特許の扱い | OSのエンコーダーで回避できるか、法的に確認する |
+| T-02 | ハードウェアエンコーダーがない環境での代替手段 | 決定：Chromium 内蔵の OpenH264（BSD）で書き出して警告を出す。AAC がなければ Opus（[decisions/20261026-encoder.md](decisions/20261026-encoder.md)） |
+| T-03 | H.264/AACの特許の扱い | 決定：特許プールとは契約せず、README と THIRD_PARTY_NOTICES.md に利用者の責任と明記して配布する。OS のエンコーダーでは回避できない（Electron が H.264/AAC の実装を同梱するため）（[decisions/20261116-codec-patents.md](decisions/20261116-codec-patents.md)、調査は [codec-patents.md](codec-patents.md)） |
 | T-04 | OS標準音声の出力を商用利用してよいか | 公式の明記を確認できていない。Windows 11 のライセンス条項(2024-04 版、https://www.microsoft.com/en-us/useterms )には読み上げの出力についての条項がなく、許可も禁止も書かれていない。Microsoft Q&A の回答は非公式で食い違う。アプリは可否を判断せず、書き出し時に利用条件の確認を促す（[decisions/20261116-os-voice-commercial.md](decisions/20261116-os-voice-commercial.md)） |
 | T-05 | プロジェクトファイル（JSON）の構造 | 決定：[project-format.md](project-format.md)、[decisions/20261029-project-format.md](decisions/20261029-project-format.md) |
 | T-06 | MVPの範囲 | 決定：[decisions/20261029-mvp-scope.md](decisions/20261029-mvp-scope.md)（ズームを含む） |
