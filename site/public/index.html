@@ -2,6 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script>
+      // ブラウザーの言語が日本語なら /ja/ へ。言語リンクで選んだ言語(stepcut-lang)があればそちらを優先
+      // (docs/decisions/20261112-landing-page.md)。Googlebot は Accept-Language なしで来るので転送されない
+      (function () {
+        var chosen = null;
+        try {
+          chosen = localStorage.getItem("stepcut-lang");
+        } catch (e) {}
+        // 保存できない環境で English を押した人を戻さないよう、/ja/ から来たときは転送しない
+        if (document.referrer.indexOf(location.origin + "/ja/") === 0) return;
+        var first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+        if (chosen === "ja" || (chosen !== "en" && /^ja(-|$)/i.test(first))) {
+          location.replace("/ja/" + location.search + location.hash);
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>StepCut | A Windows app for adding explanations to recordings</title>
     <meta
@@ -53,7 +69,7 @@
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/mu-777/stepcut">GitHub</a></li>
         </ul>
-        <a class="lang" href="/ja/" hreflang="ja" lang="ja">日本語</a>
+        <a class="lang" href="/ja/" hreflang="ja" lang="ja" onclick="try{localStorage.setItem('stepcut-lang','ja')}catch(e){}">日本語</a>
         <a class="btn pri sm" href="#download">Download</a>
       </div>
     </header>

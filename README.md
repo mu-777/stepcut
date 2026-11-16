@@ -57,7 +57,7 @@ Claude Code ではスキル `/release` がこの手順を進める。経緯は [
 
 ## 紹介ページ(LP)
 
-`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。英語のページが `/`(`site/public/index.html`)、日本語のページが `/ja/`(`site/public/ja/index.html`)。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
+`site/` が https://stepcut.mu-777.dev の中身(静的な HTML と CSS)。英語のページが `/`(`site/public/index.html`)、日本語のページが `/ja/`(`site/public/ja/index.html`)。`/` はブラウザーの言語が日本語なら `/ja/` へ転送する。言語リンクで選んだ言語はブラウザーに覚えて、以後はそちらを優先する。Cloudflare Workers で配り、main に `site/` の変更が入ると Cloudflare の Workers Builds がデプロイする。
 
 ```bash
 cd site
