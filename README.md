@@ -41,7 +41,17 @@ npm run dist:win   # Windows 用のインストーラと portable 版を dist/ �
 
 ロゴの元データは `assets/logo/`(SVG)。Windows のアイコン `build/icon.ico` は、`assets/logo/stepcut-icon.svg` を変えたときに `node scripts/make-icon.cjs` で作り直してコミットする(Playwright が要る)。
 
-main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。
+main への PR では GitHub Actions が Windows 版をビルドし、run の Artifacts(`stepcut-win`)に置く。このビルドの版には短い SHA が付く(`0.1.0-g1a2b3c4`)。
+
+### リリース
+
+版の正は `package.json` の `version`、リリースノートの正は [CHANGELOG.md](CHANGELOG.md)。main に入った version に対応するタグ(`v<version>`)がなければ、`.github/workflows/release.yml` が CHANGELOG のその版の節を確かめてタグを作り、Windows 版をビルドして GitHub Release(`StepCut-Setup.exe`・`StepCut-Portable.exe`、本文はその節)を公開する。
+
+1. CHANGELOG.md の `## [Unreleased]` に変更を書いてコミットする
+2. `npm version <patch|minor|major>` で版を上げる(`[Unreleased]` が `## [x.y.z] - 日付` になる)。ローカルにできたタグは `git tag -d` で消す
+3. 作業ブランチを push して main への PR を作り、マージすると公開される
+
+Claude Code ではスキル `/release` がこの手順を進める。経緯は [docs/decisions/20261116-release-flow.md](docs/decisions/20261116-release-flow.md)。
 
 起動時にプロジェクトファイルを渡すと、それを開く: `npx electron . path/to/project.stepcut.json`
 

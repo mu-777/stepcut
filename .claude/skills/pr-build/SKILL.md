@@ -85,7 +85,7 @@ mcp__github__actions_list(method="list_workflow_run_artifacts", owner="mu-777", 
 このブランチの HEAD(`<short sha>`)を CI でビルドしたもの:
 
 - **[Actions run #<run_number>](<run html_url>)** → ページ下部の Artifacts から `stepcut-win` を取得
-  - `StepCut Setup <version>.exe`(インストーラ)と `StepCut <version>.exe`(portable)
+  - `StepCut-Setup.exe`(インストーラ)と `StepCut-Portable.exe`(portable)。アプリの版は `<version>-g<short sha>`
 
 ダウンロードには GitHub へのログインが必要で、Artifact は既定で 90 日で失効します。
 未署名のため、初回起動時に SmartScreen の警告が出ます(「詳細情報」→「実行」)。

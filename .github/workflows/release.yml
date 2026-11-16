@@ -1,0 +1,68 @@
+name: release
+
+# main に入った版の変更を拾い、タグ・ビルド・GitHub Release まで進める。
+#
+# push トリガにしている理由: クラウドセッションのエージェントは main にもタグにも push できず、
+# workflow_dispatch も叩けない(403)。できるのは作業ブランチへの push と PR の作成だけなので、
+# リリースの合図を「main に載った package.json の version の変化」に置く。version を上げるのは
+# /release スキルだけで、通常の PR のマージでは「タグがすでにある」で何もせず終わる。
+# 経緯と不採用案は docs/decisions/20261116-release-flow.md。
+#
+# 逆戻りガード:
+#   - build.yml をタグの push で起動する形にしない。GITHUB_TOKEN が作ったタグは workflow を起こさない
+#     ので、ここから workflow_call で直接呼ぶ
+#   - paths フィルタを付けない。CHANGELOG の確認で落ちたあと、package.json 以外を直した push で
+#     やり直せなくなる
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # タグを作って push するため
+    outputs:
+      tag: ${{ steps.gate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 既存のタグを見るため
+
+      - name: Decide whether this commit releases
+        id: gate
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "${TAG} はすでにある。リリースしない"
+            exit 0
+          fi
+          # 新しい版。CHANGELOG にその版の節があり、中身があることを確かめてからタグを作る
+          node scripts/changelog.mjs extract "${VERSION}" > /dev/null
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push the tag
+        if: steps.gate.outputs.tag != ''
+        env:
+          TAG: ${{ steps.gate.outputs.tag }}
+        run: |
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              tag -a "$TAG" -m "$TAG"
+          git push origin "refs/tags/${TAG}"
+
+  build:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      release_tag: ${{ needs.tag.outputs.tag }}
