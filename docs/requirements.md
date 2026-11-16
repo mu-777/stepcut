@@ -399,7 +399,7 @@
 | T-01 | ElectronかTauriか | 決定：Electron（[decisions/20261029-ui-platform.md](decisions/20261029-ui-platform.md)） |
 | T-02 | ハードウェアエンコーダーがない環境での代替手段 | 仮決め：Chromium 内蔵の OpenH264（BSD）、AAC がなければ Opus（[decisions/20261026-encoder.md](decisions/20261026-encoder.md)）。特許（T-03）の確認後に正式に決める |
 | T-03 | H.264/AACの特許の扱い | OSのエンコーダーで回避できるか、法的に確認する |
-| T-04 | OS標準音声の出力を商用利用してよいか | 公式の明記を確認できていない。Windows 11 のライセンス条項(2024-04 版、https://www.microsoft.com/en-us/useterms )には読み上げの出力についての条項がなく、許可も禁止も書かれていない。Microsoft Q&A の回答は非公式で食い違う。アプリは書き出し時に利用条件の確認を促す(現状) |
+| T-04 | OS標準音声の出力を商用利用してよいか | 公式の明記を確認できていない。Windows 11 のライセンス条項(2024-04 版、https://www.microsoft.com/en-us/useterms )には読み上げの出力についての条項がなく、許可も禁止も書かれていない。Microsoft Q&A の回答は非公式で食い違う。アプリは可否を判断せず、書き出し時に利用条件の確認を促す（[decisions/20261116-os-voice-commercial.md](decisions/20261116-os-voice-commercial.md)） |
 | T-05 | プロジェクトファイル（JSON）の構造 | 決定：[project-format.md](project-format.md)、[decisions/20261029-project-format.md](decisions/20261029-project-format.md) |
 | T-06 | MVPの範囲 | 決定：[decisions/20261029-mvp-scope.md](decisions/20261029-mvp-scope.md)（ズームを含む） |
 | T-07 | Mac版の公証（notarization） | Mac版を出す段階で対応する |
