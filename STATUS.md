@@ -4,7 +4,7 @@
 2026-11-16
 
 ## ブランチ
-ccr-832da0d7-pwbtmy(main 4a46d3d を取り込み済み。リリースの仕組みを入れる)
+ccr-832da0d7-pwbtmy(main 4a46d3d を取り込み済み。リリースの仕組みを入れる。PR #22)
 
 ## ゴール
 Claude Code の `/release` から、CHANGELOG を書いて版を上げ、PR のマージで GitHub Release まで出せるようにする
@@ -14,7 +14,7 @@ Claude Code の `/release` から、CHANGELOG を書いて版を上げ、PR の�
 - 確認: npm run check、`npm version minor` のフックを使い捨てのリポジトリで通しで確認、紹介ページの表示。CI 上の動作は未確認
 
 ## 次にやること
-- ユーザー: PR を作り(base=main)、PR のビルドで版が `0.0.9-g<SHA>`・名前が `StepCut-Setup.exe` になるか見る。マージ前に PR の先頭のコミットへタグ `v0.0.9` を手で打つ(`git tag v0.0.9 origin/<ブランチ> && git push origin v0.0.9`)。打たずにマージすると release の run が一度赤になる
+- ユーザー: PR #22 のビルドで版が `0.0.9-g<SHA>`・名前が `StepCut-Setup.exe` になるか見る。マージ前に PR の先頭のコミットへタグ `v0.0.9` を手で打つ(`git tag v0.0.9 origin/<ブランチ> && git push origin v0.0.9`)。打たずにマージすると release の run が一度赤になる
 - マージ後: `/release` で 0.1.0 を出す。初回の CHANGELOG は前のタグ以降の差分ではなく、手で全体をまとめる
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
