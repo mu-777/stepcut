@@ -88,6 +88,8 @@ jobs:
         with:
           name: stepcut-win
           if-no-files-found: error
+          # PR の動作確認用。容量上限(Artifact storage quota)に当たらないよう 1 日で消す
+          retention-days: 1
           path: |
             dist/*.exe
 

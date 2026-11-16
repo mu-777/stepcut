@@ -4,13 +4,14 @@
 2026-11-16
 
 ## ブランチ
-ccr-832da0d7-pwbtmy(main 4a46d3d を取り込み済み。リリースの仕組みを入れる。PR #22)
+claude/vibrant-ritchie-66ufqa(main fa0f8d2 = PR #22 マージ後から。PR ビルドの Artifact の保持を 1 日に)
 
 ## ゴール
 Claude Code の `/release` から、CHANGELOG を書いて版を上げ、PR のマージで GitHub Release まで出せるようにする
 
 ## 現在地
 - 実装済み: スキル `/release`、`release.yml`(main の version にタグがなければタグ → build を呼ぶ)、`build.yml` の workflow_call と publish ジョブ、PR ビルドの版に `-g<SHA>`、配布物の名前の固定、`CHANGELOG.md`・`scripts/changelog.mjs`(version フック)、紹介ページ(英・日)のボタンを `releases/latest/download/` に。version は 0.0.9。決定記録 20261116-release-flow
+- build.yml の upload-artifact に retention-days: 1(Artifact storage quota 超過の対策)
 - 確認: npm run check、`npm version minor` のフックを使い捨てのリポジトリで通しで確認、紹介ページの表示。CI 上の動作は未確認
 
 ## 次にやること
