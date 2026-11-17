@@ -203,6 +203,8 @@ export interface Api {
   pickExecutable(): Promise<string | null>;
   /** ブラウザーで開く(https のみ。規約の案内・新しい版のページ) */
   openExternal(url: string): Promise<void>;
+  /** このアプリの版(package.json の version) */
+  appVersion(): Promise<string>;
   /** 新しい版を今すぐ確認する */
   checkUpdate(): Promise<UpdateCheckResult>;
   /** 起動時の確認。設定でオフ・開発中・CLI のときは確認せず null */

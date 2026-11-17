@@ -18,6 +18,7 @@ const api: Api = {
   setAzureKey: (key) => ipcRenderer.invoke("settings:azure-key", key),
   pickExecutable: () => ipcRenderer.invoke("dialog:pick-exe"),
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
+  appVersion: () => ipcRenderer.invoke("app:version"),
   checkUpdate: () => ipcRenderer.invoke("update:check"),
   autoCheckUpdate: () => ipcRenderer.invoke("update:auto"),
   pickDirectory: (defaultPath) => ipcRenderer.invoke("dialog:pick-dir", defaultPath),

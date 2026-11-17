@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-13
-updated: 2026-11-16
+updated: 2026-11-17
 tags: [update, network, settings]
 ---
 
@@ -14,7 +14,7 @@ tags: [update, network, settings]
 - 起動の 3 秒後に 1 回、メインプロセスから `https://api.github.com/repos/mu-777/stepcut/releases/latest` を読む(下書き・プレリリースは GitHub が除く)。タイムアウト 10 秒。失敗(オフライン・制限・404)は何も知らせない
 - 今の版(`app.getVersion()`、package.json の version)より新しければ、ヘッダーの下の帯に「新しい版があります: vX.Y.Z」と「ダウンロードページを開く」を出す。入れ替えはしない
 - 帯を × で閉じると、その版をアプリの設定(`dismissedUpdate`)に覚え、次からは知らせない。より新しい版が出たらまた知らせる
-- アプリの設定の「一般」に「起動時に新しい版を確認する」(`checkUpdates`。既定オン、有効にする前の確認なし)と「今すぐ確認」を置く
+- アプリの設定の「このアプリについて」(版・ライセンス・GitHub のリンクと同じ区分)に「起動時に新しい版を確認する」(`checkUpdates`。既定オン、有効にする前の確認なし)と「今すぐ確認」を置く
 - 自動の確認はパッケージしたアプリだけ。開発中(`!app.isPackaged`)と CLI では確認しない。「今すぐ確認」はどちらでも動く。E2E は `STEPCUT_UPDATE_URL` で確認先をテスト用のサーバーに差し替える
 - 送るのは通常の HTTP リクエスト(IP アドレスと `User-Agent: StepCut-update-check`)だけ。利用者・プロジェクトの情報は送らない
 - 開くページは GitHub が返した `html_url` が `https://github.com/` で始まるときだけ使い、ほかならリリースの一覧のページを開く

@@ -779,33 +779,33 @@ function fakeVoicevox() {
   await page.keyboard.press("Escape");
   await shot(page, "07-mint");
 
-  // 余白なし: オンで余白 0、オフで元に戻す
+  // 録画を画面全体に表示: オンで余白 0、オフで元に戻す
   await openProject();
-  const noMargin = page.getByLabel(/No margins|余白なし/);
+  const noMargin = page.getByLabel(/full-frame|画面全体に表示/);
   const before = await marginOf();
   await noMargin.check();
   await page.waitForTimeout(200);
   const zeroed = await marginOf();
   check(
     zeroed.every((v) => v === 0),
-    `余白なしで上下左右の余白が 0 (${before} → ${zeroed})`,
+    `画面全体に表示で上下左右の余白が 0 (${before} → ${zeroed})`,
   );
   await noMargin.uncheck();
   await page.waitForTimeout(200);
   const after = await marginOf();
   check(
     after[0] === before[0] && after[1] === before[1],
-    `余白なしを外すと元の余白に戻る (${before} → ${after})`,
+    `画面全体に表示を外すと元の余白に戻る (${before} → ${after})`,
   );
 
-  // ステップ 2 だけ余白なしにする(設定パネルの「録画の枠」)
+  // ステップ 2 だけ画面全体に表示にする(設定パネルの「録画の枠」)
   {
     await thumbs.nth(1).click();
     await page.waitForTimeout(200);
     const frameFold = page.locator(".fold", { hasText: /Recording frame|録画の枠/ });
     if (!(await frameFold.evaluate((el) => el.classList.contains("open"))))
       await frameFold.locator(".fold-head").click();
-    await frameFold.getByLabel(/No margins|余白なし/).check();
+    await frameFold.getByLabel(/full-frame|画面全体に表示/).check();
     await page.waitForTimeout(200);
     await saveProject();
     await page.waitForTimeout(800);
@@ -817,7 +817,7 @@ function fakeVoicevox() {
         m.left === 0 &&
         saved3.steps[1].layout.fit === "contain" &&
         saved3.layout.margin.top > 0.04,
-      "ステップ 2 だけ余白なしにできる(全体の余白はそのまま)",
+      "ステップ 2 だけ画面全体に表示にできる(全体の余白はそのまま)",
     );
     check(
       /This step uses its own frame|このステップだけの枠/.test(
@@ -1413,7 +1413,7 @@ function fakeVoicevox() {
     await page.locator(".fold:not(.open) .fold-head").first().click();
   check(
     /Project|全体/.test(await panelTitle()) &&
-      (await page.getByLabel(/No margins|余白なし/).count()) === 1 &&
+      (await page.getByLabel(/full-frame|画面全体に表示/).count()) === 1 &&
       (await page.locator(".dict-field").count()) === 1,
     "「全体」で出力・レイアウト・テロップの見た目・声の共通の設定",
   );
@@ -1442,6 +1442,29 @@ function fakeVoicevox() {
       `縦横比を固定すると幅に合わせて高さも変わる (${h0} → ${h1})`,
     );
     await page.getByRole("checkbox", { name: /^(Keep aspect ratio|縦横比を固定)$/ }).uncheck();
+    // 録画に合わせる(録画は 1280×720): 幅はそのまま高さを録画の比に。外すと元の大きさに戻す
+    const match = page.getByRole("checkbox", { name: /^(Match the recording|録画に合わせる)$/ });
+    await hField.fill("1000");
+    await page.waitForTimeout(150);
+    const wasMatched = await match.isChecked();
+    await match.check();
+    await page.waitForTimeout(150);
+    const mh = Number(await hField.inputValue());
+    await match.uncheck();
+    await page.waitForTimeout(150);
+    check(
+      !wasMatched && mh === 1080 && (await hField.inputValue()) === "1000",
+      `「録画に合わせる」で高さが録画の比になり、外すと戻る (1000 → ${mh} → ${await hField.inputValue()})`,
+    );
+    await hField.fill(h0);
+    await page.waitForTimeout(150);
+    // 横に並べた 2 つの欄は同じ幅
+    const [fpsW, qW] = await page
+      .locator(".row:has(> .field > .seg-field)")
+      .first()
+      .locator("> .field")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    check(Math.abs(fpsW - qW) < 1, `フレームレートと画質の欄は同じ幅 (${fpsW} / ${qW})`);
   }
   // 選択欄のラベルには選択肢の文字も入るので、ラベルの見出しで探す
   const fontSel = page
@@ -1547,8 +1570,8 @@ function fakeVoicevox() {
     const tabs = page.locator(".settings-nav [role=tab]");
     const panel = page.locator(".settings-panel");
     check(
-      (await tabs.count()) === 3 && (await panel.getAttribute("data-section")) === "general",
-      "アプリの設定は左に 3 つの区分のメニューがあり、「一般」から開く",
+      (await tabs.count()) === 4 && (await panel.getAttribute("data-section")) === "general",
+      "アプリの設定は左に 4 つの区分のメニューがあり、「一般」から開く",
     );
     await shot(page, "22-settings-general");
     await tabs.nth(1).click();
@@ -1979,9 +2002,16 @@ function fakeVoicevox() {
       (await u.w.locator(".update-banner").count()) === 0 && upSaved.dismissedUpdate === "9.9.9",
       "知らせを閉じると、その版を覚える",
     );
-    // アプリの設定の「一般」: 起動時の確認(既定オン)と今すぐ確認
+    // アプリの設定の「このアプリについて」: 版・ライセンス、起動時の確認(既定オン)と今すぐ確認
     await u.w.getByRole("button", { name: /^(Settings|設定)$/ }).click();
     await u.w.waitForTimeout(200);
+    await u.w.locator(".settings-nav [role=tab]").nth(3).click();
+    await u.w.waitForTimeout(200);
+    check(
+      /^v\d+\.\d+\.\d+/.test((await u.w.locator(".about-version").textContent()) ?? "") &&
+        /Apache-2\.0/.test((await u.w.locator(".about-list").textContent()) ?? ""),
+      `「このアプリについて」に版とライセンスを出す (${await u.w.locator(".about-version").textContent()})`,
+    );
     const upCheck = u.w.locator(".update-field input[type=checkbox]");
     check(await upCheck.isChecked(), "起動時に新しい版を確認する(既定オン)");
     await u.w.getByRole("button", { name: /^(Check now|今すぐ確認)$/ }).click();
