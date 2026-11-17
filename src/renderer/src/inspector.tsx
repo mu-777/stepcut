@@ -1310,14 +1310,17 @@ function Section(props: { focused: boolean; className?: string; children: ReactN
 /** 出力の縦横比を固定しているときの比(幅 ÷ 高さ)。保存はせず、アプリを閉じるまで覚えておく */
 let lockedAspect: number | null = null;
 
-/** 「余白なし」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
+/** 「録画に合わせる」にする前の出力の大きさ。保存はせず、アプリを閉じるまで覚えておく */
+let sizeBeforeMatch: { width?: number; height?: number } | null = null;
+
+/** 「録画を画面全体に表示」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
 const savedMargins = new Map<string, { margin: Margin; fit: "contain" | "cover" }>();
 
 type FramePatch = { margin?: Margin; fit?: "contain" | "cover"; shadow?: boolean };
 
 /**
- * 録画の枠の欄(余白・余白なし・切り取り・影)。全体の設定とステップの上書きで共通。
- * memo は「余白なし」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
+ * 録画の枠の欄(余白・画面全体に表示・切り取り・影)。全体の設定とステップの上書きで共通。
+ * memo は「録画を画面全体に表示」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
  */
 function FrameFields(props: {
   layout: ResolvedLayout;
@@ -1428,9 +1431,14 @@ export function ProjectPanel(props: {
   /** ステップの「共通の設定 ›」から来た。テロップの見た目の欄を強調する */
   focusShared: boolean;
   backgroundError: string | null;
+  /** 出力を合わせる録画の大きさ(ステップの並びで最初の録画。なければ null) */
+  sourceSize: { w: number; h: number } | null;
+  /** 縦横比の違う録画が混ざっている */
+  mixedSourceAspect: boolean;
 }) {
   const { project, update } = props;
   const out = resolveOutput(project);
+  const src = props.sourceSize;
   const layout = resolveLayout(project);
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
@@ -1446,6 +1454,11 @@ export function ProjectPanel(props: {
     set("output", prune({ ...project.output, width: even(w), height: even(h) }), key);
   /** 幅・高さの入力。空や小さすぎる値(打ちかけ)は直前の大きさのまま(欄は打ったまま残る) */
   const typedSize = (v: number | undefined) => (v !== undefined && v >= 16 ? v : null);
+  /** 録画に合わせたときの高さ(幅はそのまま。偶数に丸める) */
+  const matchedHeight = src ? even((out.width * src.h) / src.w) : undefined;
+  // 丸めの誤差(1px)のうちなら合っているとみなす
+  const matched =
+    matchedHeight !== undefined && Math.abs(out.height - (out.width * (src?.h ?? 0)) / (src?.w ?? 1)) <= 1;
 
   return (
     <div className="inspector">
@@ -1490,12 +1503,38 @@ export function ProjectPanel(props: {
               if (v !== null) setSize(aspect !== null ? v * aspect : project.output?.width, v, "output.h");
             }}
           />
+        </div>
+        <div className="row">
           <CheckField
             label={t("lockAspect")}
             value={aspect !== null}
             onChange={(v) => lockAspect(v ? out.width / out.height : null)}
           />
+          <CheckField
+            label={t("matchSource")}
+            value={matched}
+            disabled={!src}
+            title={src ? undefined : t("matchSourceNone")}
+            onChange={(v) => {
+              if (!src) return;
+              if (v) {
+                // 直前の大きさを覚えておき、外したら戻す(アプリを閉じるまで)
+                sizeBeforeMatch = { width: project.output?.width, height: project.output?.height };
+                setSize(out.width, matchedHeight, "output.match");
+                if (aspect !== null) lockAspect(src.w / src.h);
+              } else {
+                const back = sizeBeforeMatch ?? { width: undefined, height: undefined };
+                sizeBeforeMatch = null;
+                setSize(back.width, back.height, "output.match");
+                if (aspect !== null) {
+                  const r = resolveOutput({ ...project, output: { ...project.output, ...back } });
+                  lockAspect(r.width / r.height);
+                }
+              }
+            }}
+          />
         </div>
+        {src && props.mixedSourceAspect && <p className="hint">{t("matchSourceHint")}</p>}
         <div className="row">
           <SegField
             label={t("fps")}

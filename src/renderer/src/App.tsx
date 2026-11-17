@@ -1897,6 +1897,20 @@ ${t("renameTip")}`}
                       ? backgrounds.error(bg.image, filePath)
                       : null;
                   })()}
+                  {...(() => {
+                    // 録画(動画)だけを見る。画像のステップは比を決めない
+                    const sizes = project.steps
+                      .map((st) => media.get(st.source))
+                      .filter((m) => m?.kind === "video")
+                      .map((m) => ({ w: m?.width ?? 0, h: m?.height ?? 0 }));
+                    const first = sizes[0] ?? null;
+                    return {
+                      sourceSize: first,
+                      mixedSourceAspect:
+                        first !== null &&
+                        sizes.some((z) => Math.abs(z.w * first.h - z.h * first.w) > first.w),
+                    };
+                  })()}
                 />
               </>
             ) : (

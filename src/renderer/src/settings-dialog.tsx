@@ -22,6 +22,7 @@ const SECTIONS = [
   { id: "general", label: "settingsGeneral" },
   { id: "engines", label: "settingsSpeech" },
   { id: "shortcuts", label: "keyBindings" },
+  { id: "about", label: "settingsAbout" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -193,6 +194,11 @@ export function SettingsDialog(props: {
                   )}
                 </div>
                 <p className="hint">{t("projectDirHint")}</p>
+              </>
+            )}
+            {settings && section === "about" && (
+              <>
+                <AboutField />
                 <UpdateField
                   value={settings.checkUpdates}
                   onChange={(v) => void change({ checkUpdates: v })}
@@ -334,6 +340,31 @@ function UiZoomField(props: { value: number; onChange: (v: number) => void }) {
       </div>
       <p className="hint">{t("uiZoomHint")}</p>
     </>
+  );
+}
+
+/** リポジトリのページ(ソース・リリース・不具合の報告) */
+const REPO_URL = "https://github.com/mu-777/stepcut";
+
+/** このアプリの版・ライセンス・リポジトリへのリンク */
+function AboutField() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void api.appVersion().then(setVersion);
+  }, []);
+  return (
+    <dl className="about-list">
+      <dt>{t("aboutVersion")}</dt>
+      <dd className="about-version">{version ? `v${version}` : "…"}</dd>
+      <dt>{t("aboutLicense")}</dt>
+      <dd>Apache-2.0</dd>
+      <dt>GitHub</dt>
+      <dd>
+        <button type="button" className="link-btn" onClick={() => void api.openExternal(REPO_URL)}>
+          {REPO_URL.replace("https://", "")}
+        </button>
+      </dd>
+    </dl>
   );
 }
 
