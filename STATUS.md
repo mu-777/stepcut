@@ -1,24 +1,24 @@
 # STATUS
 
 ## 更新
-2026-11-16
+2026-11-17
 
 ## ブランチ
-ccr-56359097-v1g48o
+ccr-78c336ab-kkso4h
 
 ## ゴール
-紹介ページで StepCut の名前を目立たせる(ヒーローにロゴ + ヘッダー固定)。v0.1.0 のリリースの結果を確かめる
+プレビュー上で、ズームの枠・オブジェクト(四角・文字)・テロップを互いに吸着させる(四角とズームの枠を同じ形にそろえられるように)
 
 ## 現在地
-- 紹介ページ(日本語)の「付けられるもの」のひとことをですます調にし、「何をするか。どう嬉しいか」の 2 文にそろえた。英語版も同じ方針で直した(ネイティブ確認なし)
-- 紹介ページで名前を目立たせた: ヒーローの見出しの上にロゴ、ナビを固定、h1 を最大 40px に。ロゴの並べた形のマークを 78%・隙間 13 に変え、README 用のロゴと OGP 画像も更新。決定記録 landing-page・logo を書き換えた。headless ブラウザーで PC・スマホ幅・OGP を確認
-- 紹介ページの言語の自動振り分け(PR #25)はマージ済み。本番の確認は未
+- 吸着を実装した: ズームの枠(移動・拡大縮小・新しく描く)・四角と文字の枠・テロップのドラッグが、テロップの箱、再生位置に出ている四角・文字の枠と矢印の両端、ステップのズームの枠の辺と中心に吸着する。座標系が違うものどうしも吸着させる(ユーザー指定)。吸着した相手は点線で示す
+- 要件 LAY-08・TXT-03・ANN-15、決定記録 margin-layout、README、docs/manual-test.html を更新。npm run check・ui-smoke(吸着のテストを追加)・CLI 書き出しは通過
+- 紹介ページ(PR #27)はマージ済み。本番の見た目の確認と v0.1.0 のリリースの確認は未
 
 ## 次にやること
-- このブランチの PR を作ってマージし、本番で見た目を確認する
-- release の run が緑か、Release の本文が CHANGELOG の 0.1.0 の節と同じか、`StepCut-Setup.exe`・`StepCut-Portable.exe` が添付されているか、`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)。配布物に THIRD_PARTY_NOTICES.md・LICENSE があるかも見る
-- 本番で `/` の振り分けを日本語・英語のブラウザーで確認する
-- main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
+- 吸着の実機確認(Windows): ズームの枠を四角にそろえる、四角をテロップ・ほかの四角にそろえる。吸着が多すぎて邪魔でないか
+- このブランチの PR を作ってマージする
+- release の run・Release の本文・添付(`StepCut-Setup.exe`・`StepCut-Portable.exe`・THIRD_PARTY_NOTICES.md・LICENSE)・`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)
+- main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 と言語の振り分けの確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
 
 ## 課題・ブロッカー
 - 紹介ページの動画と画像は Linux のコンテナ製(Windows のフォントでない、読み上げが無音)
