@@ -15,7 +15,7 @@ claude/right-panel-output-options-tam1qb
 - アプリの設定に「アプリ情報」の区分(版・ライセンス・GitHub・更新の確認)。更新の確認は「一般」から移した
 
 ## 次にやること
-- このブランチの PR を作ってマージする(紹介ページの画面の画像は、出力欄の見た目が変わったので古い。必要なら /lp-media)
+- PR https://github.com/mu-777/stepcut/pull/29 をマージする(紹介ページの画面の画像は、出力欄の見た目が変わったので古い。必要なら /lp-media)
 - release の run が緑か、Release の本文が CHANGELOG の 0.1.0 の節と同じか、`StepCut-Setup.exe`・`StepCut-Portable.exe` が添付されているか、`releases/latest/download/StepCut-Setup.exe` が 0.1.0 を指すかを確認(スキル `/release` の Phase 5)。配布物に THIRD_PARTY_NOTICES.md・LICENSE があるかも見る
 - 本番で `/` の振り分けを日本語・英語のブラウザーで確認する
 - main の残り: 紹介ページの英語の文面の確認と Windows での動画作成(docs/lp-media.md)、本番の `/`・`/ja/`・404 の確認、設定パネルの選択欄の実機確認、ステップの録画の選択欄の扱い、docs/manual-test.html の実機確認、M2 の PRJ-03、Windows 実機での多言語のダイアログの確認
