@@ -2002,7 +2002,7 @@ function fakeVoicevox() {
       (await u.w.locator(".update-banner").count()) === 0 && upSaved.dismissedUpdate === "9.9.9",
       "知らせを閉じると、その版を覚える",
     );
-    // アプリの設定の「このアプリについて」: 版・ライセンス、起動時の確認(既定オン)と今すぐ確認
+    // アプリの設定の「アプリ情報」: 版・ライセンス、起動時の確認(既定オン)と今すぐ確認
     await u.w.getByRole("button", { name: /^(Settings|設定)$/ }).click();
     await u.w.waitForTimeout(200);
     await u.w.locator(".settings-nav [role=tab]").nth(3).click();
@@ -2010,7 +2010,7 @@ function fakeVoicevox() {
     check(
       /^v\d+\.\d+\.\d+/.test((await u.w.locator(".about-version").textContent()) ?? "") &&
         /Apache-2\.0/.test((await u.w.locator(".about-list").textContent()) ?? ""),
-      `「このアプリについて」に版とライセンスを出す (${await u.w.locator(".about-version").textContent()})`,
+      `「アプリ情報」に版とライセンスを出す (${await u.w.locator(".about-version").textContent()})`,
     );
     const upCheck = u.w.locator(".update-field input[type=checkbox]");
     check(await upCheck.isChecked(), "起動時に新しい版を確認する(既定オン)");

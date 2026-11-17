@@ -1793,7 +1793,7 @@ button.icon.play {
   padding-right: 4px;
 }
 
-/* このアプリについて: 項目名と値の 2 列 */
+/* アプリ情報: 項目名と値の 2 列 */
 .about-list {
   display: grid;
   grid-template-columns: max-content 1fr;

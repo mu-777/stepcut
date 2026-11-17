@@ -696,7 +696,7 @@ const ja: typeof en = {
   appSettings: "アプリの設定",
   settingsGeneral: "一般",
   settingsSpeech: "読み上げ",
-  settingsAbout: "このアプリについて",
+  settingsAbout: "アプリ情報",
   aboutVersion: "版",
   aboutLicense: "ライセンス",
   ttsCache: "読み上げのキャッシュ",
