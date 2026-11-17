@@ -1319,7 +1319,7 @@ const savedMargins = new Map<string, { margin: Margin; fit: "contain" | "cover" 
 type FramePatch = { margin?: Margin; fit?: "contain" | "cover"; shadow?: boolean };
 
 /**
- * 録画の枠の欄(余白・余白なし・切り取り・影)。全体の設定とステップの上書きで共通。
+ * 録画の枠の欄(余白・画面全体に表示・切り取り・影)。全体の設定とステップの上書きで共通。
  * memo は「録画を画面全体に表示」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
  */
 function FrameFields(props: {

@@ -1013,6 +1013,22 @@ h4 {
   border-top-width: 2px;
 }
 
+/* 吸着した相手の枠(ほかの要素)。ガイド線と同じ色 */
+.snap-hit {
+  position: absolute;
+  pointer-events: none;
+  border: 2px dashed #ff4dd2;
+  filter: drop-shadow(0 0 1px #000);
+  box-sizing: border-box;
+}
+
+.snap-hit.point {
+  width: 12px !important;
+  height: 12px !important;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+}
+
 .transport {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
