@@ -1,6 +1,7 @@
 // プレビュー上のオブジェクトの編集。クリックで選び、四角・文字は枠の取っ手、ポインター・矢印は両端の取っ手で直す。
 // 座標の変換は描画と同じ frameGeometry を使う(ズーム中でも見えている位置で直せる)。
 import { useState } from "react";
+import { sortedKeys } from "../../core/layout";
 import {
   type AnyObject,
   isPath,
@@ -16,7 +17,7 @@ import {
 import type { Pointer, Project, Shape, Step } from "../../core/schema";
 import { type FrameGeometry, toOutput, toSource } from "./compositor";
 import { t } from "./i18n";
-import { type Anchor, BoxEditor } from "./preview";
+import { type Anchor, type Box, BoxEditor } from "./preview";
 
 type Pt = { x: number; y: number };
 
@@ -95,6 +96,47 @@ function hitOne(
   return p.x >= a.x - HIT_PAD && p.x <= b.x + HIT_PAD && p.y >= a.y - HIT_PAD && p.y <= b.y + HIT_PAD;
 }
 
+/**
+ * 吸着先にするオブジェクトの枠(ステージのピクセル)。再生位置に出ている四角・文字の枠と、矢印の両端(大きさ 0 の枠)。
+ * exclude(編集中のもの)は除く。ポインター・蛍光ペンは動く・線なので対象にしない
+ */
+export function objectSnapBoxes(
+  step: Step,
+  local: number,
+  stepDuration: number,
+  g: FrameGeometry,
+  /** 画面に固定した図形の配置 */
+  sg: FrameGeometry,
+  exclude: ObjectRef | null,
+): Box[] {
+  const boxes: Box[] = [];
+  (step.shapes ?? []).forEach((s, index) => {
+    if (exclude?.kind === "shape" && exclude.index === index) return;
+    const w = objectWindow(s, stepDuration);
+    if (local < w.start || local >= w.end) return;
+    const geo = isScreenAnchored(s) ? sg : g;
+    if (s.type === "arrow") {
+      for (const q of [s.from, s.to]) boxes.push({ ...toOutput(geo, q.x, q.y), w: 0, h: 0 });
+      return;
+    }
+    boxes.push({ ...toOutput(geo, s.rect.x, s.rect.y), w: s.rect.w * geo.k, h: s.rect.h * geo.k });
+  });
+  return boxes;
+}
+
+/** 吸着先にするズームの枠(ステージのピクセル)。ステップのすべてのズームのすべての枠。exclude(編集中の枠)は除く */
+export function zoomSnapBoxes(
+  step: Step,
+  g: FrameGeometry,
+  exclude: { zoom: number; key: number } | null,
+): Box[] {
+  return (step.zooms ?? []).flatMap((z, zi) =>
+    sortedKeys(z)
+      .filter((_, ki) => !(exclude && exclude.zoom === zi && exclude.key === ki))
+      .map((k) => ({ ...toOutput(g, k.rect.x, k.rect.y), w: k.rect.w * g.k, h: k.rect.h * g.k })),
+  );
+}
+
 /** 選んだオブジェクトの取っ手 */
 export function ObjectEditor(props: {
   project: Project;
@@ -107,6 +149,8 @@ export function ObjectEditor(props: {
   onEditText: () => void;
   /** 録画に追従する図形が録画の外にはみ出している(枠を赤で示す) */
   outside?: boolean;
+  /** 四角・文字の枠を吸着させるほかの要素の枠(ステージのピクセル) */
+  targets?: Box[];
 }) {
   const { g, object: o } = props;
   const out = (q: Pt) => toOutput(g, q.x, q.y);
@@ -179,6 +223,7 @@ export function ObjectEditor(props: {
           g.box.y + g.box.h,
           ...(isScreenAnchored(s) ? [g.video.y, g.video.y + g.video.h] : []),
         ]}
+        targets={props.targets}
         onChange={(b, key, _shape, move) => {
           const p = src(b);
           if (move) {

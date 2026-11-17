@@ -64,7 +64,7 @@ import {
 } from "./inspector";
 import { actionOf, keyLabel, withKey } from "./keymap";
 import { openMedia, releaseMedia, type SourceMedia } from "./media";
-import { hitObject, ObjectEditor } from "./object-editor";
+import { hitObject, ObjectEditor, objectSnapBoxes, zoomSnapBoxes } from "./object-editor";
 import { objectTextInputId } from "./object-panel";
 import {
   insertObject,
@@ -1635,7 +1635,7 @@ ${t("renameTip")}`}
               );
             }}
             onCaptionEditEnd={() => setCaptionEdit(null)}
-            objects={(stage) => {
+            objects={(stage, caption) => {
               if (!selObject || playing || !loc || loc.entry.index !== selObject.step) return null;
               const st = loc.entry.step;
               const o = objectOf(st, selObject.ref);
@@ -1662,8 +1662,46 @@ ${t("renameTip")}`}
                   }
                   onEditText={() => document.getElementById(objectTextInputId(selObject.ref.index))?.focus()}
                   outside={shapeOutsideVideo(o, m?.width || 1920, m?.height || 1080)}
+                  targets={[
+                    ...objectSnapBoxes(
+                      st,
+                      loc.local,
+                      loc.entry.duration,
+                      g,
+                      screenGeometry(stage.w, stage.h, g.video),
+                      selObject.ref,
+                    ),
+                    ...zoomSnapBoxes(st, g, null),
+                    ...(caption ? [caption] : []),
+                  ]}
                 />
               );
+            }}
+            snapTargets={(stage, zoomEditing) => {
+              if (!loc) return [];
+              // ズームの枠の編集中は、そのステップを再生位置で表示しているときだけ(ズームなしの表示に合わせる)
+              if (zoomEditing && drawingZoom?.step !== loc.entry.index) return [];
+              const st = loc.entry.step;
+              const m = media.get(st.source);
+              const g = frameGeometry(
+                project,
+                st,
+                loc.local,
+                stage.w,
+                stage.h,
+                m?.width || 1920,
+                m?.height || 1080,
+                zoomEditing,
+              );
+              const sg = screenGeometry(stage.w, stage.h, g.video);
+              return [
+                ...objectSnapBoxes(st, loc.local, loc.entry.duration, g, sg, null),
+                ...zoomSnapBoxes(
+                  st,
+                  g,
+                  zoomEditing && drawingZoom ? { zoom: drawingZoom.zoom, key: drawingZoom.key } : null,
+                ),
+              ];
             }}
             onPickObject={(p, stage) => {
               if (playing || !loc) return false;

@@ -1274,6 +1274,66 @@ function fakeVoicevox() {
     check((await page.locator(".tl-bar.object").count()) === n0, "近道で作ったものも元に戻すで消える");
   }
 
+  // 要素どうしの吸着: ズームの枠の左辺を四角の左辺の近くへ動かすと、四角の辺に吸着して同じ値(録画のピクセル)になる
+  {
+    const undoBtn = page.getByRole("button", { name: /^(Undo|元に戻す)$/ });
+    const n0 = await page.locator(".tl-bar.object").count();
+    const z0 = await page.locator(".tl-bar.zoom").count();
+    // ズームしていない時刻(ステップ 2 の先頭)で測る。枠の編集中はズームなしで表示するため
+    await page.locator(".preview-stage").click({ position: { x: 30, y: 30 } });
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(200);
+    await addObject(/^(Box|四角)$/);
+    const rb = await page.locator(".object-layer .box-outline").boundingBox();
+    // 選択を外してから、帯の「ズーム」で枠の編集を始める
+    await page.keyboard.press("Escape");
+    await page
+      .locator(".preview-add")
+      .getByRole("button", { name: /^(Zoom|ズーム)$/ })
+      .click();
+    await page.waitForTimeout(300);
+    const zb = await page.locator(".box-outline").boundingBox();
+    // 左辺を合わせる(縦は、ステップ 2 は録画の上下を切っていて、枠が四角の上辺・下辺にそろう位置に収まらない)。
+    // ずらす量は小さく(ほかのズームの枠の中心など、ほかの吸着先も近くにある)
+    const from = { x: zb.x + 20, y: zb.y + 20 };
+    const to = { x: from.x + (rb.x - zb.x) + 1.5, y: from.y - 40 };
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.waitForTimeout(100);
+    const hits = await page.locator(".snap-hit").count();
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.keyboard.press("Escape");
+    await saveProject();
+    await page.waitForTimeout(500);
+    const st = JSON.parse(fs.readFileSync(projectPath, "utf8")).steps[1];
+    const r = st.shapes[st.shapes.length - 1].rect;
+    const snapped = (st.zooms ?? []).some((z) => z.keys.some((k) => k.rect.x === r.x));
+    check(
+      hits >= 1 && snapped,
+      `ズームの枠の左辺を四角の左辺の近くへ動かすと四角の左辺に吸着して同じ X になり、相手の枠を点線で示す (点線 ${hits})`,
+    );
+    // 四角の追加・ズームの追加・枠の移動を戻す(回数は数で見る)
+    for (let i = 0; i < 6; i++) {
+      if (
+        (await page.locator(".tl-bar.object").count()) === n0 &&
+        (await page.locator(".tl-bar.zoom").count()) === z0
+      )
+        break;
+      await undoBtn.click();
+      await page.waitForTimeout(150);
+    }
+    await saveProject();
+    await page.waitForTimeout(300);
+    check(
+      (await page.locator(".tl-bar.object").count()) === n0 &&
+        (await page.locator(".tl-bar.zoom").count()) === z0,
+      "吸着の確認で作った四角とズームを元に戻す",
+    );
+  }
+
   // タイムラインの帯をクリックで選んでも再生位置は動かさない。ダブルクリックで始まりへ移す
   {
     const tm = async () => page.locator(".time").first().textContent();

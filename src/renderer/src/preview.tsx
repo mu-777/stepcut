@@ -83,8 +83,13 @@ export function Preview(props: {
   onAddSource?: () => void;
   /** 描画の GPU コンテキストが失われた(用意した画像を作り直す) */
   onContextLost: () => void;
-  /** 選んだオブジェクトの取っ手(ステージの大きさを渡して作る) */
-  objects?: (stage: { w: number; h: number }) => React.ReactNode;
+  /** 選んだオブジェクトの取っ手(ステージの大きさと、吸着先にするテロップの箱を渡して作る) */
+  objects?: (stage: { w: number; h: number }, caption: Rect | null) => React.ReactNode;
+  /**
+   * 吸着先にするほかの要素の枠(ステージのピクセル): 再生位置に出ているオブジェクトとステップのズームの枠。
+   * zoomEditing はズームの枠の編集中(ズームなしの表示で出す)
+   */
+  snapTargets?: (stage: { w: number; h: number }, zoomEditing: boolean) => Rect[];
   /** プレビューをクリックした点(ステージのピクセル)でオブジェクトを選ぶ。選んだら true */
   onPickObject?: (p: { x: number; y: number }, stage: { w: number; h: number }) => boolean;
 }) {
@@ -237,6 +242,12 @@ export function Preview(props: {
     y: null,
   });
 
+  // 表示中のテロップの箱(ほかの要素の吸着先)
+  const cs = props.captionStep;
+  const ctx = cs ? canvasRef.current?.getContext("2d") : null;
+  const c =
+    cs && ctx ? captionBox(ctx, props.project, cs, size.w, size.h, videoBox, t("captionPlaceholder")) : null;
+
   let editor: React.ReactNode = null;
   if (d) {
     // ズーム範囲: ソースの座標 ⇔ 画面上の座標(ズームなしの表示で)
@@ -272,6 +283,7 @@ export function Preview(props: {
         snapY={[videoBox.y + videoBox.h / 2]}
         edgeX={[videoBox.x, videoBox.x + videoBox.w]}
         edgeY={[videoBox.y, videoBox.y + videoBox.h]}
+        targets={[...(props.snapTargets?.(size, true) ?? []), ...(c ? [c.box] : [])]}
         onCommit={d.onCommit}
         onChange={(b, key, _shape, move) => {
           const a = outputToSource(props.project, props.step, size.w, size.h, d.srcW, d.srcH, b.x, b.y);
@@ -326,12 +338,10 @@ export function Preview(props: {
 
   // テロップのドラッグ(表示中のステップのテロップ)。クリックだけならそのテロップを選ぶ
   let captionHandle: React.ReactNode = null;
-  const cs = props.captionStep;
+  /** テロップのドラッグ中に吸着した相手 */
+  let captionTargets: Rect[] = [];
   if (cs && !d && !props.videoEdit) {
-    const ctx = canvasRef.current?.getContext("2d");
-    const c = ctx
-      ? captionBox(ctx, props.project, cs, size.w, size.h, videoBox, t("captionPlaceholder"))
-      : null;
+    captionTargets = props.snapTargets?.(size, false) ?? [];
     if (c) {
       // 幅(折り返す幅)の枠と、左右の取っ手。中心を固定して左右対称に変える
       const wrapW = resolveCaptionPlacement(props.project, cs).width * size.w;
@@ -399,6 +409,10 @@ export function Preview(props: {
         const key = `drag-caption-${Date.now()}`;
         const halfH = c.box.h / 2;
         const below = videoBox.y + videoBox.h;
+        const tl = targetLines(captionTargets);
+        /** 箱の左端・上端の、中心からのずれ */
+        const offX = c.box.x - c.cx;
+        const offY = c.box.y - c.cy;
         let moved = false;
         const move = (ev: PointerEvent) => {
           if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < CLICK_PX) return;
@@ -408,10 +422,12 @@ export function Preview(props: {
           let gx: number | null = null;
           let gy: number | null = null;
           if (!ev.altKey) {
-            // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)に吸着する
-            if (Math.abs(cx - size.w / 2) <= SNAP) {
-              cx = size.w / 2;
-              gx = cx;
+            // 左右の中央、録画の下の余白の中央、録画の下辺(テロップの上辺)、画面の下辺(テロップの下辺)と、
+            // ほかの要素の辺・中心に吸着する
+            const sx = pickSnap(cx + offX, c.box.w, [size.w / 2, ...tl.cx], tl.ex);
+            if (sx) {
+              cx += sx.d;
+              gx = sx.at;
             }
             const cands = [
               { center: (below + size.h) / 2, line: (below + size.h) / 2 },
@@ -423,7 +439,11 @@ export function Preview(props: {
               .filter((x) => x.d <= SNAP)
               .sort((a, b) => a.d - b.d);
             const best = cands[0];
-            if (best) {
+            const sy = pickSnap(cy + offY, c.box.h, tl.cy, tl.ey);
+            if (sy && (!best || Math.abs(sy.d) < best.d)) {
+              cy += sy.d;
+              gy = sy.at;
+            } else if (best) {
               cy = best.center;
               gy = best.line;
             }
@@ -507,7 +527,7 @@ export function Preview(props: {
         >
           <canvas ref={canvasRef} width={pxW} height={pxH} style={{ width: size.w, height: size.h }} />
           {captionHandle}
-          {!d && !props.videoEdit && props.objects?.(size)}
+          {!d && !props.videoEdit && props.objects?.(size, c?.box ?? null)}
           {editor}
           {props.onAddSource && (
             // 録画がないときの案内。HTML で重ねるので書き出しには出ない。ステージのクリック処理へは流さない
@@ -526,6 +546,7 @@ export function Preview(props: {
               </button>
             </div>
           )}
+          <SnapHits targets={captionTargets} x={captionGuides.x} y={captionGuides.y} />
           {captionGuides.x !== null && <div className="guide v" style={{ left: captionGuides.x }} />}
           {captionGuides.y !== null && <div className="guide h" style={{ top: captionGuides.y }} />}
         </div>
@@ -582,7 +603,7 @@ function CaptionInput(props: {
   );
 }
 
-type Box = { x: number; y: number; w: number; h: number };
+export type Box = { x: number; y: number; w: number; h: number };
 type Handle = "nw" | "ne" | "sw" | "se" | "n" | "s" | "e" | "w";
 type Mode = "move" | "draw" | Handle;
 export type Anchor = "center" | "corner";
@@ -611,11 +632,60 @@ function nearest(v: number, targets: number[]): number | null {
   return best;
 }
 
+/** 中心を centers へ、辺を edges へ。いちばん近いもの(SNAP 以内)。d は動かす量、at は吸着した線 */
+function pickSnap(
+  lo: number,
+  size: number,
+  centers: number[],
+  edges: number[],
+): { d: number; at: number } | null {
+  const cands: { d: number; at: number }[] = [];
+  const c = nearest(lo + size / 2, centers);
+  if (c !== null) cands.push({ d: c - (lo + size / 2), at: c });
+  const l = nearest(lo, edges);
+  if (l !== null) cands.push({ d: l - lo, at: l });
+  const r = nearest(lo + size, edges);
+  if (r !== null) cands.push({ d: r - (lo + size), at: r });
+  cands.sort((a, z) => Math.abs(a.d) - Math.abs(z.d));
+  return cands[0] ?? null;
+}
+
+/** 吸着先の枠(ほかの要素)の辺と中心の線 */
+function targetLines(targets: Box[]): { ex: number[]; ey: number[]; cx: number[]; cy: number[] } {
+  return {
+    ex: targets.flatMap((b) => [b.x, b.x + b.w]),
+    ey: targets.flatMap((b) => [b.y, b.y + b.h]),
+    cx: targets.map((b) => b.x + b.w / 2),
+    cy: targets.map((b) => b.y + b.h / 2),
+  };
+}
+
+/** 吸着した相手の枠を点線で示す(ガイド線の位置に辺か中心がある枠)。点(矢印の端)は小さな丸で示す */
+function SnapHits(props: { targets: Box[]; x: number | null; y: number | null }) {
+  const on = (v: number | null, lo: number, size: number) =>
+    v !== null && [lo, lo + size, lo + size / 2].some((a) => Math.abs(a - v) < 0.01);
+  return (
+    <>
+      {props.targets
+        .filter((b) => on(props.x, b.x, b.w) || on(props.y, b.y, b.h))
+        .map((b, i) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: 吸着中だけ出す印。同じ位置の枠もありうるので番号で区別する
+            key={i}
+            className={`snap-hit${b.w === 0 && b.h === 0 ? " point" : ""}`}
+            style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
+          />
+        ))}
+    </>
+  );
+}
+
 /**
  * 画面上の枠の編集(ズームの範囲・録画の配置で共通)。
  * 枠の中のドラッグで移動、四隅は縦横比を保ったまま拡大縮小、四辺の中央は縦横比を変える。
  * anchor が center なら中心を固定、corner なら反対側の角・辺を固定する。
- * snapX / snapY は枠の中心、edgeX / edgeY は枠の辺を吸着させる線。吸着中はガイド線を出す。Alt で吸着しない。
+ * snapX / snapY は枠の中心、edgeX / edgeY は枠の辺を吸着させる線。targets はほかの要素の枠で、その辺と中心にも吸着する。
+ * 吸着中はガイド線と吸着した相手の枠を出す。Alt で吸着しない。
  * 枠の外をクリック(ドラッグなし)すると onCommit を呼ぶ。
  */
 export function BoxEditor(props: {
@@ -634,6 +704,8 @@ export function BoxEditor(props: {
   snapY: number[];
   edgeX: number[];
   edgeY: number[];
+  /** ほかの要素の枠(テロップ・オブジェクト・ズームの枠。点は幅と高さ 0) */
+  targets?: Box[];
   /** move は枠ごとの移動(大きさは変わらない) */
   onChange: (b: Box, key: string, shapeChanged: boolean, move: boolean) => void;
   onCommit?: () => void;
@@ -647,7 +719,18 @@ export function BoxEditor(props: {
     e.preventDefault();
     const stage = (e.currentTarget as HTMLElement).closest(".preview-stage") as HTMLElement;
     const origin = stage.getBoundingClientRect();
+    const tl = targetLines(props.targets ?? []);
+    const snapX = [...props.snapX, ...tl.cx];
+    const snapY = [...props.snapY, ...tl.cy];
+    const edgeX = [...props.edgeX, ...tl.ex];
+    const edgeY = [...props.edgeY, ...tl.ey];
+    /** 新しく描くときの角は、辺と中心の線のどちらにも吸着する */
+    const snapPt = (v: number, lines: number[]) => nearest(v, lines);
     const p0 = { x: e.clientX - origin.left, y: e.clientY - origin.top };
+    if (mode === "draw" && !e.altKey) {
+      p0.x = snapPt(p0.x, [...edgeX, ...snapX]) ?? p0.x;
+      p0.y = snapPt(p0.y, [...edgeY, ...snapY]) ?? p0.y;
+    }
     const b0 = props.box ?? { x: p0.x, y: p0.y, w: 0, h: 0 };
     const cx0 = b0.x + b0.w / 2;
     const cy0 = b0.y + b0.h / 2;
@@ -665,19 +748,8 @@ export function BoxEditor(props: {
         b = { ...b0, x: b0.x + p.x - p0.x, y: b0.y + p.y - p0.y };
         if (!free) {
           // 中心を中心線へ、辺を辺の線へ。いちばん近いものに吸着する
-          const pick = (lo: number, size: number, centers: number[], edges: number[]) => {
-            const cands: { d: number; at: number }[] = [];
-            const c = nearest(lo + size / 2, centers);
-            if (c !== null) cands.push({ d: c - (lo + size / 2), at: c });
-            const l = nearest(lo, edges);
-            if (l !== null) cands.push({ d: l - lo, at: l });
-            const r = nearest(lo + size, edges);
-            if (r !== null) cands.push({ d: r - (lo + size), at: r });
-            cands.sort((a, z) => Math.abs(a.d) - Math.abs(z.d));
-            return cands[0] ?? null;
-          };
-          const sx = pick(b.x, b.w, props.snapX, props.edgeX);
-          const sy = pick(b.y, b.h, props.snapY, props.edgeY);
+          const sx = pickSnap(b.x, b.w, snapX, edgeX);
+          const sy = pickSnap(b.y, b.h, snapY, edgeY);
           if (sx) {
             b.x += sx.d;
             gx = sx.at;
@@ -694,6 +766,18 @@ export function BoxEditor(props: {
         }
       } else if (mode === "draw") {
         // 新しく描く: 押した点と今の点を対角にする
+        if (!free) {
+          const sx = snapPt(p.x, [...edgeX, ...snapX]);
+          const sy = snapPt(p.y, [...edgeY, ...snapY]);
+          if (sx !== null) {
+            p.x = sx;
+            gx = sx;
+          }
+          if (sy !== null) {
+            p.y = sy;
+            gy = sy;
+          }
+        }
         b = {
           x: Math.min(p0.x, p.x),
           y: Math.min(p0.y, p.y),
@@ -736,7 +820,7 @@ export function BoxEditor(props: {
           if (hx !== 0 || (center && locked)) {
             for (const side of center ? [-1, 1] : [hx]) {
               const ex = side < 0 ? b.x : b.x + b.w;
-              const t = nearest(ex, props.edgeX);
+              const t = nearest(ex, edgeX);
               if (t === null) continue;
               const nw = Math.max(MIN, w + (t - ex) * side * factor);
               cands.push({ d: Math.abs(t - ex), w: nw, h: locked ? (nw * b0.h) / b0.w : h, gx: t, gy: null });
@@ -745,7 +829,7 @@ export function BoxEditor(props: {
           if (hy !== 0 || (center && locked)) {
             for (const side of center ? [-1, 1] : [hy]) {
               const ey = side < 0 ? b.y : b.y + b.h;
-              const t = nearest(ey, props.edgeY);
+              const t = nearest(ey, edgeY);
               if (t === null) continue;
               const nh = Math.max(MIN, h + (t - ey) * side * factor);
               cands.push({ d: Math.abs(t - ey), w: locked ? (nh * b0.w) / b0.h : w, h: nh, gx: null, gy: t });
@@ -854,6 +938,7 @@ export function BoxEditor(props: {
           ))}
         </div>
       )}
+      <SnapHits targets={props.targets ?? []} x={guides.x} y={guides.y} />
       {guides.x !== null && <div className="guide v" style={{ left: guides.x }} />}
       {guides.y !== null && <div className="guide h" style={{ top: guides.y }} />}
     </div>
