@@ -12,7 +12,7 @@ import {
   StreamTarget,
 } from "mediabunny";
 import { captionCues } from "../../core/captions";
-import { resolveLayout, resolveOutput } from "../../core/defaults";
+import { resolveLayout, resolveOutput, speechStartOffset } from "../../core/defaults";
 import { objectImages } from "../../core/objects";
 import type { Project } from "../../core/schema";
 import { toSrt } from "../../core/text";
@@ -93,7 +93,7 @@ async function exportWith(
       );
   }
 
-  const timeline = buildTimeline(project.steps, speech.durations(project));
+  const timeline = buildTimeline(project.steps, speech.durations(project), speechStartOffset(project));
   const total = totalDuration(timeline);
   if (total <= 0) throw new AppError("nothingToExport");
 
@@ -168,6 +168,7 @@ async function exportWith(
             step: entry.step,
             local,
             stepDuration: entry.duration,
+            carry: entry.carry,
             frame: img as (CanvasImageSource & { width: number; height: number }) | null,
             srcW: m?.width ?? 0,
             srcH: m?.height ?? 0,

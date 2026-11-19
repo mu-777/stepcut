@@ -1,9 +1,16 @@
 // ステップの編集操作(STP-05, STP-06)。プロジェクトは書き換えず、新しいオブジェクトを返す。
 
-import { resolveLayout, speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
+import {
+  isImageSource,
+  resolveLayout,
+  speechPieces,
+  speechStartOffset,
+  stepSpeed,
+  withSpeechPieces,
+} from "./defaults";
 import { cutObjectAt, objectGone, objectWindow, shiftObject } from "./objects";
-import type { Margin, Project, SpeechPiece, Step, StepLayout } from "./schema";
-import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
+import type { Margin, Project, Segment, SpeechPiece, Step, StepLayout } from "./schema";
+import { baseDuration, sourceLength, splitSegments, stepHolds, videoDuration, videoTimeAt } from "./timeline";
 
 export function uniqueStepId(project: Project, base: string): string {
   const ids = new Set(project.steps.map((s) => s.id));
@@ -26,11 +33,11 @@ function replaceSteps(project: Project, steps: Step[]): Project {
 export function splitStep(project: Project, index: number, t: number, keepRest: boolean): Project {
   const step = project.steps[index];
   if (!step) return project;
-  const at = sourceTimeAt(step, t);
-  if (at <= step.in || at >= step.out) return project;
+  const parts = splitSegments(step, videoTimeAt(step, t));
+  if (!parts) return project;
   const first: Step = {
     ...step,
-    out: at,
+    segments: parts.first,
     holds: step.holds?.filter((h) => h.at < t),
     zooms: step.zooms?.filter((z) => z.start < t),
     // 切る時刻をまたいで出ているものは、前半のステップの終わりまで出す
@@ -47,8 +54,7 @@ export function splitStep(project: Project, index: number, t: number, keepRest: 
     const rest: Step = {
       id: uniqueStepId(project, step.id),
       source: step.source,
-      in: at,
-      out: step.out,
+      segments: parts.rest,
       caption: { text: "" },
       speech: {},
     };
@@ -93,12 +99,10 @@ export function shiftStepElements(step: Step, dt: number): Step {
     next.caption = c;
   }
   if (step.speech) {
-    const pieces = speechPieces(step).map((p, k) => {
+    const pieces = speechPieces(step).map((p) => {
       if (p.start === undefined) return p;
       const start = r3(Math.max(0, p.start + dt));
-      const { start: _s, ...rest } = p;
-      // 最初の読み上げの 0 は既定値なので書かない
-      return start === 0 && k === 0 ? rest : { ...rest, start };
+      return { ...p, start };
     });
     Object.assign(next, withSpeechPieces(next, pieces));
   }
@@ -115,8 +119,8 @@ export function shiftStepElements(step: Step, dt: number): Step {
 }
 
 /**
- * クリップ端のドラッグ(In/Out の変更)。値はソースの時刻。録画の範囲 [0, sourceDuration] と最短の長さに収める。
- * In を動かしたときは要素の時刻をずらして、映像の中身との対応を保つ。
+ * クリップ端のドラッグ(In/Out の変更)。In は最初の区間の in、Out は最後の区間の out。値はソースの時刻。
+ * 録画の範囲 [0, sourceDuration] と最短の長さに収める。In を動かしたときは要素の時刻をずらして、映像の中身との対応を保つ。
  */
 export function trimStep(
   project: Project,
@@ -127,25 +131,34 @@ export function trimStep(
 ): Project {
   const step = project.steps[index];
   if (!step) return project;
+  const segs = step.segments;
   if (edge === "out") {
-    const out = r3(Math.min(Math.max(value, step.in + MIN_STEP_SOURCE), sourceDuration));
-    return updateStep(project, index, (s) => ({ ...s, out }));
+    const last = segs[segs.length - 1] as Segment;
+    const out = r3(Math.min(Math.max(value, last.in + MIN_STEP_SOURCE), sourceDuration));
+    return updateStep(project, index, (s) => ({ ...s, segments: [...segs.slice(0, -1), { ...last, out }] }));
   }
-  const newIn = r3(Math.max(0, Math.min(value, step.out - MIN_STEP_SOURCE)));
-  const dt = (step.in - newIn) / stepSpeed(step);
-  return updateStep(project, index, (s) => ({ ...shiftStepElements(s, dt), in: newIn }));
+  const first = segs[0] as Segment;
+  const newIn = r3(Math.max(0, Math.min(value, first.out - MIN_STEP_SOURCE)));
+  const dt = (first.in - newIn) / stepSpeed(step);
+  return updateStep(project, index, (s) => ({
+    ...shiftStepElements(s, dt),
+    segments: [{ ...first, in: newIn }, ...segs.slice(1)],
+  }));
 }
 
 /**
- * 画像の素材のステップの長さを変える(クリップの左端のドラッグ)。画像はどの時刻も同じなので in を 0 にそろえ、
+ * 画像の素材のステップの長さを変える(クリップの左端のドラッグ)。画像はどの時刻も同じなので区間を 1 つ(in 0)にし、
  * 伸び縮みした分だけ後ろの要素を動かす(左端を動かしたのと同じ見え方にする)
  */
 export function resizeImageStepStart(project: Project, index: number, length: number): Project {
   const step = project.steps[index];
   if (!step) return project;
   const len = r3(Math.max(MIN_STEP_SOURCE, length));
-  const dt = (len - (step.out - step.in)) / stepSpeed(step);
-  return updateStep(project, index, (s) => ({ ...shiftStepElements(s, dt), in: 0, out: len }));
+  const dt = (len - sourceLength(step)) / stepSpeed(step);
+  return updateStep(project, index, (s) => ({
+    ...shiftStepElements(s, dt),
+    segments: [{ in: 0, out: len }],
+  }));
 }
 
 /** 保持を追加する。既存の保持(ズーム中の静止を含む)と重なる場合や、映像の外なら何もしない */
@@ -177,15 +190,38 @@ export function addHold(project: Project, index: number, at: number, duration: n
   }));
 }
 
-/**
- * ステップ index と次のステップを 1 つにまとめられるか。同じ録画の続いた区間で、速度が同じなら可
- */
-export function canMergeSteps(project: Project, index: number): boolean {
+/** ステップ index と次のステップを 1 つにまとめられない理由。まとめられるなら null */
+export function mergeBlocker(
+  project: Project,
+  index: number,
+): "noNext" | "otherSource" | "otherSpeed" | null {
   const a = project.steps[index];
   const b = project.steps[index + 1];
-  return (
-    !!a && !!b && a.source === b.source && Math.abs(a.out - b.in) < 1e-3 && stepSpeed(a) === stepSpeed(b)
-  );
+  if (!a || !b) return "noNext";
+  if (a.source !== b.source) return "otherSource";
+  if (stepSpeed(a) !== stepSpeed(b)) return "otherSpeed";
+  return null;
+}
+
+/** ステップ index と次のステップを 1 つにまとめられるか。同じ録画で速度が同じなら可(区間は続いていなくてよい) */
+export function canMergeSteps(project: Project, index: number): boolean {
+  return mergeBlocker(project, index) === null;
+}
+
+/**
+ * 区間の並びをつなぐ。前の最後の区間と次の最初の区間が続いていれば 1 つにする。
+ * 画像の素材なら、どの時刻も同じなので長さを足した 1 つの区間にする
+ */
+function joinSegments(a: Segment[], b: Segment[], image: boolean): Segment[] {
+  if (image) {
+    const len = [...a, ...b].reduce((sum, g) => sum + (g.out - g.in), 0);
+    return [{ in: 0, out: r3(len) }];
+  }
+  const last = a[a.length - 1];
+  const first = b[0];
+  if (last && first && Math.abs(last.out - first.in) < 1e-3)
+    return [...a.slice(0, -1), { in: last.in, out: first.out }, ...b.slice(1)];
+  return [...a, ...b];
 }
 
 /**
@@ -201,7 +237,8 @@ export function mergeSteps(project: Project, index: number, firstDuration?: numb
   const offset = Math.max(baseA, firstDuration ?? baseA);
   const autoHold = r3(offset - baseA);
   const shiftedB = shiftStepElements(b, offset);
-  const merged: Step = { ...a, out: b.out };
+  const image = isImageSource(project.sources.find((s) => s.id === a.source)?.path ?? "");
+  const merged: Step = { ...a, segments: joinSegments(a.segments, b.segments, image) };
 
   const holds = [
     ...(a.holds ?? []),
@@ -243,7 +280,8 @@ export function mergeSteps(project: Project, index: number, firstDuration?: numb
   const mergedText = merged.caption?.text;
   const piecesA = fix(a, speechPieces(a), mergedText === a.caption?.text);
   const piecesB = fix(b, speechPieces(shiftedB), piecesA.length === 0 && mergedText === b.caption?.text).map(
-    (p, k) => (k === 0 && p.start === undefined ? { ...p, start: r3(offset) } : p),
+    (p, k) =>
+      k === 0 && p.start === undefined ? { ...p, start: r3(offset + speechStartOffset(project)) } : p,
   );
   const result = withSpeechPieces(merged, [...piecesA, ...piecesB]);
   if (b.audio && !a.audio) result.audio = b.audio;

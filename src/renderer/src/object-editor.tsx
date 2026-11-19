@@ -1,6 +1,6 @@
 // プレビュー上のオブジェクトの編集。クリックで選び、四角・文字は枠の取っ手、ポインター・矢印は両端の取っ手で直す。
 // 座標の変換は描画と同じ frameGeometry を使う(ズーム中でも見えている位置で直せる)。
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { sortedKeys } from "../../core/layout";
 import {
   type AnyObject,
@@ -12,11 +12,13 @@ import {
   pointerAt,
   resolveArrowStyle,
   resolvePointerStyle,
+  resolveTextStyle,
   stepObjects,
 } from "../../core/objects";
 import type { Pointer, Project, Shape, Step } from "../../core/schema";
 import { type FrameGeometry, toOutput, toSource } from "./compositor";
 import { t } from "./i18n";
+import { objectFont, TEXT_LINE_HEIGHT, TEXT_PAD } from "./objects-draw";
 import { type Anchor, type Box, BoxEditor } from "./preview";
 
 type Pt = { x: number; y: number };
@@ -145,8 +147,12 @@ export function ObjectEditor(props: {
   g: FrameGeometry;
   anchor: Anchor;
   onChange: (o: AnyObject, key: string) => void;
-  /** 文字をダブルクリックした(文の入力欄へ) */
+  /** 文字の枠をクリック(ドラッグなし)・ダブルクリックした(その場で文の入力を始める) */
   onEditText: () => void;
+  /** 文字の文をその場で入力中(selectAll なら始めに文をすべて選ぶ) */
+  editingText?: { selectAll: boolean } | null;
+  onText?: (text: string) => void;
+  onEditTextEnd?: () => void;
   /** 録画に追従する図形が録画の外にはみ出している(枠を赤で示す) */
   outside?: boolean;
   /** 四角・文字の枠を吸着させるほかの要素の枠(ステージのピクセル) */
@@ -200,6 +206,29 @@ export function ObjectEditor(props: {
   }
   const a = out(s.rect);
   const box = { x: a.x, y: a.y, w: s.rect.w * g.k, h: s.rect.h * g.k };
+  if (s.type === "text" && props.editingText) {
+    // 入力中は取っ手を出さず、描画と同じ書体・大きさ・揃えの入力欄を枠に重ねる(行のまとまりは枠の上下の中央)
+    const st = resolveTextStyle(props.project, s);
+    const px = st.size * g.k;
+    return (
+      <div className="object-text-edit" style={{ left: box.x, top: box.y, width: box.w, height: box.h }}>
+        <ObjectTextInput
+          value={s.text}
+          selectAll={props.editingText.selectAll}
+          style={{
+            font: objectFont(st.font, px),
+            lineHeight: `${px * TEXT_LINE_HEIGHT}px`,
+            color: st.color,
+            textAlign: st.align,
+            padding: `0 ${px * TEXT_PAD}px`,
+            caretColor: st.color,
+          }}
+          onChange={(v) => props.onText?.(v)}
+          onEnd={() => props.onEditTextEnd?.()}
+        />
+      </div>
+    );
+  }
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: マウス操作専用。文は設定パネルでも直せる
     <div
@@ -209,6 +238,7 @@ export function ObjectEditor(props: {
     >
       <BoxEditor
         box={box}
+        onClick={s.type === "text" ? props.onEditText : undefined}
         anchor={props.anchor}
         snapX={[g.box.x + g.box.w / 2]}
         snapY={[g.box.y + g.box.h / 2]}
@@ -339,4 +369,44 @@ function snapPoint(p: Pt, fixed: Pt, mode: "horizontal" | "angle" | "none"): Pt 
     }
   }
   return p;
+}
+
+/** プレビュー上の文字のオブジェクトの文の入力欄。出したときにフォーカスし、文の末尾にカーソルを置く(selectAll なら全体を選ぶ) */
+function ObjectTextInput(props: {
+  value: string;
+  selectAll: boolean;
+  style: React.CSSProperties;
+  onChange: (text: string) => void;
+  onEnd: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 出したときだけ
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    if (props.selectAll) el.select();
+    else el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      className="object-text-input"
+      aria-label={t("textPlaceholder")}
+      value={props.value}
+      placeholder={t("textPlaceholder")}
+      style={props.style}
+      // 入力欄の中のドラッグは文字の選択にする(枠の移動・ほかの要素の選択にしない)
+      onPointerDown={(e) => e.stopPropagation()}
+      onChange={(e) => props.onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={props.onEnd}
+    />
+  );
 }

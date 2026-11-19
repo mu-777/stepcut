@@ -10,6 +10,9 @@ import type { SourceMedia } from "./media";
 import { quantize, type ThumbCache } from "./thumbs";
 import { ThumbTile } from "./timeline";
 
+/** ステップの並べ替えのドラッグで運ぶデータの種類(ファイルのドロップと区別する) */
+const STEP_DRAG = "application/x-stepcut-step";
+
 export function StepRail(props: {
   timeline: TimelineEntry[];
   media: Map<string, SourceMedia>;
@@ -26,6 +29,8 @@ export function StepRail(props: {
   onStep: (i: number) => void;
   onStepMenu: (e: React.MouseEvent, i: number) => void;
   onAdd: () => void;
+  /** サムネイルのドラッグでステップ from を to 番目へ動かす */
+  onMove: (from: number, to: number) => void;
   /** 列にファイルをドロップした(録画の追加) */
   onDropFiles: (files: File[]) => void;
 }) {
@@ -36,6 +41,16 @@ export function StepRail(props: {
   const [dropping, setDropping] = useState(false);
   const empty = props.timeline.length === 0;
   const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
+  /** 並べ替えでドラッグしているステップと、落とす位置(その番号のステップの前。末尾は長さ) */
+  const [moving, setMoving] = useState<{ from: number; at: number | null } | null>(null);
+  const isStepDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(STEP_DRAG);
+  /** マウスの位置から落とす位置を決める(サムネイルの上半分なら前、下半分なら後ろ) */
+  const dropIndex = (e: React.DragEvent<HTMLElement>, i: number) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2 ? i : i + 1;
+  };
+  /** 動かした後の番号(元の位置を抜いてから入れる) */
+  const moveTarget = (from: number, at: number) => (at > from ? at - 1 : at);
   return (
     <nav
       className={`step-rail ${dropping ? "dropping" : ""} ${empty ? "empty" : ""}`}
@@ -67,7 +82,29 @@ export function StepRail(props: {
         <Icon name="panelProject" />
         <span>{t("panelProject")}</span>
       </button>
-      <ol className="rail-thumbs" onScroll={() => setTip(null)}>
+      <ol
+        className="rail-thumbs"
+        onScroll={() => setTip(null)}
+        onDragOver={(e) => {
+          if (!moving || !isStepDrag(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDragLeave={(e) => {
+          if (moving && !e.currentTarget.contains(e.relatedTarget as Node | null))
+            setMoving({ ...moving, at: null });
+        }}
+        onDrop={(e) => {
+          if (!moving || !isStepDrag(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const { from, at } = moving;
+          setMoving(null);
+          if (at === null) return;
+          const to = moveTarget(from, at);
+          if (to !== from) props.onMove(from, to);
+        }}
+      >
         {props.timeline.map((e) => {
           const m = props.media.get(e.step.source);
           // ステップの頭から少し進んだところ(フェードや操作前の静止を避ける)
@@ -76,11 +113,36 @@ export function StepRail(props: {
             ? (props.thumbs.get(m, quantize(src, 0.5)) ?? props.thumbs.nearest(m, src, 1))
             : null;
           const on = !props.projectOpen && props.target === e.index;
+          const dropCls =
+            moving && moving.at !== null && moveTarget(moving.from, moving.at) !== moving.from
+              ? moving.at === e.index
+                ? "drop-before"
+                : moving.at === e.index + 1 && e.index === props.timeline.length - 1
+                  ? "drop-after"
+                  : ""
+              : "";
           return (
-            <li key={`${e.index}-${e.step.id}`}>
+            <li
+              key={`${e.index}-${e.step.id}`}
+              className={dropCls}
+              onDragOver={(ev) => {
+                if (!moving || !isStepDrag(ev)) return;
+                ev.preventDefault();
+                const at = dropIndex(ev, e.index);
+                if (at !== moving.at) setMoving({ ...moving, at });
+              }}
+            >
               <button
                 type="button"
-                className={`rail-thumb ${on ? "on" : ""} ${props.playhead === e.index ? "playhead" : ""}`}
+                draggable
+                onDragStart={(ev) => {
+                  ev.dataTransfer.setData(STEP_DRAG, String(e.index));
+                  ev.dataTransfer.effectAllowed = "move";
+                  setTip(null);
+                  setMoving({ from: e.index, at: null });
+                }}
+                onDragEnd={() => setMoving(null)}
+                className={`rail-thumb ${on ? "on" : ""} ${props.playhead === e.index ? "playhead" : ""} ${moving?.from === e.index ? "moving" : ""}`}
                 aria-current={on ? "true" : undefined}
                 aria-label={`${t("step")} ${e.index + 1}. ${e.step.caption?.text || t("noCaption")}`}
                 onClick={() => props.onStep(e.index)}

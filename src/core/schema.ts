@@ -204,7 +204,7 @@ export const pointerSchema = z.strictObject({
 export const speechPieceSchema = z.strictObject({
   /** 省略すると(最初の 1 つだけ)テロップの文を読む */
   text: z.string().optional(),
-  /** 読み始めるステップ内の出力時刻。省略すると、最初は 0、2 つ目からは前の読み上げの直後 */
+  /** 読み始めるステップ内の出力時刻。省略すると、最初は全体の speech.startOffset(既定 1 秒)、2 つ目からは前の読み上げの直後 */
   start: time.optional(),
   voice: z.string().nullable().optional(),
   params: speechParams.optional(),
@@ -222,11 +222,14 @@ const fitSchema = z.enum(["contain", "cover"]);
 
 export const holdSchema = z.strictObject({ at: time, duration: z.number().positive() });
 
+/** 録画の区間(ソースの時刻)。in から out まで */
+export const segmentSchema = z.strictObject({ in: time, out: time });
+
 export const stepSchema = z.strictObject({
   id,
   source: id,
-  in: time,
-  out: time,
+  /** 録画の区間の並び。並び順に続けて再生する(間を飛ばす・戻ることもできる)。区間が 1 つでも配列で書く */
+  segments: z.array(segmentSchema).min(1),
   speed: z.number().min(1).optional(),
   /** ステップの始まりで黒から現れる長さ(秒)。映像・テロップ・音声をまとめて */
   fadeIn: z.number().positive().optional(),
@@ -292,6 +295,8 @@ export const projectSchema = z.strictObject({
       engine: z.string().min(1).optional(),
       voice: z.string().nullable().optional(),
       params: speechParams.optional(),
+      /** 開始時刻を書いていない最初の読み上げを、ステップの頭から何秒後に読み始めるか(既定 1) */
+      startOffset: time.optional(),
     })
     .optional(),
   audio: audioSchema.optional(),
@@ -302,6 +307,7 @@ export const projectSchema = z.strictObject({
 
 export type Project = z.infer<typeof projectSchema>;
 export type Step = z.infer<typeof stepSchema>;
+export type Segment = z.infer<typeof segmentSchema>;
 export type Zoom = z.infer<typeof zoomSchema>;
 export type ZoomKey = z.infer<typeof zoomKeySchema>;
 export type Hold = z.infer<typeof holdSchema>;
