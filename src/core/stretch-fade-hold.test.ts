@@ -5,7 +5,16 @@ import { timeStretch } from "./stretch";
 import { fadeLevel, stepHolds } from "./timeline";
 
 const RATE = 48000;
-const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 0, out: 10, ...over });
+const step = ({
+  in: a = 0,
+  out: b = 10,
+  ...over
+}: Partial<Step> & { in?: number; out?: number } = {}): Step => ({
+  id: "s",
+  source: "rec",
+  segments: [{ in: a, out: b }],
+  ...over,
+});
 const proj = (steps: Step[], over: Partial<Project> = {}): Project => ({
   format: "stepcut.project",
   version: 1,

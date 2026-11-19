@@ -38,7 +38,7 @@ import {
 } from "../../core/layout";
 import { type ObjectRef, shapeOutsideVideo, stepObjects } from "../../core/objects";
 import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
-import { speechTimes } from "../../core/timeline";
+import { sourceLength, speechTimes } from "../../core/timeline";
 import type { SpeechEngineSettings, Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
@@ -317,29 +317,45 @@ function StepRecording(props: {
           // 画像はどの時刻も同じ 1 枚。長さだけを決める(in は 0 にそろえる)
           <NumField
             label={t("stepLength")}
-            value={Math.round(((step.out - step.in) / (step.speed ?? 1)) * 1000) / 1000}
+            value={Math.round((sourceLength(step) / (step.speed ?? 1)) * 1000) / 1000}
             min={0.1}
             step={0.5}
             onChange={(v) =>
-              set("length")((s) => ({ ...s, in: 0, out: Math.max(0.1, v ?? 0.1) * (s.speed ?? 1) }))
+              set("length")((s) => ({
+                ...s,
+                segments: [{ in: 0, out: Math.max(0.1, v ?? 0.1) * (s.speed ?? 1) }],
+              }))
             }
           />
         ) : (
           <>
-            <div className="row">
-              <NumField
-                label={t("in")}
-                value={step.in}
-                min={0}
-                onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
-              />
-              <NumField
-                label={t("out")}
-                value={step.out}
-                min={0}
-                onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
-              />
-            </div>
+            {/* 区間が 2 つ以上(ステップをまとめたとき)は区間ごとに In / Out を出す。切れ目はここでだけ直す */}
+            {step.segments.length > 1 && <p className="hint">{t("segmentsHint")}</p>}
+            {step.segments.map((g, k) => {
+              const setSeg = (key: "in" | "out", v: number | undefined) =>
+                set(`segment${k}.${key}`)((s) => ({
+                  ...s,
+                  segments: s.segments.map((x, j) => (j === k ? { ...x, [key]: v ?? 0 } : x)),
+                }));
+              const many = step.segments.length > 1;
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 区間は id を持たない
+                <div className="row" key={k}>
+                  <NumField
+                    label={many ? `${t("segment")} ${k + 1} ${t("in")}` : t("in")}
+                    value={g.in}
+                    min={0}
+                    onChange={(v) => setSeg("in", v)}
+                  />
+                  <NumField
+                    label={many ? `${t("segment")} ${k + 1} ${t("out")}` : t("out")}
+                    value={g.out}
+                    min={0}
+                    onChange={(v) => setSeg("out", v)}
+                  />
+                </div>
+              );
+            })}
             <NumField
               label={t("speed")}
               value={step.speed ?? 1}

@@ -18,8 +18,8 @@ import {
 } from "../../core/defaults";
 import {
   addHold,
-  canMergeSteps,
   deleteStep,
+  mergeBlocker,
   resizeImageStepStart,
   splitStep,
   trimStep,
@@ -40,10 +40,13 @@ import {
 import type { Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
 import {
   baseDuration,
+  segmentBoundaries,
   sourceTimeAt,
   speechTimes,
   stepDuration,
   stepHolds,
+  stepIn,
+  stepOut,
   type TimelineEntry,
 } from "../../core/timeline";
 import { t } from "./i18n";
@@ -84,6 +87,14 @@ export interface MenuItem {
 }
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
+
+/** 右クリックの「次のステップとまとめる」。まとめられないときは理由を添えて押せなくする */
+export function mergeNextItem(project: Project, i: number, action: () => void): MenuItem {
+  const why = mergeBlocker(project, i);
+  const reason =
+    why === "otherSource" ? t("mergeOtherSource") : why === "otherSpeed" ? t("mergeOtherSpeed") : "";
+  return { label: `${t("mergeNext")}${reason}`, disabled: why !== null, action };
+}
 
 const VIDEO_H = 52;
 /** オブジェクトのレーンの 1 行の高さ */
@@ -621,7 +632,7 @@ export function Timeline(props: {
         label: t("addHoldEnd"),
         action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
       },
-      { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => props.onMergeNext(i) },
+      mergeNextItem(project, i, () => props.onMergeNext(i)),
       // ステップの録画の音(全体で消しているときは、全体の切り替えが先)。画像には音がない
       ...(isImageStep(entry.step)
         ? []
@@ -875,6 +886,15 @@ export function Timeline(props: {
                       <Icon name="muted" />
                     </span>
                   )}
+                  {/* 録画の区間の切れ目(ステップをまとめたとき)。ここで分割すると、まとめる前に戻せる */}
+                  {segmentBoundaries(step).map((b) => (
+                    <div
+                      key={`seg${b}`}
+                      className="tl-segment-cut"
+                      style={{ left: b * scale }}
+                      title={t("segmentCutTip")}
+                    />
+                  ))}
                   {/* ステップのフェードイン・フェードアウト(黒から現れる・黒へ消える区間) */}
                   {step.fadeIn ? (
                     <div
@@ -980,8 +1000,8 @@ export function Timeline(props: {
                       className={`tl-handle ${edge === "in" ? "left" : "right"}`}
                       title={t(edge === "in" ? "in" : "out")}
                       onPointerDown={(e) => {
-                        const v0 = edge === "in" ? step.in : step.out;
-                        const out0 = step.out;
+                        const v0 = edge === "in" ? stepIn(step) : stepOut(step);
+                        const out0 = stepOut(step);
                         const dur = m?.duration ?? Number.POSITIVE_INFINITY;
                         // 画像は左端を動かしても長さだけが変わる(in は 0 のまま。左へも伸ばせる)
                         const image = isImageStep(step);
@@ -997,7 +1017,10 @@ export function Timeline(props: {
                             update((p) => trim(p, v), key);
                             const s2 = trim(project, v).steps[i];
                             if (s2)
-                              props.onTrimPreview({ step: i, time: edge === "in" ? s2.in : s2.out - 0.001 });
+                              props.onTrimPreview({
+                                step: i,
+                                time: edge === "in" ? stepIn(s2) : stepOut(s2) - 0.001,
+                              });
                           },
                           () => props.onTrimPreview(null),
                         );

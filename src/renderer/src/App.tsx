@@ -10,10 +10,10 @@ import {
   withSpeechPieces,
 } from "../../core/defaults";
 import {
-  canMergeSteps,
   deleteStep,
   duplicateStep,
   followCaptions,
+  mergeBlocker,
   mergeSteps,
   moveStep,
   newProject,
@@ -85,7 +85,15 @@ import { SettingsDialog } from "./settings-dialog";
 import { SpeechStore } from "./speech";
 import { StepRail } from "./step-rail";
 import { ThumbCache } from "./thumbs";
-import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
+import {
+  fmtTime,
+  insertZoom,
+  type MenuItem,
+  mergeNextItem,
+  type Selection,
+  selectedStep,
+  Timeline,
+} from "./timeline";
 import { useClipboard } from "./use-clipboard";
 import { useExport } from "./use-export";
 import { type Banner, useProjectFile } from "./use-project-file";
@@ -420,8 +428,12 @@ export function App() {
         const step: Step = {
           id: uniqueStepId(p, "step"),
           source: id,
-          in: 0,
-          out: m.kind === "image" ? DEFAULT_IMAGE_STEP_SECONDS : Math.round(m.duration * 1000) / 1000,
+          segments: [
+            {
+              in: 0,
+              out: m.kind === "image" ? DEFAULT_IMAGE_STEP_SECONDS : Math.round(m.duration * 1000) / 1000,
+            },
+          ],
           // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
           caption: { text: "" },
           // 読み上げは、書き換えるまでテロップの文を読む
@@ -756,7 +768,7 @@ export function App() {
           },
         },
         { label: t("duplicate"), action: () => update((p) => duplicateStep(p, i)) },
-        { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => mergeNext(i) },
+        mergeNextItem(project, i, () => mergeNext(i)),
         {
           label: t("delete"),
           shortcut: keyLabel("delete"),
@@ -1135,7 +1147,7 @@ export function App() {
 
   /** ステップ i と次のステップをまとめる。前のステップの自動保持(読み上げが長い分)も保つ */
   const mergeNext = (i: number) => {
-    if (!canMergeSteps(project, i)) return;
+    if (mergeBlocker(project, i)) return;
     update((p) => mergeSteps(p, i, timeline[i]?.duration));
     setSelection({ kind: "step", step: i });
   };

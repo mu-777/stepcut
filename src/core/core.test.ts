@@ -19,6 +19,7 @@ import {
   duplicateStep,
   followCaptions,
   makeStepLayoutCommon,
+  mergeBlocker,
   mergeSteps,
   resizeImageStepStart,
   setStepLayout,
@@ -49,15 +50,29 @@ import {
   buildTimeline,
   continuousRuns,
   locate,
+  segmentBoundaries,
   sourceSegments,
   sourceTimeAt,
   speechTimes,
   stepDuration,
+  stepIn,
+  stepOut,
   totalDuration,
+  videoDuration,
 } from "./timeline";
 import { parseProject, parseProjectText } from "./validate";
 
-const step = (over: Partial<Step> = {}): Step => ({ id: "s", source: "rec", in: 10, out: 20, ...over });
+/** テスト用のステップ。in / out を書けば区間 1 つにする */
+const step = ({
+  in: a = 10,
+  out: b = 20,
+  ...over
+}: Partial<Step> & { in?: number; out?: number } = {}): Step => ({
+  id: "s",
+  source: "rec",
+  segments: [{ in: a, out: b }],
+  ...over,
+});
 const proj = (steps: Step[]): Project => ({
   format: "stepcut.project",
   version: 1,
@@ -327,7 +342,7 @@ describe("edit", () => {
 
   it("分割すると前半に要素が残り、後半は新しい id", () => {
     const r = splitStep(p, 0, 4, true);
-    expect(r.steps.map((s) => [s.id, s.in, s.out])).toEqual([
+    expect(r.steps.map((s) => [s.id, stepIn(s), stepOut(s)])).toEqual([
       ["a", 10, 13],
       ["a-2", 13, 20],
     ]);
@@ -372,13 +387,13 @@ describe("trim", () => {
   it("画像のステップは左端で長さを変え、in は 0 のまま、要素は伸びた分だけ後ろへずれる", () => {
     const s = step({ in: 0, out: 3, caption: { text: "c", start: 1 } });
     const longer = resizeImageStepStart(p(s), 0, 5).steps[0] as Step;
-    expect(longer).toMatchObject({ in: 0, out: 5, caption: { start: 3 } });
+    expect(longer).toMatchObject({ segments: [{ in: 0, out: 5 }], caption: { start: 3 } });
     const shorter = resizeImageStepStart(p(longer), 0, 0.01).steps[0] as Step;
-    expect(shorter.out).toBe(0.1);
+    expect(stepOut(shorter)).toBe(0.1);
   });
 
   it("Out は録画の長さで止まる", () => {
-    expect(trimStep(p(step()), 0, "out", 99, 30).steps[0]?.out).toBe(30);
+    expect(stepOut(trimStep(p(step()), 0, "out", 99, 30).steps[0] as Step)).toBe(30);
   });
 
   it("In を前へ広げると、要素の時刻を同じ分だけ後ろへずらす", () => {
@@ -389,7 +404,7 @@ describe("trim", () => {
       speech: { text: "s", start: 1 },
     });
     const out = trimStep(p(s), 0, "in", 8, 30).steps[0] as Step;
-    expect(out.in).toBe(8);
+    expect(stepIn(out)).toBe(8);
     expect(out.caption).toMatchObject({ start: 3, end: 5 });
     expect(out.zooms?.[0]).toMatchObject({ start: 4, end: 6 });
     expect(out.holds?.[0]?.at).toBe(7);
@@ -407,7 +422,7 @@ describe("trim", () => {
   });
 
   it("In は Out を越えない", () => {
-    expect(trimStep(p(step()), 0, "in", 25, 30).steps[0]?.in).toBeCloseTo(19.9);
+    expect(stepIn(trimStep(p(step()), 0, "in", 25, 30).steps[0] as Step)).toBeCloseTo(19.9);
   });
 });
 
@@ -471,17 +486,46 @@ describe("ステップをまとめる", () => {
     zooms: [{ start: 1, end: 2, keys: [{ t: 1, rect: { x: 0, y: 0, w: 10, h: 10 } }] }],
   });
 
-  it("同じ録画の続いた区間だけまとめられる", () => {
+  it("同じ録画で速度が同じならまとめられる(区間は続いていなくてよい)", () => {
     expect(canMergeSteps(proj([a, b]), 0)).toBe(true);
-    expect(canMergeSteps(proj([a, { ...b, in: 5 }]), 0)).toBe(false);
-    expect(canMergeSteps(proj([a, { ...b, speed: 2 }]), 0)).toBe(false);
+    expect(canMergeSteps(proj([a, { ...b, segments: [{ in: 5, out: 10 }] }]), 0)).toBe(true);
+    expect(mergeBlocker(proj([a, { ...b, speed: 2 }]), 0)).toBe("otherSpeed");
+    expect(mergeBlocker(proj([a, { ...b, source: "rec2" }]), 0)).toBe("otherSource");
+    expect(mergeBlocker(proj([a]), 0)).toBe("noNext");
+  });
+
+  it("続いた区間は 1 つにつなぎ、飛ぶ・戻る区間は並べる", () => {
+    expect(mergeSteps(proj([a, b]), 0).steps[0]?.segments).toEqual([{ in: 0, out: 10 }]);
+    const gap = mergeSteps(proj([a, { ...b, segments: [{ in: 6, out: 10 }] }]), 0).steps[0] as Step;
+    expect(gap.segments).toEqual([
+      { in: 0, out: 4 },
+      { in: 6, out: 10 },
+    ]);
+    const back = mergeSteps(
+      proj([
+        { ...a, segments: [{ in: 4, out: 8 }] },
+        { ...b, segments: [{ in: 0, out: 4 }] },
+      ]),
+      0,
+    );
+    expect(back.steps[0]?.segments).toEqual([
+      { in: 4, out: 8 },
+      { in: 0, out: 4 },
+    ]);
+    expect(parseProject(back).ok).toBe(true);
+  });
+
+  it("画像は長さを足した 1 つの区間にする", () => {
+    const img: Project = { ...proj([]), sources: [{ id: "rec", path: "a.png" }] };
+    const r = mergeSteps({ ...img, steps: [step({ in: 0, out: 3 }), step({ id: "t", in: 0, out: 2 })] }, 0);
+    expect(r.steps[0]?.segments).toEqual([{ in: 0, out: 5 }]);
   });
 
   it("後ろの要素は前の長さ(自動保持を含む)だけずらし、自動保持は明示した保持にする", () => {
     const r = mergeSteps(proj([a, b]), 0, 5);
     expect(r.steps).toHaveLength(1);
     const m = r.steps[0] as Step;
-    expect(m).toMatchObject({ id: "a", in: 0, out: 10, caption: { text: "同じ" } });
+    expect(m).toMatchObject({ id: "a", segments: [{ in: 0, out: 10 }], caption: { text: "同じ" } });
     expect(m.holds).toEqual([{ at: 4, duration: 1 }]);
     // hold が既定(true)のズームも保持になる
     expect(m.zooms?.[0]).toMatchObject({ start: 6, end: 7 });
@@ -759,5 +803,89 @@ describe("オブジェクトの終わりとステップの長さ", () => {
       end: 12,
     };
     expect(stepDuration(step({ pointers: [p] }))).toBe(12);
+  });
+});
+
+describe("複数の区間を持つステップ", () => {
+  // 0〜4 秒のあと 6〜8 秒へ飛び、さらに 1〜2 秒へ戻る(長さ 4 + 2 + 1 = 7 秒)
+  const s = step({
+    segments: [
+      { in: 0, out: 4 },
+      { in: 6, out: 8 },
+      { in: 1, out: 2 },
+    ],
+  });
+
+  it("長さは区間の合計で、出力時刻を区間の並びでたどる", () => {
+    expect(videoDuration(s)).toBe(7);
+    expect(sourceTimeAt(s, 3)).toBe(3);
+    expect(sourceTimeAt(s, 4)).toBe(6);
+    expect(sourceTimeAt(s, 5.5)).toBe(7.5);
+    expect(sourceTimeAt(s, 6.5)).toBe(1.5);
+    expect(sourceTimeAt(s, 7)).toBeCloseTo(2 - 0.001);
+    expect(segmentBoundaries(s)).toEqual([4, 6]);
+  });
+
+  it("保持は出力時刻のまま効き、区間の切れ目は保持の分だけ後ろへずれる", () => {
+    const h = { ...s, holds: [{ at: 1, duration: 2 }] };
+    expect(sourceTimeAt(h, 2)).toBe(1);
+    expect(sourceTimeAt(h, 6)).toBe(6);
+    expect(segmentBoundaries(h)).toEqual([6, 8]);
+    expect(sourceSegments(h)).toEqual([
+      { outStart: 0, outEnd: 1, srcStart: 0, srcEnd: 1 },
+      { outStart: 3, outEnd: 6, srcStart: 1, srcEnd: 4 },
+      { outStart: 6, outEnd: 8, srcStart: 6, srcEnd: 8 },
+      { outStart: 8, outEnd: 9, srcStart: 1, srcEnd: 2 },
+    ]);
+  });
+
+  it("区間の切れ目で分割すると区間ごとに分かれ、途中なら区間を切る", () => {
+    const at = splitStep(proj([s]), 0, 4, true);
+    expect(at.steps.map((x) => x.segments)).toEqual([
+      [{ in: 0, out: 4 }],
+      [
+        { in: 6, out: 8 },
+        { in: 1, out: 2 },
+      ],
+    ]);
+    const mid = splitStep(proj([s]), 0, 5, true);
+    expect(mid.steps.map((x) => x.segments)).toEqual([
+      [
+        { in: 0, out: 4 },
+        { in: 6, out: 7 },
+      ],
+      [
+        { in: 7, out: 8 },
+        { in: 1, out: 2 },
+      ],
+    ]);
+  });
+
+  it("端のドラッグは最初の区間の in と最後の区間の out を動かす", () => {
+    const p = proj([s]);
+    expect(trimStep(p, 0, "in", 0.5, 30).steps[0]?.segments[0]).toEqual({ in: 0.5, out: 4 });
+    expect(trimStep(p, 0, "out", 3, 30).steps[0]?.segments[2]).toEqual({ in: 1, out: 3 });
+  });
+
+  it("再生で読み続ける区間は、ステップの中の続いていない切れ目でも分ける", () => {
+    const tl = buildTimeline([s, step({ id: "b", segments: [{ in: 2, out: 3 }] })], new Map());
+    expect(continuousRuns(tl)).toEqual([
+      { from: 0, to: 0, start: 0, end: 4 },
+      { from: 0, to: 0, start: 4, end: 6 },
+      { from: 0, to: 1, start: 6, end: 8 },
+    ]);
+  });
+
+  it("区間ごとに in < out を検証する", () => {
+    const bad = proj([
+      step({
+        segments: [
+          { in: 0, out: 4 },
+          { in: 6, out: 6 },
+        ],
+      }),
+    ]);
+    const r = parseProject(bad);
+    expect(r.ok).toBe(false);
   });
 });

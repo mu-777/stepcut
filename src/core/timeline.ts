@@ -1,7 +1,7 @@
 // ステップ内の出力時刻とソース時刻の対応(docs/project-format.md 4 章)。
 import { HOLD_TRANSITION, speechPieces, stepSpeed, zoomHoldMode } from "./defaults";
 import { carriedZooms } from "./layout";
-import type { Hold, Step, Zoom } from "./schema";
+import type { Hold, Segment, Step, Zoom } from "./schema";
 
 // ソースの out ちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
 const LAST_FRAME_EPSILON = 0.001;
@@ -25,9 +25,63 @@ export function stepHolds(step: Step): Hold[] {
   return holds.sort((a, b) => a.at - b.at);
 }
 
+/** ステップの最初の区間の in(録画の時刻) */
+export function stepIn(step: Step): number {
+  return (step.segments[0] as Segment).in;
+}
+
+/** ステップの最後の区間の out(録画の時刻) */
+export function stepOut(step: Step): number {
+  return (step.segments[step.segments.length - 1] as Segment).out;
+}
+
+/** 区間の長さ(録画の秒)の合計 */
+export function sourceLength(step: Step): number {
+  return step.segments.reduce((sum, g) => sum + Math.max(0, g.out - g.in), 0);
+}
+
 /** 保持を除いた映像部分の出力上の長さ */
 export function videoDuration(step: Step): number {
-  return Math.max(0, step.out - step.in) / stepSpeed(step);
+  return sourceLength(step) / stepSpeed(step);
+}
+
+/**
+ * 映像の時刻 v(保持を除いた出力上の時刻)を録画の時刻にする。区間の切れ目ちょうどは次の区間の始まり。
+ * 区間の終わりちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
+ */
+function videoToSource(step: Step, v: number): number {
+  const speed = stepSpeed(step);
+  let rest = Math.max(0, v) * speed;
+  const last = step.segments.length - 1;
+  for (let k = 0; k <= last; k++) {
+    const g = step.segments[k] as Segment;
+    const len = Math.max(0, g.out - g.in);
+    if (rest < len || k === last) return Math.max(g.in, Math.min(g.in + rest, g.out - LAST_FRAME_EPSILON));
+    rest -= len;
+  }
+  return 0;
+}
+
+/** 映像の時刻 v(保持を除いた時刻)をステップ内の出力時刻にする(その時刻までの保持を足す) */
+function videoToOutput(step: Step, v: number): number {
+  let t = v;
+  for (const h of stepHolds(step)) {
+    if (h.at <= t) t += h.duration;
+    else break;
+  }
+  return t;
+}
+
+/** 2 つ目以降の区間が始まる、ステップ内の出力時刻(区間の切れ目。タイムラインの印と分割に使う) */
+export function segmentBoundaries(step: Step): number[] {
+  const speed = stepSpeed(step);
+  const out: number[] = [];
+  let v = 0;
+  step.segments.slice(0, -1).forEach((g) => {
+    v += Math.max(0, g.out - g.in) / speed;
+    out.push(videoToOutput(step, v));
+  });
+  return out;
 }
 
 /** 保持を含み、読み上げによる自動保持を含まない長さ */
@@ -70,6 +124,47 @@ export function stepDuration(step: Step, speechDurations: readonly number[] = []
   return Math.max(baseDuration(step), speechEnd, objectEnd);
 }
 
+/** 出力時刻 t に表示する映像の時刻(保持を除いた時刻。保持の途中は保持の開始) */
+export function videoTimeAt(step: Step, t: number): number {
+  let held = 0;
+  let at = t;
+  for (const h of stepHolds(step)) {
+    if (at < h.at) break;
+    if (at < h.at + h.duration) {
+      at = h.at;
+      break;
+    }
+    held += h.duration;
+  }
+  return Math.min(Math.max(0, at - held), videoDuration(step));
+}
+
+/**
+ * 区間の並びを、映像の時刻 v で前後に分ける。区間の切れ目ちょうどなら区間をそのまま分け、区間の途中ならその区間を切る。
+ * 端(v が 0 以下か映像の長さ以上)なら null
+ */
+export function splitSegments(step: Step, v: number): { first: Segment[]; rest: Segment[] } | null {
+  const speed = stepSpeed(step);
+  let rest = v * speed;
+  if (rest <= 1e-6 || rest >= sourceLength(step) - 1e-6) return null;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  for (let k = 0; k < step.segments.length; k++) {
+    const g = step.segments[k] as Segment;
+    const len = g.out - g.in;
+    if (rest < len - 1e-6) {
+      const before = step.segments.slice(0, k);
+      const after = step.segments.slice(k + 1);
+      if (rest <= 1e-6) return { first: before, rest: [g, ...after] };
+      const at = r3(g.in + rest);
+      return { first: [...before, { in: g.in, out: at }], rest: [{ in: at, out: g.out }, ...after] };
+    }
+    rest -= len;
+    if (Math.abs(rest) <= 1e-6)
+      return { first: step.segments.slice(0, k + 1), rest: step.segments.slice(k + 1) };
+  }
+  return null;
+}
+
 /** 出力時刻 t に表示するソースの時刻 */
 export function sourceTimeAt(step: Step, t: number): number {
   let held = 0;
@@ -83,9 +178,7 @@ export function sourceTimeAt(step: Step, t: number): number {
     }
     held += h.duration;
   }
-  const v = Math.min(Math.max(0, at - held), videoDuration(step));
-  const src = step.in + v * stepSpeed(step);
-  return Math.max(step.in, Math.min(src, step.out - LAST_FRAME_EPSILON));
+  return videoToSource(step, Math.min(Math.max(0, at - held), videoDuration(step)));
 }
 
 export interface SourceSegment {
@@ -97,24 +190,38 @@ export interface SourceSegment {
   srcEnd: number;
 }
 
-/** 映像が動いている区間(保持を除く)と、対応するソースの区間。元の音声の配置に使う */
+/** 映像が動いている区間(保持を除く)と、対応するソースの区間。保持と区間の切れ目で分ける。元の音声の配置に使う */
 export function sourceSegments(step: Step): SourceSegment[] {
   const speed = stepSpeed(step);
   const vDur = videoDuration(step);
+  // 区間ごとの映像の時刻の範囲
+  const ranges: { v0: number; v1: number; src: number }[] = [];
+  let acc = 0;
+  for (const g of step.segments) {
+    const len = Math.max(0, g.out - g.in) / speed;
+    ranges.push({ v0: acc, v1: acc + len, src: g.in });
+    acc += len;
+  }
   const segments: SourceSegment[] = [];
   let outCursor = 0;
   let videoCursor = 0;
   const push = (outEnd: number) => {
     const len = Math.min(outEnd - outCursor, vDur - videoCursor);
-    if (len > 0) {
+    if (len <= 0) return;
+    const a = videoCursor;
+    const b = videoCursor + len;
+    for (const r of ranges) {
+      const s = Math.max(a, r.v0);
+      const e = Math.min(b, r.v1);
+      if (e <= s) continue;
       segments.push({
-        outStart: outCursor,
-        outEnd: outCursor + len,
-        srcStart: step.in + videoCursor * speed,
-        srcEnd: step.in + (videoCursor + len) * speed,
+        outStart: outCursor + (s - a),
+        outEnd: outCursor + (e - a),
+        srcStart: r.src + (s - r.v0) * speed,
+        srcEnd: r.src + (e - r.v0) * speed,
       });
-      videoCursor += len;
     }
+    videoCursor = b;
   };
   for (const h of stepHolds(step)) {
     push(h.at);
@@ -179,21 +286,28 @@ export function audioChunkRanges(duration: number, chunk = AUDIO_EXPORT_CHUNK): 
 
 /**
  * from 番目のステップから後ろを「続いた区間」にまとめる(再生で 1 本のデコードで読み続ける単位)。
- * 同じ録画で、前のステップの Out と次のステップの In が同じなら続いているとみなす。start / end は全体の時刻
+ * 同じ録画で、前の区間の out と次の区間の in が同じなら続いているとみなす(ステップをまたいでも、ステップの中でも)。
+ * 続いていない区間の切れ目では、ステップの途中でも分ける。from / to はステップの番号、start / end は全体の時刻
  */
 export function continuousRuns(
   timeline: TimelineEntry[],
   from = 0,
 ): { from: number; to: number; start: number; end: number }[] {
   const runs: { from: number; to: number; start: number; end: number }[] = [];
+  let prev: { source: string; out: number } | null = null;
   for (let i = from; i < timeline.length; i++) {
     const e = timeline[i] as TimelineEntry;
-    const last = runs[runs.length - 1];
-    const prev = timeline[i - 1];
-    if (last && prev && prev.step.source === e.step.source && Math.abs(prev.step.out - e.step.in) < 1e-3) {
-      last.to = i;
-      last.end = e.start + e.duration;
-    } else runs.push({ from: i, to: i, start: e.start, end: e.start + e.duration });
+    const cuts = segmentBoundaries(e.step);
+    e.step.segments.forEach((g, k) => {
+      const start = e.start + (k === 0 ? 0 : (cuts[k - 1] as number));
+      const end = k === e.step.segments.length - 1 ? e.start + e.duration : e.start + (cuts[k] as number);
+      const last = runs[runs.length - 1];
+      if (last && prev && prev.source === e.step.source && Math.abs(prev.out - g.in) < 1e-3) {
+        last.to = i;
+        last.end = end;
+      } else runs.push({ from: i, to: i, start, end });
+      prev = { source: e.step.source, out: g.out };
+    });
   }
   return runs;
 }

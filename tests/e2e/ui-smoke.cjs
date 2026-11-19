@@ -65,12 +65,11 @@ fs.writeFileSync(
         {
           id: "first",
           source: "rec1",
-          in: 0,
-          out: 4,
+          segments: [{ in: 0, out: 4 }],
           caption: { text: "最初のステップ" },
           speech: { text: "最初のステップです。" },
         },
-        { id: "second", source: "rec1", in: 4, out: 8, caption: { text: "Second step" } },
+        { id: "second", source: "rec1", segments: [{ in: 4, out: 8 }], caption: { text: "Second step" } },
       ],
     },
     null,
@@ -2160,7 +2159,7 @@ function fakeVoicevox() {
         format: "stepcut.project",
         version: 1,
         sources: [{ id: "rec1", path: "moved.mp4" }],
-        steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],
+        steps: [{ id: "a", source: "rec1", segments: [{ in: 0, out: 4 }], caption: { text: "a" } }],
       }),
     );
     r = await launchWith(lostPath);
