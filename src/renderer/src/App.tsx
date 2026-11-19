@@ -30,6 +30,7 @@ import {
   zoomRectAt,
 } from "../../core/layout";
 import {
+  type AnyObject,
   isScreenAnchored,
   moveObject,
   type ObjectRef,
@@ -67,7 +68,6 @@ import {
 import { actionOf, keyLabel, withKey } from "./keymap";
 import { openMedia, releaseMedia, type SourceMedia } from "./media";
 import { hitObject, ObjectEditor, objectSnapBoxes, zoomSnapBoxes } from "./object-editor";
-import { objectTextInputId } from "./object-panel";
 import {
   insertObject,
   NEW_OBJECT_KINDS,
@@ -145,6 +145,10 @@ export function App() {
   const [drawingZoom, setDrawingZoom] = useState<DrawingZoom | null>(null);
   /** プレビュー上でテロップの文字を入力中のステップ */
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
+  /** プレビュー上で文を入力中の文字のオブジェクト(selectAll なら始めに文をすべて選ぶ) */
+  const [textEdit, setTextEdit] = useState<{ step: number; index: number; selectAll: boolean } | null>(null);
+  /** プレビューのクリックで選んだ文字のオブジェクト(ドラッグせずに離したら入力を始める) */
+  const pickedText = useRef<{ step: number; index: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** アプリの設定を開いているか("shortcuts" ならキー操作の欄まで送る) */
   const [settingsOpen, setSettingsOpen] = useState<false | true | "shortcuts" | "engines">(false);
@@ -317,6 +321,7 @@ export function App() {
     projectPath: filePath,
     captionPlaceholder: t("captionPlaceholder"),
     hideCaptionStep: captionEdit,
+    hideObjectText: textEdit ? { step: textEdit.step, ref: { kind: "shape", index: textEdit.index } } : null,
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -377,7 +382,18 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
   useLayoutEffect(() => {
     playerRef.current?.renderStill();
-  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion, imgVersion, captionEdit, selection]);
+  }, [
+    project,
+    timeline,
+    media,
+    trimPreview,
+    drawingZoom,
+    bgVersion,
+    imgVersion,
+    captionEdit,
+    textEdit,
+    selection,
+  ]);
 
   // 選択が範囲外になったら(削除・外部変更)プロジェクトの選択に戻す
   useEffect(() => {
@@ -983,13 +999,8 @@ export function App() {
     if (!loc || loc.entry.index !== i || Math.abs(loc.local - local) > 1e-3)
       playerRef.current?.seek(e.start + local);
     setSelection({ kind: r.ref.kind, step: i, index: r.ref.index });
-    // 文字はすぐ文を打てるようにする(欄が開いてから)
-    if (kind === "text")
-      setTimeout(() => {
-        const el = document.getElementById(objectTextInputId(r.ref.index)) as HTMLTextAreaElement | null;
-        el?.focus();
-        el?.select();
-      }, 80);
+    // 文字はプレビュー上ですぐ文を打てるようにする(仮の文をすべて選んでおく)
+    if (kind === "text") setTextEdit({ step: i, index: r.ref.index, selectAll: true });
   };
 
   /**
@@ -1195,6 +1206,18 @@ export function App() {
   useEffect(() => {
     if (captionEdit !== null && !captionEditing) setCaptionEdit(null);
   }, [captionEdit, captionEditing]);
+  // 文字のオブジェクトの入力は、そのオブジェクトを選んでいて、停止中に再生位置がそのステップにある間だけ続ける
+  const textEditing =
+    textEdit !== null &&
+    !playing &&
+    selection.kind === "shape" &&
+    selection.step === textEdit.step &&
+    selection.index === textEdit.index &&
+    loc?.entry.index === textEdit.step &&
+    project.steps[textEdit.step]?.shapes?.[textEdit.index]?.type === "text";
+  useEffect(() => {
+    if (textEdit !== null && !textEditing) setTextEdit(null);
+  }, [textEdit, textEditing]);
   /**
    * プレビューでのテロップの置き方の変更(位置・幅)。常にそのステップの個別の値にする。
    * 全ステップ共通にするのは、文のパネルの「この位置を共通にする」か共通の欄の数値
@@ -1738,7 +1761,24 @@ ${t("renameTip")}`}
                   onChange={(next, key) =>
                     patchObject(update, selObject.step, selObject.ref, () => next, key)
                   }
-                  onEditText={() => document.getElementById(objectTextInputId(selObject.ref.index))?.focus()}
+                  onEditText={() =>
+                    setTextEdit({ step: selObject.step, index: selObject.ref.index, selectAll: false })
+                  }
+                  editingText={
+                    textEdit && textEdit.step === selObject.step && textEdit.index === selObject.ref.index
+                      ? { selectAll: textEdit.selectAll }
+                      : null
+                  }
+                  onText={(text) =>
+                    patchObject(
+                      update,
+                      selObject.step,
+                      selObject.ref,
+                      (x) => ({ ...x, text }) as AnyObject,
+                      `step${selObject.step}.shape${selObject.ref.index}.text`,
+                    )
+                  }
+                  onEditTextEnd={() => setTextEdit(null)}
                   outside={shapeOutsideVideo(o, m?.width || 1920, m?.height || 1080)}
                   targets={[
                     ...objectSnapBoxes(
@@ -1799,6 +1839,10 @@ ${t("renameTip")}`}
               );
               const sg = screenGeometry(stage.w, stage.h, g.video);
               const hit = hitObject(project, st, loc.local, loc.entry.duration, g, sg, stage.h, p);
+              pickedText.current =
+                hit?.kind === "shape" && st.shapes?.[hit.index]?.type === "text"
+                  ? { step: loc.entry.index, index: hit.index }
+                  : null;
               if (hit) {
                 setSelection({ kind: hit.kind, step: loc.entry.index, index: hit.index });
                 return true;
@@ -1809,6 +1853,11 @@ ${t("renameTip")}`}
                 return true;
               }
               return false;
+            }}
+            onPickClick={() => {
+              // 文字のオブジェクトはテロップと同じく、ドラッグせずにクリックしたらその場で文の入力を始める
+              const picked = pickedText.current;
+              if (picked) setTextEdit({ ...picked, selectAll: false });
             }}
             onAddSource={project.steps.length === 0 ? () => void actions.current.addSource?.() : undefined}
             onContextLost={() => {

@@ -1916,6 +1916,35 @@ button.icon.play {
   pointer-events: none;
 }
 
+/* プレビュー上で文字のオブジェクトの文を入力中。枠に重ね、入力欄は行のまとまりの高さで上下の中央に置く
+   (枠より行が多ければ、描画と同じく枠の上下にはみ出す) */
+.object-text-edit {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  outline: 1px dashed var(--accent);
+  z-index: 3;
+}
+
+.object-text-input {
+  display: block;
+  width: 100%;
+  field-sizing: content;
+  resize: none;
+  overflow: visible;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.object-text-input::placeholder {
+  color: inherit;
+  opacity: 0.45;
+}
+
 /* 図形の枠は中身(塗り・文字)が見えるよう、枠だけを出す */
 .object-layer .box-outline {
   background: transparent;

@@ -38,6 +38,8 @@ export interface PlayerState {
   captionPlaceholder?: string;
   /** テロップを描かないステップの番号(プレビュー上でテロップの文を入力中) */
   hideCaptionStep?: number | null;
+  /** 文を描かない文字のオブジェクト(プレビュー上で文を入力中) */
+  hideObjectText?: { step: number; ref: ObjectRef } | null;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -149,6 +151,7 @@ export class Player {
       images: st.images ? (p) => st.images?.get(p, st.projectPath) ?? null : undefined,
       captionPlaceholder: st.captionPlaceholder,
       hideCaption: entry !== null && st.hideCaptionStep === entry.index,
+      hideObjectText: entry && st.hideObjectText?.step === entry.index ? st.hideObjectText.ref : undefined,
     });
   }
 

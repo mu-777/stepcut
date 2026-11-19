@@ -45,6 +45,8 @@ export interface FrameInput {
   images?: (path: string) => Img | null;
   /** 出ている間ならフェード・点滅に関わらず出すオブジェクト(編集画面で選んでいるもの) */
   showObject?: ObjectRef;
+  /** 文を描かない文字のオブジェクト(プレビュー上で文を入力中) */
+  hideObjectText?: ObjectRef;
 }
 
 /** 1 フレームの配置。video はズームなしの録画の領域、view は映すソースの範囲、box はそれを描く領域(出力のピクセル) */
@@ -146,6 +148,7 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
       outScale: scale,
       images: f.images,
       show: f.showObject,
+      hideText: f.hideObjectText,
     });
   }
 
