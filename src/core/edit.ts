@@ -1,6 +1,6 @@
 // ステップの編集操作(STP-05, STP-06)。プロジェクトは書き換えず、新しいオブジェクトを返す。
 
-import { resolveLayout, speechPieces, stepSpeed, withSpeechPieces } from "./defaults";
+import { resolveLayout, speechPieces, speechStartOffset, stepSpeed, withSpeechPieces } from "./defaults";
 import { cutObjectAt, objectGone, objectWindow, shiftObject } from "./objects";
 import type { Margin, Project, SpeechPiece, Step, StepLayout } from "./schema";
 import { baseDuration, sourceTimeAt, stepHolds, videoDuration } from "./timeline";
@@ -93,12 +93,10 @@ export function shiftStepElements(step: Step, dt: number): Step {
     next.caption = c;
   }
   if (step.speech) {
-    const pieces = speechPieces(step).map((p, k) => {
+    const pieces = speechPieces(step).map((p) => {
       if (p.start === undefined) return p;
       const start = r3(Math.max(0, p.start + dt));
-      const { start: _s, ...rest } = p;
-      // 最初の読み上げの 0 は既定値なので書かない
-      return start === 0 && k === 0 ? rest : { ...rest, start };
+      return { ...p, start };
     });
     Object.assign(next, withSpeechPieces(next, pieces));
   }
@@ -243,7 +241,8 @@ export function mergeSteps(project: Project, index: number, firstDuration?: numb
   const mergedText = merged.caption?.text;
   const piecesA = fix(a, speechPieces(a), mergedText === a.caption?.text);
   const piecesB = fix(b, speechPieces(shiftedB), piecesA.length === 0 && mergedText === b.caption?.text).map(
-    (p, k) => (k === 0 && p.start === undefined ? { ...p, start: r3(offset) } : p),
+    (p, k) =>
+      k === 0 && p.start === undefined ? { ...p, start: r3(offset + speechStartOffset(project)) } : p,
   );
   const result = withSpeechPieces(merged, [...piecesA, ...piecesB]);
   if (b.audio && !a.audio) result.audio = b.audio;

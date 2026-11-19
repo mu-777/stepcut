@@ -5,6 +5,7 @@ import {
   highlightPathAt,
   isPath,
   isScreenAnchored,
+  moveObject,
   objectAlpha,
   objectImages,
   objectWindow,
@@ -301,5 +302,16 @@ describe("オブジェクト", () => {
       steps: [{ id: "s", source: "a", in: 0, out: 5, shapes: [{ type: "star", start: 0 }] }],
     });
     expect(unknown.ok).toBe(false);
+  });
+});
+
+describe("位置をずらす", () => {
+  it("ポインターは軌跡ごと、図形は枠・両端を動かす", () => {
+    expect(moveObject(pointer, 10, -1).path.map((p) => [p.x, p.y])).toEqual(
+      pointer.path.map((p) => [p.x + 10, p.y - 1]),
+    );
+    expect(moveObject(image, 1, 2)).toMatchObject({ rect: { x: 1, y: 2, w: 10, h: 10 } });
+    const arrow: Shape = { type: "arrow", start: 0, from: { x: 0, y: 0 }, to: { x: 5, y: 5 } };
+    expect(moveObject(arrow, -1, 1)).toMatchObject({ from: { x: -1, y: 1 }, to: { x: 4, y: 6 } });
   });
 });

@@ -6,6 +6,7 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   withSpeechPieces,
 } from "../../core/defaults";
 import {
@@ -30,6 +31,7 @@ import {
 } from "../../core/layout";
 import {
   isScreenAnchored,
+  moveObject,
   type ObjectRef,
   objectOf,
   objectWindow,
@@ -245,7 +247,10 @@ export function App() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で読み上げの長さの更新を拾う
   const speechDurations = useMemo(() => speech.durations(project), [project, speechVersion]);
-  const timeline = useMemo(() => buildTimeline(project.steps, speechDurations), [project, speechDurations]);
+  const timeline = useMemo(
+    () => buildTimeline(project.steps, speechDurations, speechStartOffset(project)),
+    [project, speechDurations],
+  );
   const total = totalDuration(timeline);
   const issues = useMemo(() => {
     const r = parseProject(project);
@@ -479,8 +484,16 @@ export function App() {
     const pl = playerRef.current;
     if (!pl) return;
     const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
-    if (dir < 0) pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
-    else pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    const to =
+      dir < 0
+        ? ([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0)
+        : (boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    pl.seek(to);
+    // ステップ(要素ではなく)を選んでいるときは、移った先のステップを選ぶ(設定パネルとサムネイルの枠が付いてくる)
+    if (selection.kind === "step" && view === "step") {
+      const l = locate(timeline, to);
+      if (l && l.entry.index !== selection.step) setSelection({ kind: "step", step: l.entry.index });
+    }
   };
 
   // キー操作は一般的な動画編集アプリに合わせる(docs/decisions/20261029-timeline-ui.md)
@@ -650,6 +663,22 @@ export function App() {
           ),
         }),
         "nudge-zoom",
+      );
+      return true;
+    }
+    // 選んでいるオブジェクトを動かす(ポインターは軌跡ごと)
+    if ((selection.kind === "pointer" || selection.kind === "shape") && !playing) {
+      const ref: ObjectRef = { kind: selection.kind, index: selection.index };
+      const i = selection.step;
+      if (!project.steps[i] || !objectOf(project.steps[i] as Step, ref)) return false;
+      update(
+        (p) => ({
+          ...p,
+          steps: p.steps.map((s, k) =>
+            k === i ? patchStepObject(s, ref, (o) => moveObject(o, dx * n, dy * n)) : s,
+          ),
+        }),
+        "nudge-object",
       );
       return true;
     }
@@ -916,7 +945,17 @@ export function App() {
     // ステップの終わりちょうどでは見えないので、少し手前に作る
     const local = place && place.entry.index === i ? Math.min(place.local, Math.max(0, e.duration - 0.5)) : 0;
     const m = media.get(st.source);
-    const g = frameGeometry(project, st, local, out.width, out.height, m?.width || 1920, m?.height || 1080);
+    const g = frameGeometry(
+      project,
+      st,
+      local,
+      out.width,
+      out.height,
+      m?.width || 1920,
+      m?.height || 1080,
+      false,
+      e.carry,
+    );
     playerRef.current?.stop();
     const b = g.box;
     const inVideo = at && at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h;
@@ -951,7 +990,17 @@ export function App() {
     if (!st || !s || (anchor === "screen") === isScreenAnchored(s)) return;
     const local = loc && loc.entry.index === i ? loc.local : 0;
     const m = media.get(st.source);
-    const g = frameGeometry(project, st, local, out.width, out.height, m?.width || 1920, m?.height || 1080);
+    const g = frameGeometry(
+      project,
+      st,
+      local,
+      out.width,
+      out.height,
+      m?.width || 1920,
+      m?.height || 1080,
+      false,
+      timeline[i]?.carry,
+    );
     const sg = screenGeometry(out.width, out.height, g.video);
     const [from, to] = anchor === "screen" ? [g, sg] : [sg, g];
     const next = reanchorShape(
@@ -976,7 +1025,17 @@ export function App() {
       const { entry, local } = loc;
       const step = entry.step;
       if (!playing) {
-        const g = frameGeometry(project, step, local, out.width, out.height, locMedia.width, locMedia.height);
+        const g = frameGeometry(
+          project,
+          step,
+          local,
+          out.width,
+          out.height,
+          locMedia.width,
+          locMedia.height,
+          false,
+          entry.carry,
+        );
         const sg = screenGeometry(out.width, out.height, g.video);
         const hitRef = hitObject(project, step, local, entry.duration, g, sg, out.height, pt);
         if (hitRef) {
@@ -1009,7 +1068,7 @@ export function App() {
         items.push({ label: t("drawRect"), action: () => editZoomRect(entry.index, hit) });
       } else if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
         // 表示中の範囲(ズーム中ならその範囲)の中で、クリックした点をソースの座標にする
-        const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop);
+        const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop, entry.carry);
         const center = { x: view.x + fx * view.w, y: view.y + fy * view.h };
         items.push({
           label: `＋ ${t("zooms")}`,
@@ -1371,6 +1430,11 @@ ${t("renameTip")}`}
           }}
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
+          onMove={(from, to) => {
+            update((p) => moveStep(p, from, to));
+            setView("step");
+            setSelection({ kind: "step", step: to });
+          }}
           onDropFiles={(files) => {
             const paths = files
               .filter((f) => /\.mp4$/i.test(f.name) || isImageSource(f.name))
@@ -1649,6 +1713,8 @@ ${t("renameTip")}`}
                 stage.h,
                 m?.width || 1920,
                 m?.height || 1080,
+                false,
+                loc.entry.carry,
               );
               return (
                 <ObjectEditor
@@ -1692,6 +1758,7 @@ ${t("renameTip")}`}
                 m?.width || 1920,
                 m?.height || 1080,
                 zoomEditing,
+                loc.entry.carry,
               );
               const sg = screenGeometry(stage.w, stage.h, g.video);
               return [
@@ -1715,6 +1782,8 @@ ${t("renameTip")}`}
                 stage.h,
                 m?.width || 1920,
                 m?.height || 1080,
+                false,
+                loc.entry.carry,
               );
               const sg = screenGeometry(stage.w, stage.h, g.video);
               const hit = hitObject(project, st, loc.local, loc.entry.duration, g, sg, stage.h, p);

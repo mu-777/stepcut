@@ -399,6 +399,35 @@ textarea {
   border-bottom-right-radius: 3px;
 }
 
+/* 並べ替えのドラッグ: 運んでいるサムネイルを薄くし、落とす位置に線を出す */
+.rail-thumb.moving {
+  opacity: 0.4;
+}
+
+.rail-thumbs li {
+  position: relative;
+}
+
+.rail-thumbs li.drop-before::before,
+.rail-thumbs li.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.rail-thumbs li.drop-before::before {
+  top: -4px;
+}
+
+.rail-thumbs li.drop-after::after {
+  bottom: -4px;
+}
+
 /* 再生位置のステップは番号の色で示す */
 .rail-thumb.playhead .rail-num {
   color: #ff6b5b;

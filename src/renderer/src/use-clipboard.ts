@@ -1,5 +1,5 @@
 import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef, useState } from "react";
-import { speechPieces, speechText, withSpeechPieces } from "../../core/defaults";
+import { speechPieces, speechStartOffset, speechText, withSpeechPieces } from "../../core/defaults";
 import { retimeZoom } from "../../core/layout";
 import { objectOf } from "../../core/objects";
 import type { Project, Zoom, ZoomKey } from "../../core/schema";
@@ -119,7 +119,7 @@ export function useClipboard({
     const st = l.entry.step;
     const local = Math.round(Math.min(l.local, baseDuration(st)) * 1000) / 1000;
     const pieces = speechPieces(st);
-    const times = speechTimes(st, speechDurations.get(st.id) ?? []);
+    const times = speechTimes(st, speechDurations.get(st.id) ?? [], speechStartOffset(project));
     const k = times.findIndex((x) => x.start > local);
     const index = k < 0 ? pieces.length : k;
     const piece = { ...clip.piece, start: local };

@@ -1,6 +1,7 @@
 // ステップ内の出力時刻とソース時刻の対応(docs/project-format.md 4 章)。
 import { HOLD_TRANSITION, speechPieces, stepSpeed, zoomHoldMode } from "./defaults";
-import type { Hold, Step } from "./schema";
+import { carriedZooms } from "./layout";
+import type { Hold, Step, Zoom } from "./schema";
 
 // ソースの out ちょうどは次の区間の先頭フレームになりうるので、少し手前を最終フレームとする
 const LAST_FRAME_EPSILON = 0.001;
@@ -36,13 +37,17 @@ export function baseDuration(step: Step): number {
 
 /**
  * 各読み上げを鳴らすステップ内の出力時刻。durations は読み上げの長さ(未生成は 0)。
- * start を書いていなければ、最初は 0、2 つ目からは前の読み上げの直後
+ * start を書いていなければ、最初は offset(全体の speech.startOffset)、2 つ目からは前の読み上げの直後
  */
-export function speechTimes(step: Step, durations: readonly number[] = []): { start: number; end: number }[] {
+export function speechTimes(
+  step: Step,
+  durations: readonly number[] = [],
+  offset = 0,
+): { start: number; end: number }[] {
   const times: { start: number; end: number }[] = [];
   let prevEnd = 0;
   speechPieces(step).forEach((p, k) => {
-    const start = p.start ?? (k === 0 ? 0 : prevEnd);
+    const start = p.start ?? (k === 0 ? offset : prevEnd);
     const end = start + (durations[k] ?? 0);
     times.push({ start, end });
     prevEnd = end;
@@ -50,13 +55,19 @@ export function speechTimes(step: Step, durations: readonly number[] = []): { st
   return times;
 }
 
-/** ステップの出力上の長さ。読み上げの終わりが映像より後なら最終フレームを保持して合わせる(TIM-03) */
-export function stepDuration(step: Step, speechDurations: readonly number[] = []): number {
+/**
+ * ステップの出力上の長さ。読み上げの終わりや、終わりを書いたオブジェクト(ポインター・図形)の end が映像より後なら、
+ * 最終フレームを保持して合わせる(TIM-03)
+ */
+export function stepDuration(step: Step, speechDurations: readonly number[] = [], speechOffset = 0): number {
   const speechEnd = Math.max(
     0,
-    ...speechTimes(step, speechDurations).map((x, k) => ((speechDurations[k] ?? 0) > 0 ? x.end : 0)),
+    ...speechTimes(step, speechDurations, speechOffset).map((x, k) =>
+      (speechDurations[k] ?? 0) > 0 ? x.end : 0,
+    ),
   );
-  return Math.max(baseDuration(step), speechEnd);
+  const objectEnd = Math.max(0, ...[...(step.pointers ?? []), ...(step.shapes ?? [])].map((o) => o.end ?? 0));
+  return Math.max(baseDuration(step), speechEnd, objectEnd);
 }
 
 /** 出力時刻 t に表示するソースの時刻 */
@@ -118,20 +129,25 @@ export interface TimelineEntry {
   step: Step;
   start: number;
   duration: number;
+  /** 境界をまたいで続ける前後のステップのズーム(このステップの時刻。carriedZooms) */
+  carry: Zoom[];
 }
 
 /** プロジェクト全体の並び。speechDurations はステップ id → 読み上げごとの長さ(秒) */
 export function buildTimeline(
   steps: Step[],
   speechDurations: ReadonlyMap<string, readonly number[]>,
+  speechOffset = 0,
 ): TimelineEntry[] {
   let start = 0;
-  return steps.map((step, index) => {
-    const duration = stepDuration(step, speechDurations.get(step.id) ?? []);
-    const entry = { index, step, start, duration };
+  const entries: TimelineEntry[] = steps.map((step, index) => {
+    const duration = stepDuration(step, speechDurations.get(step.id) ?? [], speechOffset);
+    const entry = { index, step, start, duration, carry: [] };
     start += duration;
     return entry;
   });
+  for (const e of entries) e.carry = carriedZooms(entries[e.index - 1], e, entries[e.index + 1]);
+  return entries;
 }
 
 export function totalDuration(timeline: TimelineEntry[]): number {

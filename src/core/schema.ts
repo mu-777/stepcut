@@ -204,7 +204,7 @@ export const pointerSchema = z.strictObject({
 export const speechPieceSchema = z.strictObject({
   /** 省略すると(最初の 1 つだけ)テロップの文を読む */
   text: z.string().optional(),
-  /** 読み始めるステップ内の出力時刻。省略すると、最初は 0、2 つ目からは前の読み上げの直後 */
+  /** 読み始めるステップ内の出力時刻。省略すると、最初は全体の speech.startOffset(既定 1 秒)、2 つ目からは前の読み上げの直後 */
   start: time.optional(),
   voice: z.string().nullable().optional(),
   params: speechParams.optional(),
@@ -292,6 +292,8 @@ export const projectSchema = z.strictObject({
       engine: z.string().min(1).optional(),
       voice: z.string().nullable().optional(),
       params: speechParams.optional(),
+      /** 開始時刻を書いていない最初の読み上げを、ステップの頭から何秒後に読み始めるか(既定 1) */
+      startOffset: time.optional(),
     })
     .optional(),
   audio: audioSchema.optional(),

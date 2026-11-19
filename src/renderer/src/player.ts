@@ -136,6 +136,7 @@ export class Player {
       step: entry?.step ?? null,
       local,
       stepDuration: entry?.duration ?? 0,
+      carry: entry?.carry,
       frame,
       srcW: m?.width ?? 0,
       srcH: m?.height ?? 0,

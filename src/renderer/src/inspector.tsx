@@ -9,6 +9,7 @@ import {
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
   DEFAULT_SOLID_BACKGROUND,
+  DEFAULT_SPEECH_START_OFFSET,
   hasStepLayout,
   isImageSource,
   type ResolvedLayout,
@@ -17,6 +18,7 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   speechSynced,
   speechText,
   withSpeechPieces,
@@ -522,7 +524,7 @@ function StepText(props: {
   const pieces = speechPieces(step);
   const synced = speechSynced(step);
   const status = props.speechStatus;
-  const times = speechTimes(step, status?.durations ?? []);
+  const times = speechTimes(step, status?.durations ?? [], speechStartOffset(project));
   const style = resolveCaptionStyle(project, step);
   const projCap = project.styles?.caption;
   const overridden = caption.position !== undefined || caption.width !== undefined;
@@ -747,9 +749,13 @@ function StepText(props: {
               label={t("speechStart")}
               value={p.start}
               min={0}
-              placeholder={k === 0 ? "0" : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`}
+              placeholder={
+                k === 0
+                  ? String(speechStartOffset(project))
+                  : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`
+              }
               onChange={(v) => {
-                setPiece(k, "start", { start: v === 0 && k === 0 ? undefined : v });
+                setPiece(k, "start", { start: v });
                 if (v !== undefined) props.onSeekLocal(index, v);
               }}
             />
@@ -1040,6 +1046,15 @@ function TextDefaults(props: {
             }
           />
         </div>
+        <NumField
+          label={t("speechStartOffset")}
+          title={t("speechStartOffsetTip")}
+          value={project.speech?.startOffset}
+          step={0.1}
+          min={0}
+          placeholder={String(DEFAULT_SPEECH_START_OFFSET)}
+          onChange={(v) => set("speech", prune({ ...project.speech, startOffset: v }), "speech.startOffset")}
+        />
         <DictionaryField
           value={project.dictionary ?? []}
           onChange={(entries) => set("dictionary", entries.length ? entries : undefined, "dictionary")}

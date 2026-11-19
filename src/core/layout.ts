@@ -223,14 +223,54 @@ const lerpRect = (a: Rect, b: Rect, p: number): Rect => ({
   h: a.h + (b.h - a.h) * p,
 });
 
+/** ズームの時刻を dt 秒ずらす(前後のステップのズームを、このステップの時刻で表すため) */
+function shiftZoom(z: Zoom, dt: number): Zoom {
+  return { ...z, start: z.start + dt, end: z.end + dt, keys: z.keys.map((k) => ({ ...k, t: k.t + dt })) };
+}
+
+/**
+ * ステップの境界をまたいで続けるズーム。前のステップの最後のズームと、このステップの最初のズームの間が
+ * CHAIN_GAP 未満なら(同じ録画のときだけ)、前のズームをこのステップの時刻(負の時刻)で返す。次のステップも同じ。
+ * viewRectAt に渡すと、境界で戻らずに次の範囲へ移る
+ */
+export function carriedZooms(
+  prev: { step: Step; duration: number } | undefined,
+  cur: { step: Step; duration: number },
+  next: { step: Step } | undefined,
+): Zoom[] {
+  const zs = cur.step.zooms ?? [];
+  if (zs.length === 0) return [];
+  const first = zs.reduce((a, z) => (z.start < a.start ? z : a));
+  const last = zs.reduce((a, z) => (z.end > a.end ? z : a));
+  const out: Zoom[] = [];
+  const pz = prev?.step.source === cur.step.source ? prev.step.zooms : undefined;
+  if (prev && pz?.length) {
+    const pl = pz.reduce((a, z) => (z.end > a.end ? z : a));
+    if (prev.duration - pl.end + first.start < CHAIN_GAP) out.push(shiftZoom(pl, -prev.duration));
+  }
+  const nz = next?.step.source === cur.step.source ? next.step.zooms : undefined;
+  if (nz?.length) {
+    const nf = nz.reduce((a, z) => (z.start < a.start ? z : a));
+    if (cur.duration - last.end + nf.start < CHAIN_GAP) out.push(shiftZoom(nf, cur.duration));
+  }
+  return out;
+}
+
 /**
  * ステップ内の出力時刻 t に見せるソースの範囲(ソースのピクセル)。
- * base はズームしていないときに見せる範囲(computeLayout の crop)。
+ * base はズームしていないときに見せる範囲(computeLayout の crop)。carry は境界をまたいで続ける前後のズーム(carriedZooms)
  */
-export function viewRectAt(step: Step, t: number, srcW: number, srcH: number, base?: Rect): Rect {
+export function viewRectAt(
+  step: Step,
+  t: number,
+  srcW: number,
+  srcH: number,
+  base?: Rect,
+  carry: readonly Zoom[] = [],
+): Rect {
   const b = base ?? { x: 0, y: 0, w: srcW, h: srcH };
   const aspect = b.w / b.h;
-  const zooms = [...(step.zooms ?? [])].sort((x, y) => x.start - y.start);
+  const zooms = [...(step.zooms ?? []), ...carry].sort((x, y) => x.start - y.start);
   for (let i = 0; i < zooms.length; i++) {
     const z = zooms[i] as Zoom;
     const next = zooms[i + 1];

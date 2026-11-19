@@ -9,7 +9,7 @@ import {
 } from "../../core/defaults";
 import { computeLayout, marginArea, type Rect, videoBoxFor, viewRectAt } from "../../core/layout";
 import type { ObjectRef } from "../../core/objects";
-import type { Project, Step } from "../../core/schema";
+import type { Project, Step, Zoom } from "../../core/schema";
 import { wrapText } from "../../core/text";
 import { fadeLevel } from "../../core/timeline";
 import { drawSimpleBackground } from "./backgrounds";
@@ -33,6 +33,8 @@ export interface FrameInput {
   outH: number;
   /** ズームを無視する(ズーム範囲の編集中) */
   ignoreZoom?: boolean;
+  /** 境界をまたいで続ける前後のステップのズーム(TimelineEntry.carry) */
+  carry?: readonly Zoom[];
   /** 画像の背景(出力の大きさで用意したもの)。色・グラデーションの背景なら使わない */
   backgroundImage?: Frame | null;
   /** テロップの文が空のときに薄く出す文(編集画面のプレビューだけ。書き出しでは渡さない) */
@@ -63,10 +65,11 @@ export function frameGeometry(
   srcW: number,
   srcH: number,
   ignoreZoom = false,
+  carry: readonly Zoom[] = [],
 ): FrameGeometry {
   const layout = resolveLayout(project, step);
   const geo = computeLayout(outW, outH, layout, srcW, srcH);
-  const view = step && !ignoreZoom ? viewRectAt(step, local, srcW, srcH, geo.crop) : geo.crop;
+  const view = step && !ignoreZoom ? viewRectAt(step, local, srcW, srcH, geo.crop, carry) : geo.crop;
   // 枠どおりに映すズームでは、録画を描く領域の形が変わる
   const box = view === geo.crop ? geo.video : videoBoxFor(view, marginArea(outW, outH, layout.margin));
   return { video: geo.video, view, box, k: box.w / view.w };
@@ -104,7 +107,7 @@ export function drawFrame(ctx: Ctx, f: FrameInput): void {
 
   const srcW = f.srcW || 1920;
   const srcH = f.srcH || 1080;
-  const g = frameGeometry(f.project, f.step, f.local, f.outW, f.outH, srcW, srcH, f.ignoreZoom);
+  const g = frameGeometry(f.project, f.step, f.local, f.outW, f.outH, srcW, srcH, f.ignoreZoom, f.carry);
   // テロップの置き場所はズームによらず、ズームなしの録画の位置で決める
   const v = g.video;
   const { view, box } = g;
@@ -215,8 +218,9 @@ export function captionBox(
     cx = place.position.x * outW;
     cy = place.position.y * outH;
   } else {
+    // 置き場所は 1 行分の箱が下の余白に収まるかで決める(今の行数で決めると、改行したときに中心が飛ぶ)
     const below = outH - (video.y + video.h);
-    if (below >= boxH) cy = video.y + video.h + below / 2;
+    if (below >= lineH + boxPad) cy = video.y + video.h + below / 2;
   }
   const box = { x: cx - boxW / 2, y: cy - boxH / 2, w: boxW, h: boxH };
   return { lines, cx, cy, box, boxColor: captionBoxColor(style.background), textW, lineH };

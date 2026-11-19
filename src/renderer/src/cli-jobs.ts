@@ -6,6 +6,7 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   speechText,
   stepSpeed,
 } from "../../core/defaults";
@@ -50,7 +51,11 @@ async function prepare(
     ...errors.map((e) => msgText(msg("speechFailedZero", { detail: e }))),
     ...speech.noticeTexts(),
   ];
-  return { speech, timeline: buildTimeline(project.steps, speech.durations(project)), warnings };
+  return {
+    speech,
+    timeline: buildTimeline(project.steps, speech.durations(project), speechStartOffset(project)),
+    warnings,
+  };
 }
 
 /** 素材を専用に開く。開いたものは opened にも入れる(呼び側が finally で閉じる) */
@@ -173,6 +178,7 @@ async function frameJob(
     step,
     local,
     stepDuration: entry.duration,
+    carry: entry.carry,
     frame,
     srcW: m?.width ?? 0,
     srcH: m?.height ?? 0,
@@ -182,7 +188,7 @@ async function frameJob(
     images: (p) => images.get(p, projectPath),
   });
   await writePng(canvas, outPath);
-  const g = frameGeometry(project, step, local, out.width, out.height, srcW, srcH);
+  const g = frameGeometry(project, step, local, out.width, out.height, srcW, srcH, false, entry.carry);
   return {
     ...base,
     kind: "output",
@@ -200,7 +206,7 @@ function stepInfo(
 ) {
   const step: Step = entry.step;
   const base = baseDuration(step);
-  const times = speechTimes(step, speechDurations);
+  const times = speechTimes(step, speechDurations, speechStartOffset(project));
   const path = project.sources.find((s) => s.id === step.source)?.path ?? "";
   return {
     step: entry.index + 1,

@@ -8,6 +8,7 @@ import {
   resolveCaptionPlacement,
   resolveLayout,
   resolveSpeech,
+  speechStartOffset,
   speechText,
   zoomTransition,
 } from "./defaults";
@@ -484,7 +485,8 @@ describe("ステップをまとめる", () => {
     expect(m.holds).toEqual([{ at: 4, duration: 1 }]);
     // hold が既定(true)のズームも保持になる
     expect(m.zooms?.[0]).toMatchObject({ start: 6, end: 7 });
-    expect(m.speech).toEqual([{}, { text: "同じ", start: 5 }]);
+    // 後ろの最初の読み上げは、前の長さ + 読み上げの開始の遅れ(既定 1 秒)
+    expect(m.speech).toEqual([{}, { text: "同じ", start: 6 }]);
     expect(parseProject(r).ok).toBe(true);
   });
 
@@ -492,7 +494,25 @@ describe("ステップをまとめる", () => {
     const r = mergeSteps(proj([a, { ...b, caption: { text: "別" } }]), 0);
     const m = r.steps[0] as Step;
     expect(m.caption?.text).toBe("同じ\n別");
-    expect(m.speech).toEqual([{ text: "同じ" }, { text: "別", start: 4 }]);
+    expect(m.speech).toEqual([{ text: "同じ" }, { text: "別", start: 5 }]);
+  });
+});
+
+describe("読み上げの開始の遅れ", () => {
+  it("開始を書いていない最初の読み上げだけを遅らせ、尺に含める", () => {
+    const s = step({ speech: [{ text: "a" }, { text: "b" }, { text: "c", start: 0.5 }] });
+    expect(speechTimes(s, [2, 3, 1], 1)).toEqual([
+      { start: 1, end: 3 },
+      { start: 3, end: 6 },
+      { start: 0.5, end: 1.5 },
+    ]);
+    expect(stepDuration(step({ speech: { text: "a" } }), [10], 1)).toBe(11);
+    expect(stepDuration(step({ speech: { text: "a", start: 0 } }), [10], 1)).toBe(10);
+  });
+
+  it("全体の設定がなければ 1 秒", () => {
+    expect(speechStartOffset(proj([]))).toBe(1);
+    expect(speechStartOffset({ ...proj([]), speech: { startOffset: 0 } })).toBe(0);
   });
 });
 
@@ -691,5 +711,53 @@ describe("audioChunkRanges", () => {
       [0, 60],
       [60, 120],
     ]);
+  });
+});
+
+describe("ステップをまたぐズーム", () => {
+  const ra = { x: 0, y: 0, w: 960, h: 540 };
+  const rb = { x: 960, y: 540, w: 960, h: 540 };
+  const za = { start: 2, end: 9.5, keys: [{ t: 2, rect: ra }], hold: false, transition: 0.5 };
+  const zb = { start: 0.5, end: 3, keys: [{ t: 0.5, rect: rb }], hold: false, transition: 0.5 };
+  const a = step({ id: "a", in: 0, out: 10, zooms: [za] });
+  const b = step({ id: "b", in: 10, out: 20, zooms: [zb] });
+
+  it("境界の前後の間が CHAIN_GAP 未満なら、前後のズームをこのステップの時刻で返す", () => {
+    const tl = buildTimeline([a, b], new Map());
+    expect(tl[0]?.carry).toMatchObject([{ start: 10.5, end: 13 }]);
+    expect(tl[1]?.carry).toMatchObject([{ start: -8, end: -0.5 }]);
+  });
+
+  it("境界で戻らずに次の範囲へ移り、境界の前後で表示がつながる", () => {
+    const tl = buildTimeline([a, b], new Map());
+    const before = viewRectAt(a, 10 - 1e-6, 1920, 1080, undefined, tl[0]?.carry);
+    const after = viewRectAt(b, 0, 1920, 1080, undefined, tl[1]?.carry);
+    expect(before.w).toBeCloseTo(960, 0);
+    expect(after.x).toBeCloseTo(before.x, 0);
+    expect(after.y).toBeCloseTo(before.y, 0);
+  });
+
+  it("違う録画や、間が長いときは続けない", () => {
+    expect(buildTimeline([a, { ...b, source: "other" }], new Map())[0]?.carry).toEqual([]);
+    expect(buildTimeline([a, { ...b, zooms: [{ ...zb, start: 1.2, end: 3 }] }], new Map())[0]?.carry).toEqual(
+      [],
+    );
+  });
+});
+
+describe("オブジェクトの終わりとステップの長さ", () => {
+  it("終わりを書いたオブジェクトが映像より後まで出るなら、その分ステップを伸ばす", () => {
+    const shape = { type: "rect" as const, start: 1, end: 14, rect: { x: 0, y: 0, w: 10, h: 10 } };
+    expect(stepDuration(step({ shapes: [shape] }))).toBe(14);
+    expect(stepDuration(step({ shapes: [{ ...shape, end: undefined }] }))).toBe(10);
+    const p = {
+      mode: "line" as const,
+      path: [
+        { t: 1, x: 0, y: 0 },
+        { t: 2, x: 1, y: 1 },
+      ],
+      end: 12,
+    };
+    expect(stepDuration(step({ pointers: [p] }))).toBe(12);
   });
 });
