@@ -68,6 +68,8 @@ const TEXT = {
     howtoWaitSpeech: "書き出しが終わるまで、少し待ちます。",
     howtoDone: "mp4 ができました",
     howtoDoneSpeech: "mp4 ができました。",
+    howtoResult: "できあがった動画",
+    howtoResultSpeech: "書き出した動画は、このように仕上がります。",
     uiCaption: "テロップ",
     uiZoom: "ズーム",
     uiBox: "四角",
@@ -105,6 +107,8 @@ const TEXT = {
     howtoWaitSpeech: "Wait a moment for the export to finish.",
     howtoDone: "The mp4 is ready",
     howtoDoneSpeech: "The mp4 is ready.",
+    howtoResult: "The finished video",
+    howtoResultSpeech: "Here is what the exported video looks like.",
     uiCaption: "Caption",
     uiZoom: "Zoom",
     uiBox: "Box",
@@ -969,7 +973,7 @@ async function recordHowto(sample) {
 
 // その録画を「使い方」の動画にする。ステップの区切りは、操作した時刻から決める。
 // テロップは画面に出す短い文、speech は読み上げる文(書かなければテロップを読む)
-function buildHowtoSteps(m) {
+function buildHowtoSteps(m, resultDuration) {
   const click = (box, t) => {
     const to = center(box);
     return {
@@ -1048,6 +1052,20 @@ function buildHowtoSteps(m) {
       speech: { text: TEXT.howtoWaitSpeech },
     }),
     step("done", exportEnd, m.end.t - 0.2, TEXT.howtoDone, { speech: { text: TEXT.howtoDoneSpeech } }),
+    // 書き出した動画そのものを最後に流し、仕上がりを見せる(その動画の音声は消し、こちらの読み上げだけにする)
+    ...(resultDuration
+      ? [
+          {
+            ...step("result", 0, resultDuration - 0.05, TEXT.howtoResult, {
+              speech: { text: TEXT.howtoResultSpeech },
+            }),
+            source: "result",
+            audio: { source: { enabled: false } },
+            fadeIn: 0.4,
+            fadeOut: 0.8,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -1097,7 +1115,25 @@ async function screenshots() {
   const engine = process.env.LP_SPEECH_ENGINE;
   // 使い方の動画の読み上げは Azure AI Speech。アプリの設定で有効にしていなければ、OS 標準の声で代わりに読む
   const speech = { engine: engine || "azure", voice: process.env.LP_SPEECH_VOICE || TEXT.voice };
-  writeProject("howto", buildHowtoSteps(howto), { source: "stepcut-app.mp4", dir: howtoDir, speech });
+  // アプリで書き出した動画(仕上がりとして最後に見せる)。--howto-export でも使うので、使い方のフォルダーに置く
+  const inner = path.join(work, "howto-inner.mp4");
+  const sources = [{ id: "rec", path: "stepcut-app.mp4" }];
+  let resultDuration = 0;
+  if (fs.existsSync(inner)) {
+    fs.copyFileSync(inner, path.join(howtoDir, "result.mp4"));
+    sources.push({ id: "result", path: "result.mp4" });
+    const out = execFileSync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "csv=p=0",
+      inner,
+    ]);
+    resultDuration = round(Number(String(out).trim()));
+  }
+  writeProject("howto", buildHowtoSteps(howto, resultDuration), { sources, dir: howtoDir, speech });
   exportHowto();
   process.exit(0);
 })().catch((e) => {
