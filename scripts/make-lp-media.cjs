@@ -22,6 +22,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+// VS Code の中から起動すると引き継がれ、Electron(CLI・アプリ)が Node として起動してしまう
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const langAt = process.argv.indexOf("--lang");
 const lang = langAt >= 0 ? process.argv[langAt + 1] : "ja";
 if (lang !== "ja" && lang !== "en") throw new Error(`--lang は ja か en: ${lang}`);
@@ -131,6 +134,27 @@ function cli(command, project, ...args) {
   return JSON.parse(fs.readFileSync(result, "utf8"));
 }
 
+// Playwright の録画は、ページを作った時刻(t0)より遅れて始まることがある(Windows で 1〜2 秒)。
+// 閉じた時刻と動画の長さの差を遅れとみなし、覚えた時刻をその分だけ戻して録画の時刻にそろえる
+function alignMarks(marks, closedAt, video) {
+  const out = execFileSync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "csv=p=0",
+    video,
+  ]);
+  const lag = closedAt - Number(String(out).trim());
+  if (!(lag > 0.1)) return marks;
+  console.log(
+    `  ${path.basename(video)}: 録画の始まりが ${lag.toFixed(2)} 秒遅れていたので、時刻をそろえました`,
+  );
+  for (const m of Object.values(marks)) if (typeof m.t === "number") m.t = round(Math.max(0, m.t - lag));
+  return marks;
+}
+
 // 1. 例の画面を操作して録画する。押した時刻と場所を覚えておき、プロジェクトの時刻と座標に使う
 async function record() {
   const browser = await chromium.launch();
@@ -160,11 +184,12 @@ async function record() {
   marks.end = { t: (Date.now() - t0) / 1000 };
   const video = page.video();
   await context.close();
+  const closedAt = (Date.now() - t0) / 1000;
   const webm = await video.path();
   await browser.close();
   const mp4 = path.join(work, "sample-app.mp4");
   ffmpeg("-i", webm, "-r", "30", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-an", mp4);
-  return marks;
+  return alignMarks(marks, closedAt, mp4);
 }
 
 const center = (b) => ({ x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) });
@@ -268,6 +293,7 @@ async function recordScreen(html, out, run) {
   marks.end = { t: now() };
   const video = page.video();
   await context.close();
+  const closedAt = now();
   const webm = await video.path();
   await browser.close();
   ffmpeg(
@@ -284,7 +310,7 @@ async function recordScreen(html, out, run) {
     "-an",
     path.join(work, out),
   );
-  return marks;
+  return alignMarks(marks, closedAt, path.join(work, out));
 }
 
 const pad = (b, p) => ({
