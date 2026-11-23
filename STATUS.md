@@ -11,6 +11,7 @@ lp-media-windows
 
 ## 現在地
 - 日本語・英語の 2 組を Windows で作り直した(31 ファイル × 2)。使い方の動画は Azure の読み上げ入り。場面の一覧とページの読み込み(1280px・400px)は確認済み
+- 紹介ページのフッター: Apache-2.0 の表記と mu-777.dev のリンクを外し、© mu-777 を mu-777.dev へのリンクに、Ko-fi の支援ボタンを追加(dayglassbar と同じ見た目)
 - scripts/make-lp-media.cjs: 起動時に ELECTRON_RUN_AS_NODE を消す。Playwright の録画の始まりの遅れを、動画の長さから求めて時刻をそろえる
 
 ## 次にやること
