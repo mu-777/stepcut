@@ -10,9 +10,14 @@ const project = {
   version: 1,
   sources: [{ id: "r", path: "a.mp4" }],
   steps: [
-    { id: "s1", source: "r", in: 0, out: 1, caption: { text: "こんにちは" }, speech: {} },
-    { id: "s2", source: "r", in: 1, out: 2, speech: [{ text: "A" }, { text: "A" }, { text: " " }] },
-    { id: "s3", source: "r", in: 2, out: 3 },
+    { id: "s1", source: "r", segments: [{ in: 0, out: 1 }], caption: { text: "こんにちは" }, speech: {} },
+    {
+      id: "s2",
+      source: "r",
+      segments: [{ in: 1, out: 2 }],
+      speech: [{ text: "A" }, { text: "A" }, { text: " " }],
+    },
+    { id: "s3", source: "r", segments: [{ in: 2, out: 3 }] },
   ],
 } as unknown as Project;
 

@@ -237,8 +237,7 @@ function buildSteps(m) {
     {
       id: "open-settings",
       source: "rec",
-      in: round(m.settings.t - lead),
-      out: round(m.settings.t + 1.5),
+      segments: [{ in: round(m.settings.t - lead), out: round(m.settings.t + 1.5) }],
       caption: { text: TEXT.heroOpen },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.settings.box, -4), enter: "fade" }],
@@ -247,8 +246,7 @@ function buildSteps(m) {
     {
       id: "turn-on-mail",
       source: "rec",
-      in: round(m.mail.t - lead),
-      out: round(m.mail.t + 1.8),
+      segments: [{ in: round(m.mail.t - lead), out: round(m.mail.t + 1.8) }],
       caption: { text: TEXT.heroMail },
       speech: {},
       zooms: [{ start: 0.3, end: lead + 1.4, hold: false, keys: [{ t: 0.3, rect: zoomRect }] }],
@@ -257,8 +255,7 @@ function buildSteps(m) {
     {
       id: "save",
       source: "rec",
-      in: round(m.save.t - lead),
-      out: round(m.save.t + 2),
+      segments: [{ in: round(m.save.t - lead), out: round(m.save.t + 2) }],
       caption: { text: TEXT.heroSave },
       speech: {},
       shapes: [
@@ -363,8 +360,7 @@ async function makeProcedure() {
     {
       id: "open",
       source: "rec",
-      in: round(m.requests.t - lead),
-      out: round(m.requests.t + 1.5),
+      segments: [{ in: round(m.requests.t - lead), out: round(m.requests.t + 1.5) }],
       caption: { text: TEXT.stepsOpen },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.requests.box, -4), enter: "fade" }],
@@ -373,8 +369,7 @@ async function makeProcedure() {
     {
       id: "type",
       source: "rec",
-      in: round(m.typeStart.t - 0.2),
-      out: round(m.typeEnd.t + 0.4),
+      segments: [{ in: round(m.typeStart.t - 0.2), out: round(m.typeEnd.t + 0.4) }],
       speed: 3,
       caption: { text: TEXT.stepsType },
       speech: {},
@@ -382,8 +377,7 @@ async function makeProcedure() {
     {
       id: "send",
       source: "rec",
-      in: round(m.send.t - lead),
-      out: round(m.send.t + 2),
+      segments: [{ in: round(m.send.t - lead), out: round(m.send.t + 2) }],
       caption: { text: TEXT.stepsSend },
       speech: {},
       shapes: [{ type: "rect", start: 0.2, end: lead + 0.2, rect: pad(m.send.box, 8), enter: "fade" }],
@@ -431,8 +425,7 @@ async function makeDemo() {
     {
       id: "overview",
       source: "rec",
-      in: 0.5,
-      out: round(m.weekly.t - 1.2),
+      segments: [{ in: 0.5, out: round(m.weekly.t - 1.2) }],
       fadeIn: 0.6,
       caption: { text: TEXT.demoOverview },
       speech: {},
@@ -469,8 +462,7 @@ async function makeDemo() {
     {
       id: "switch",
       source: "rec",
-      in: round(m.weekly.t - 1.2),
-      out: round(m.weekly.t + 2.4),
+      segments: [{ in: round(m.weekly.t - 1.2), out: round(m.weekly.t + 2.4) }],
       fadeOut: 0.6,
       caption: { text: TEXT.demoSwitch },
       speech: {},
@@ -505,8 +497,7 @@ async function makeSlides() {
     {
       id: "slide1",
       source: "s1",
-      in: 0,
-      out: 4.5,
+      segments: [{ in: 0, out: 4.5 }],
       fadeIn: 0.5,
       caption: { text: TEXT.slides1 },
       speech: {},
@@ -524,8 +515,7 @@ async function makeSlides() {
     {
       id: "slide2",
       source: "s2",
-      in: 0,
-      out: 4.5,
+      segments: [{ in: 0, out: 4.5 }],
       fadeOut: 0.5,
       caption: { text: TEXT.slides2 },
       speech: {},
@@ -604,8 +594,12 @@ function makeKinds(m) {
   // 押す前の止まった場面。click を付けると、押す瞬間を含む場面にする
   const base = (click) => ({
     source: "rec",
-    in: round(click ? m.mail.t - 2.4 : m.mail.t - dur - 0.3),
-    out: round(click ? m.mail.t + 0.8 : m.mail.t - 0.3),
+    segments: [
+      {
+        in: round(click ? m.mail.t - 2.4 : m.mail.t - dur - 0.3),
+        out: round(click ? m.mail.t + 0.8 : m.mail.t - 0.3),
+      },
+    ],
   });
   // 最初から view に寄ったままにする(動きなし)
   const fixed = [{ start: 0, end: dur, hold: false, transition: 0, keys: [{ t: 0, rect: view }] }];
@@ -989,8 +983,7 @@ function buildHowtoSteps(m, resultDuration) {
   const step = (id, from, to, text, rest = {}) => ({
     id,
     source: "rec",
-    in: round(from),
-    out: round(to),
+    segments: [{ in: round(from), out: round(to) }],
     caption: { text },
     speech: {},
     ...rest,

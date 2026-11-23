@@ -5,6 +5,7 @@ import {
   highlightPathAt,
   isPath,
   isScreenAnchored,
+  moveObject,
   objectAlpha,
   objectImages,
   objectWindow,
@@ -134,7 +135,14 @@ describe("オブジェクト", () => {
     const r = parseProject({
       ...base,
       styles: { highlighter: { color: "#00FF00" } },
-      steps: [{ id: "s", source: "a", in: 0, out: 5, highlights: [{ mode: "line", path: highlight.path }] }],
+      steps: [
+        {
+          id: "s",
+          source: "a",
+          segments: [{ in: 0, out: 5 }],
+          highlights: [{ mode: "line", path: highlight.path }],
+        },
+      ],
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -186,9 +194,10 @@ describe("オブジェクト", () => {
     expect(reanchorShape(arrow, "screen", (p) => ({ x: p.x * 2, y: p.y }), 2)).toMatchObject({
       to: { x: 20, y: 0 },
     });
-    expect(parseProject({ ...base, steps: [{ id: "s", source: "a", in: 0, out: 5, shapes: [s] }] }).ok).toBe(
-      true,
-    );
+    expect(
+      parseProject({ ...base, steps: [{ id: "s", source: "a", segments: [{ in: 0, out: 5 }], shapes: [s] }] })
+        .ok,
+    ).toBe(true);
   });
 
   it("使う画像の一覧", () => {
@@ -199,8 +208,7 @@ describe("オブジェクト", () => {
         {
           id: "s",
           source: "a",
-          in: 0,
-          out: 5,
+          segments: [{ in: 0, out: 5 }],
           shapes: [image],
           pointers: [{ ...pointer, style: { image: "h.png" } }],
         },
@@ -210,7 +218,13 @@ describe("オブジェクト", () => {
   });
 
   it("In を動かすと要素の時刻をずらし、0 より前は 0 に詰める(消さない)", () => {
-    const step: Step = { id: "s", source: "a", in: 0, out: 10, pointers: [pointer], shapes: [image] };
+    const step: Step = {
+      id: "s",
+      source: "a",
+      segments: [{ in: 0, out: 10 }],
+      pointers: [pointer],
+      shapes: [image],
+    };
     const shifted = shiftStepElements(step, -1.5);
     expect(shifted.pointers?.[0]?.path.map((x) => x.t)).toEqual([0, 0.5]);
     expect(shifted.shapes?.[0]).toMatchObject({ start: 0.5 });
@@ -222,7 +236,13 @@ describe("オブジェクト", () => {
     const p: Project = {
       ...base,
       steps: [
-        { id: "s", source: "a", in: 0, out: 10, pointers: [pointer], shapes: [{ ...image, start: 6 }] },
+        {
+          id: "s",
+          source: "a",
+          segments: [{ in: 0, out: 10 }],
+          pointers: [pointer],
+          shapes: [{ ...image, start: 6 }],
+        },
       ],
     };
     const r = splitStep(p, 0, 5, true);
@@ -233,7 +253,15 @@ describe("オブジェクト", () => {
   it("分割点をまたいで出ている要素は、前半のステップの終わりまで出す", () => {
     const p: Project = {
       ...base,
-      steps: [{ id: "s", source: "a", in: 0, out: 10, pointers: [{ ...pointer, end: 8 }], shapes: [image] }],
+      steps: [
+        {
+          id: "s",
+          source: "a",
+          segments: [{ in: 0, out: 10 }],
+          pointers: [{ ...pointer, end: 8 }],
+          shapes: [image],
+        },
+      ],
     };
     const r = splitStep(p, 0, 1.5, true);
     const ptr = r.steps[0]?.pointers?.[0];
@@ -249,8 +277,7 @@ describe("オブジェクト", () => {
         {
           id: "s",
           source: "a",
-          in: 0,
-          out: 5,
+          segments: [{ in: 0, out: 5 }],
           shapes: [
             { type: "rect", start: 0, rect: { x: 0, y: 0, w: 10, h: 10 }, style: { fillOpacity: 0.3 } },
             { type: "arrow", start: 1, end: 3, from: { x: 0, y: 0 }, to: { x: 5, y: 5 } },
@@ -275,8 +302,7 @@ describe("オブジェクト", () => {
         {
           id: "s",
           source: "a",
-          in: 0,
-          out: 5,
+          segments: [{ in: 0, out: 5 }],
           shapes: [{ type: "arrow", start: 2, end: 1, from: { x: 0, y: 0 }, to: { x: 1, y: 1 } }],
           pointers: [
             {
@@ -298,8 +324,19 @@ describe("オブジェクト", () => {
       ]);
     const unknown = parseProject({
       ...base,
-      steps: [{ id: "s", source: "a", in: 0, out: 5, shapes: [{ type: "star", start: 0 }] }],
+      steps: [{ id: "s", source: "a", segments: [{ in: 0, out: 5 }], shapes: [{ type: "star", start: 0 }] }],
     });
     expect(unknown.ok).toBe(false);
+  });
+});
+
+describe("位置をずらす", () => {
+  it("ポインターは軌跡ごと、図形は枠・両端を動かす", () => {
+    expect(moveObject(pointer, 10, -1).path.map((p) => [p.x, p.y])).toEqual(
+      pointer.path.map((p) => [p.x + 10, p.y - 1]),
+    );
+    expect(moveObject(image, 1, 2)).toMatchObject({ rect: { x: 1, y: 2, w: 10, h: 10 } });
+    const arrow: Shape = { type: "arrow", start: 0, from: { x: 0, y: 0 }, to: { x: 5, y: 5 } };
+    expect(moveObject(arrow, -1, 1)).toMatchObject({ from: { x: -1, y: 1 }, to: { x: 4, y: 6 } });
   });
 });

@@ -65,12 +65,11 @@ fs.writeFileSync(
         {
           id: "first",
           source: "rec1",
-          in: 0,
-          out: 4,
+          segments: [{ in: 0, out: 4 }],
           caption: { text: "最初のステップ" },
           speech: { text: "最初のステップです。" },
         },
-        { id: "second", source: "rec1", in: 4, out: 8, caption: { text: "Second step" } },
+        { id: "second", source: "rec1", segments: [{ in: 4, out: 8 }], caption: { text: "Second step" } },
       ],
     },
     null,
@@ -1188,6 +1187,39 @@ function fakeVoicevox() {
     ["テキスト(ここを押す)", "Text (ここを押す)"].includes(textTitle),
     `右パネルのテキストの見出しは「テキスト(文)」 (${textTitle})`,
   );
+  // テキストはテロップと同じく、プレビュー上でその場で文を直せる(作ったときは入力欄が出ている)
+  {
+    const input = page.locator(".object-text-input");
+    check((await input.count()) === 1, "テキストを作るとプレビュー上に入力欄が出る");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+    check((await input.count()) === 0, "Esc で入力を終える");
+    const box = await page.locator(".object-layer .box-outline").boundingBox();
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    // 選んでいない状態から、文字の枠をクリック(ドラッグなし)すると入力を始める
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(200);
+    check(
+      (await input.count()) === 1 && (await input.inputValue()) === "ここを押す",
+      "文字の枠をクリックするとプレビュー上で入力を始める",
+    );
+    await page.keyboard.press("End");
+    await page.keyboard.type("!");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    check(
+      (await page.locator(".tl-bar.object", { hasText: "ここを押す!" }).count()) === 1,
+      "プレビュー上で直した文がオブジェクトに入る",
+    );
+    // 選んだ状態の枠をクリックしても入力を始め、ドラッグなら動かす(入力しない)
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(150);
+    check((await input.count()) === 1, "選んだ文字の枠のクリックでも入力を始める");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+  }
   check(
     (await page.locator(".tl-bar.object").count()) === 5,
     "重なる時刻のオブジェクトはタイムラインで行を分けて並ぶ",
@@ -2160,7 +2192,7 @@ function fakeVoicevox() {
         format: "stepcut.project",
         version: 1,
         sources: [{ id: "rec1", path: "moved.mp4" }],
-        steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],
+        steps: [{ id: "a", source: "rec1", segments: [{ in: 0, out: 4 }], caption: { text: "a" } }],
       }),
     );
     r = await launchWith(lostPath);

@@ -232,6 +232,20 @@ export function highlightPathAt(a: Pointer, t: number): { x: number; y: number }
   return out;
 }
 
+/** 位置を dx, dy ずらす(単位は要素の座標系のまま。映像側はソースのピクセル、画面側は 1080 基準の px) */
+export function moveObject<T extends AnyObject>(o: T, dx: number, dy: number): T {
+  const r = (n: number) => Math.round(n * 100) / 100;
+  if (isPath(o)) return { ...o, path: o.path.map((p) => ({ ...p, x: r(p.x + dx), y: r(p.y + dy) })) };
+  const s = o as Shape;
+  if (s.type === "arrow")
+    return {
+      ...o,
+      from: { x: r(s.from.x + dx), y: r(s.from.y + dy) },
+      to: { x: r(s.to.x + dx), y: r(s.to.y + dy) },
+    };
+  return { ...o, rect: { ...s.rect, x: r(s.rect.x + dx), y: r(s.rect.y + dy) } };
+}
+
 /** 要素を時刻 dt 秒ずらす。0 より前にはみ出した分は 0 に詰める */
 export function shiftObject<T extends AnyObject>(o: T, dt: number): T {
   const r3 = (n: number) => Math.round(n * 1000) / 1000;

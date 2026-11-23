@@ -399,6 +399,46 @@ textarea {
   border-bottom-right-radius: 3px;
 }
 
+/* クリップの中の録画の区間の切れ目 */
+.tl-segment-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed rgba(255, 255, 255, 0.85);
+  transform: translateX(-1px);
+  z-index: 2;
+}
+
+/* 並べ替えのドラッグ: 運んでいるサムネイルを薄くし、落とす位置に線を出す */
+.rail-thumb.moving {
+  opacity: 0.4;
+}
+
+.rail-thumbs li {
+  position: relative;
+}
+
+.rail-thumbs li.drop-before::before,
+.rail-thumbs li.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.rail-thumbs li.drop-before::before {
+  top: -4px;
+}
+
+.rail-thumbs li.drop-after::after {
+  bottom: -4px;
+}
+
 /* 再生位置のステップは番号の色で示す */
 .rail-thumb.playhead .rail-num {
   color: #ff6b5b;
@@ -1874,6 +1914,35 @@ button.icon.play {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* プレビュー上で文字のオブジェクトの文を入力中。枠に重ね、入力欄は行のまとまりの高さで上下の中央に置く
+   (枠より行が多ければ、描画と同じく枠の上下にはみ出す) */
+.object-text-edit {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  outline: 1px dashed var(--accent);
+  z-index: 3;
+}
+
+.object-text-input {
+  display: block;
+  width: 100%;
+  field-sizing: content;
+  resize: none;
+  overflow: visible;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.object-text-input::placeholder {
+  color: inherit;
+  opacity: 0.45;
 }
 
 /* 図形の枠は中身(塗り・文字)が見えるよう、枠だけを出す */

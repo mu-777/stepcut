@@ -82,7 +82,7 @@ describe("validateFile: 画像の存在", () => {
       format: "stepcut.project",
       version: 1,
       sources: [{ id: "rec1", path: "rec.mp4" }],
-      steps: [{ id: "s1", source: "rec1", in: 0, out: 1 }],
+      steps: [{ id: "s1", source: "rec1", segments: [{ in: 0, out: 1 }] }],
       ...extra,
     });
 
@@ -101,8 +101,7 @@ describe("validateFile: 画像の存在", () => {
             {
               id: "s1",
               source: "rec1",
-              in: 0,
-              out: 1,
+              segments: [{ in: 0, out: 1 }],
               shapes: [
                 { type: "rect", image: "shape-missing.png", start: 0, rect: { x: 0, y: 0, w: 10, h: 10 } },
               ],

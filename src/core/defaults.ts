@@ -180,6 +180,14 @@ export function resolveSpeech(p: Project, step: Step, k = 0): ResolvedSpeech {
   };
 }
 
+/** 読み上げの開始の遅れの既定(秒)。ステップの頭からすぐ読むと、ステップの間に間がなく区切りが分かりにくい */
+export const DEFAULT_SPEECH_START_OFFSET = 1;
+
+/** 開始時刻を書いていない最初の読み上げを、ステップの頭から何秒後に読み始めるか */
+export function speechStartOffset(p: Project): number {
+  return p.speech?.startOffset ?? DEFAULT_SPEECH_START_OFFSET;
+}
+
 export function stepSpeed(step: Step): number {
   return step.speed ?? 1;
 }

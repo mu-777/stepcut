@@ -1,6 +1,6 @@
 // ステップの読み上げ音声を用意する。生成はメインプロセス(キャッシュあり)、ここではデコード結果を持つ。
 // 1 ステップに読み上げが複数あれば、それぞれを別に生成する。
-import { resolveSpeech, speechPieces, speechText } from "../../core/defaults";
+import { resolveSpeech, speechPieces, speechStartOffset, speechText } from "../../core/defaults";
 import type { Project, Step } from "../../core/schema";
 import { applyDictionary } from "../../core/text";
 import { speechTimes } from "../../core/timeline";
@@ -109,7 +109,7 @@ export class SpeechStore {
 
   /** 鳴らす音声と開始時刻(ステップ内の出力時刻)。用意できたものだけ */
   placed(project: Project, step: Step): { buffer: AudioBuffer; start: number }[] {
-    const times = speechTimes(step, this.stepDurations(project, step));
+    const times = speechTimes(step, this.stepDurations(project, step), speechStartOffset(project));
     const out: { buffer: AudioBuffer; start: number }[] = [];
     speechPieces(step).forEach((_, k) => {
       const a = this.get(project, step, k);

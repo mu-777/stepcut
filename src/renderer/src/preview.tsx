@@ -92,6 +92,8 @@ export function Preview(props: {
   snapTargets?: (stage: { w: number; h: number }, zoomEditing: boolean) => Rect[];
   /** プレビューをクリックした点(ステージのピクセル)でオブジェクトを選ぶ。選んだら true */
   onPickObject?: (p: { x: number; y: number }, stage: { w: number; h: number }) => boolean;
+  /** onPickObject で選んだ所を、ドラッグせずに離した(文字のオブジェクトなら入力を始める) */
+  onPickClick?: (p: { x: number; y: number }, stage: { w: number; h: number }) => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -515,7 +517,22 @@ export function Preview(props: {
           onPointerDown={(e) => {
             if (e.button !== 0 || d) return;
             const p = toStage(e, e.currentTarget);
-            if (props.onPickObject?.(p, size)) return;
+            if (props.onPickObject?.(p, size)) {
+              const x0 = e.clientX;
+              const y0 = e.clientY;
+              let moved = false;
+              const move = (ev: PointerEvent) => {
+                if (Math.hypot(ev.clientX - x0, ev.clientY - y0) >= CLICK_PX) moved = true;
+              };
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+                if (!moved) props.onPickClick?.(p, size);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+              return;
+            }
             const v = videoBox;
             props.onVideoClick(p.x >= v.x && p.x <= v.x + v.w && p.y >= v.y && p.y <= v.y + v.h);
           }}
@@ -709,6 +726,8 @@ export function BoxEditor(props: {
   /** move は枠ごとの移動(大きさは変わらない) */
   onChange: (b: Box, key: string, shapeChanged: boolean, move: boolean) => void;
   onCommit?: () => void;
+  /** 枠の中をドラッグせずにクリックした */
+  onClick?: () => void;
 }) {
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [preview, setPreview] = useState<Box | null>(null);
@@ -863,6 +882,7 @@ export function BoxEditor(props: {
         props.onCommit?.();
         return;
       }
+      if (!moved && mode === "move") props.onClick?.();
       setPreview((pv) => {
         if (pv) props.onChange(pv, key, true, false);
         return null;
