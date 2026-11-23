@@ -22,6 +22,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
+// VS Code の中から起動すると引き継がれ、Electron(CLI・アプリ)が Node として起動してしまう
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const langAt = process.argv.indexOf("--lang");
 const lang = langAt >= 0 ? process.argv[langAt + 1] : "ja";
 if (lang !== "ja" && lang !== "en") throw new Error(`--lang は ja か en: ${lang}`);
@@ -54,6 +57,8 @@ const TEXT = {
     howtoCaption: "テロップは、プレビューの上で書けます",
     howtoCaptionSpeech:
       "テロップは、プレビューの上で書けます。右の設定にも同じ文が入り、読み上げが付きます。",
+    // 読み上げが 2 文目(右の設定にも…)に入る時刻(ステップ内の秒)。ズームの枠をここから右の欄へ移す
+    howtoCaptionPanelAt: 2.8,
     howtoZoom: "ズームは、見せたい範囲を枠で囲みます",
     howtoPlay: "再生して、その場で確かめられます",
     howtoObject: "四角や矢印も、プレビューの上に置けます",
@@ -63,6 +68,8 @@ const TEXT = {
     howtoWaitSpeech: "書き出しが終わるまで、少し待ちます。",
     howtoDone: "mp4 ができました",
     howtoDoneSpeech: "mp4 ができました。",
+    howtoResult: "できあがった動画",
+    howtoResultSpeech: "書き出した動画は、このように仕上がります。",
     uiCaption: "テロップ",
     uiZoom: "ズーム",
     uiBox: "四角",
@@ -90,6 +97,7 @@ const TEXT = {
     howtoCaption: "Type captions right on the preview",
     howtoCaptionSpeech:
       "Type captions right on the preview. The same text appears in the settings on the right, and it is read aloud.",
+    howtoCaptionPanelAt: 2.4,
     howtoZoom: "For a zoom, draw a box around the area to show",
     howtoPlay: "Play it back to check on the spot",
     howtoObject: "Boxes and arrows go on the preview too",
@@ -99,6 +107,8 @@ const TEXT = {
     howtoWaitSpeech: "Wait a moment for the export to finish.",
     howtoDone: "The mp4 is ready",
     howtoDoneSpeech: "The mp4 is ready.",
+    howtoResult: "The finished video",
+    howtoResultSpeech: "Here is what the exported video looks like.",
     uiCaption: "Caption",
     uiZoom: "Zoom",
     uiBox: "Box",
@@ -131,6 +141,27 @@ function cli(command, project, ...args) {
   return JSON.parse(fs.readFileSync(result, "utf8"));
 }
 
+// Playwright の録画は、ページを作った時刻(t0)より遅れて始まることがある(Windows で 1〜2 秒)。
+// 閉じた時刻と動画の長さの差を遅れとみなし、覚えた時刻をその分だけ戻して録画の時刻にそろえる
+function alignMarks(marks, closedAt, video) {
+  const out = execFileSync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "csv=p=0",
+    video,
+  ]);
+  const lag = closedAt - Number(String(out).trim());
+  if (!(lag > 0.1)) return marks;
+  console.log(
+    `  ${path.basename(video)}: 録画の始まりが ${lag.toFixed(2)} 秒遅れていたので、時刻をそろえました`,
+  );
+  for (const m of Object.values(marks)) if (typeof m.t === "number") m.t = round(Math.max(0, m.t - lag));
+  return marks;
+}
+
 // 1. 例の画面を操作して録画する。押した時刻と場所を覚えておき、プロジェクトの時刻と座標に使う
 async function record() {
   const browser = await chromium.launch();
@@ -160,11 +191,12 @@ async function record() {
   marks.end = { t: (Date.now() - t0) / 1000 };
   const video = page.video();
   await context.close();
+  const closedAt = (Date.now() - t0) / 1000;
   const webm = await video.path();
   await browser.close();
   const mp4 = path.join(work, "sample-app.mp4");
   ffmpeg("-i", webm, "-r", "30", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-an", mp4);
-  return marks;
+  return alignMarks(marks, closedAt, mp4);
 }
 
 const center = (b) => ({ x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) });
@@ -265,6 +297,7 @@ async function recordScreen(html, out, run) {
   marks.end = { t: now() };
   const video = page.video();
   await context.close();
+  const closedAt = now();
   const webm = await video.path();
   await browser.close();
   ffmpeg(
@@ -281,7 +314,7 @@ async function recordScreen(html, out, run) {
     "-an",
     path.join(work, out),
   );
-  return marks;
+  return alignMarks(marks, closedAt, path.join(work, out));
 }
 
 const pad = (b, p) => ({
@@ -852,7 +885,10 @@ async function recordHowto(sample) {
   await mark("caption", input);
   await sleep(500);
   await page.keyboard.type(TEXT.heroOpen, { delay: 120 });
-  await sleep(1600);
+  // 右の設定のテロップの欄(使い方の動画で、ズームの枠をここへ移す)
+  marks.panelText = { box: await page.locator(".panel textarea").first().boundingBox() };
+  // 読み上げ(2 文)が終わるまで、この画面のまま待つ
+  await sleep(Math.max(1600, (marks.caption.t + 8.5 - now()) * 1000));
   await page.keyboard.press("Escape");
   await sleep(800);
 
@@ -879,8 +915,11 @@ async function recordHowto(sample) {
   await page.keyboard.press("Escape");
   await sleep(500);
 
-  // 再生して、ズームをプレビューで確かめる
+  // 再生して、ズームをプレビューで確かめる。再生位置はズームの頭(ステップの 1 秒目)にあるので、
+  // ステップの頭へ 1 秒戻し、全体からズームインするところから映す
   await thumb(1).click();
+  await sleep(400);
+  await page.keyboard.press("ArrowLeft");
   await sleep(700);
   const play = page.locator(".transport button.play");
   await mark("play", play);
@@ -928,7 +967,7 @@ async function recordHowto(sample) {
 
 // その録画を「使い方」の動画にする。ステップの区切りは、操作した時刻から決める。
 // テロップは画面に出す短い文、speech は読み上げる文(書かなければテロップを読む)
-function buildHowtoSteps(m) {
+function buildHowtoSteps(m, resultDuration) {
   const click = (box, t) => {
     const to = center(box);
     return {
@@ -949,6 +988,14 @@ function buildHowtoSteps(m) {
     speech: {},
     ...rest,
   });
+  // box を真ん中にした幅 w の枠(縦横比は録画と同じ)。録画の外へははみ出さない
+  const around = (box, w) => {
+    const h = Math.round((w * APP.height) / APP.width);
+    const c = center(box);
+    const x = Math.min(Math.max(0, c.x - w / 2), APP.width - w);
+    const y = Math.min(Math.max(0, c.y - h / 2), APP.height - h);
+    return { x: Math.round(x), y: Math.round(y), w, h };
+  };
   // 見せたい所へ寄る(映像は止めない)。ステップの終わりの少し前まで
   const zoom = (rect, from, to) => [
     { start: 0.4, end: round(to - from - 0.6), hold: false, keys: [{ t: 0.4, rect }] },
@@ -969,7 +1016,20 @@ function buildHowtoSteps(m) {
     }),
     step("caption", ...cut.caption, TEXT.howtoCaption, {
       speech: { text: TEXT.howtoCaptionSpeech },
-      zooms: zoom({ x: 330, y: 90, w: 950, h: 564 }, ...cut.caption),
+      // プレビューのテロップの欄を真ん中に寄せてクリックを見せ、読み上げが「右の設定にも」に入るころ右の欄へ移る
+      pointers: [click(m.caption.box, 1.1)],
+      zooms: [
+        {
+          start: 0.4,
+          end: round(cut.caption[1] - cut.caption[0] - 0.6),
+          hold: false,
+          keys: [
+            { t: 0.4, rect: around(m.caption.box, 700) },
+            { t: TEXT.howtoCaptionPanelAt, rect: around(m.caption.box, 700) },
+            { t: round(TEXT.howtoCaptionPanelAt + 0.8), rect: around(m.panelText.box, 640) },
+          ],
+        },
+      ],
     }),
     step("zoom", ...cut.zoom, TEXT.howtoZoom, { pointers: [click(m.zoom.box, 0.5)] }),
     step("play", m.play.t - 0.6, m.object.t - 1, TEXT.howtoPlay),
@@ -985,6 +1045,20 @@ function buildHowtoSteps(m) {
       speech: { text: TEXT.howtoWaitSpeech },
     }),
     step("done", exportEnd, m.end.t - 0.2, TEXT.howtoDone, { speech: { text: TEXT.howtoDoneSpeech } }),
+    // 書き出した動画そのものを最後に流し、仕上がりを見せる(その動画の音声は消し、こちらの読み上げだけにする)
+    ...(resultDuration
+      ? [
+          {
+            ...step("result", 0, resultDuration - 0.05, TEXT.howtoResult, {
+              speech: { text: TEXT.howtoResultSpeech },
+            }),
+            source: "result",
+            audio: { source: { enabled: false } },
+            fadeIn: 0.4,
+            fadeOut: 0.8,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -1034,7 +1108,25 @@ async function screenshots() {
   const engine = process.env.LP_SPEECH_ENGINE;
   // 使い方の動画の読み上げは Azure AI Speech。アプリの設定で有効にしていなければ、OS 標準の声で代わりに読む
   const speech = { engine: engine || "azure", voice: process.env.LP_SPEECH_VOICE || TEXT.voice };
-  writeProject("howto", buildHowtoSteps(howto), { source: "stepcut-app.mp4", dir: howtoDir, speech });
+  // アプリで書き出した動画(仕上がりとして最後に見せる)。--howto-export でも使うので、使い方のフォルダーに置く
+  const inner = path.join(work, "howto-inner.mp4");
+  const sources = [{ id: "rec", path: "stepcut-app.mp4" }];
+  let resultDuration = 0;
+  if (fs.existsSync(inner)) {
+    fs.copyFileSync(inner, path.join(howtoDir, "result.mp4"));
+    sources.push({ id: "result", path: "result.mp4" });
+    const out = execFileSync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "csv=p=0",
+      inner,
+    ]);
+    resultDuration = round(Number(String(out).trim()));
+  }
+  writeProject("howto", buildHowtoSteps(howto, resultDuration), { sources, dir: howtoDir, speech });
   exportHowto();
   process.exit(0);
 })().catch((e) => {

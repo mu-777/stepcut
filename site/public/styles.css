@@ -680,8 +680,32 @@ details p {
 .foot .sp {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 20px;
   flex-wrap: wrap;
+}
+
+/* Ko-fi の支援ボタン。ブランドのベージュの丸いボタンに暗い文字 */
+.foot a.kofi {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #e3d6c6;
+  color: #15171c;
+  font-weight: 700;
+}
+
+.foot a.kofi:hover {
+  color: #15171c;
+  filter: brightness(0.95);
+}
+
+.foot a.kofi img {
+  width: 22px;
+  height: auto;
+  display: block;
 }
 
 /* ---------- 404 ---------- */
