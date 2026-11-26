@@ -85,7 +85,8 @@ jobs:
 
       # 音声なしで載せる動画も、ステップの長さを決めるために OS 標準の声で読む(アプリと同じ WinRT の声)。
       # Windows Server のランナーには声が入っていないことがあるので、日本語と英語の音声合成を入れる。
-      # WinRT を使うので Windows PowerShell 5.1 で回す(pwsh 7 からは WinRT の型を読めない)
+      # WinRT を使うので Windows PowerShell 5.1 で回す(pwsh 7 からは WinRT の型を読めない)。
+      # 5.1 は BOM なしの UTF-8 を読み違えるので、run の中は ASCII だけで書く(コメントもこの外に置く)
       - name: OS 標準の声
         shell: powershell
         run: |
@@ -107,7 +108,7 @@ jobs:
           $v = Voices
           "after: $($v -join ', ')"
           foreach ($lang in 'ja-JP', 'en-US') {
-            if (-not ($v | Where-Object { $_ -like "$lang *" })) { throw "OS 標準の声がありません: $lang" }
+            if (-not ($v | Where-Object { $_ -like "$lang *" })) { throw "No OS voice for $lang" }
           }
 
       - run: npm run build
