@@ -1602,8 +1602,10 @@ function fakeVoicevox() {
   const titleBox = await page.locator(".tb-title").boundingBox();
   const winW = await page.evaluate(() => window.innerWidth);
   check(
-    (await page.locator(".tb-btn svg").count()) === 6 &&
-      (await page.locator(".tb-side.right .tb-btn").first().getAttribute("aria-label")).match(
+    (await page.locator(".tb-btn svg").count()) === 7 &&
+      (await page.locator(".tb-side.right .tb-btn").nth(0).getAttribute("aria-label")).match(/Ko-fi/) !==
+        null &&
+      (await page.locator(".tb-side.right .tb-btn").nth(1).getAttribute("aria-label")).match(
         /Shortcuts|キー操作/,
       ) !== null &&
       /^(File|ファイル)$/.test((await page.locator(".tb-side .tb-btn span").first().textContent()) ?? "") &&
@@ -1611,7 +1613,7 @@ function fakeVoicevox() {
       (await page.locator(".tb-name").textContent()) === "ui" &&
       Math.abs(titleBox.x + titleBox.width / 2 - winW / 2) < 3 &&
       hdr.x + hdr.width - (exportBtn.x + exportBtn.width) < 16,
-    `ヘッダーはアイコン(ファイルと書き出しは文字付き)で、プロジェクト名はウィンドウの中央、書き出しは右端 (中央のずれ ${Math.round(titleBox.x + titleBox.width / 2 - winW / 2)})`,
+    `ヘッダーはアイコン(ファイルと書き出しは文字付き。右側は Ko-fi・キー操作の順)で、プロジェクト名はウィンドウの中央、書き出しは右端 (中央のずれ ${Math.round(titleBox.x + titleBox.width / 2 - winW / 2)})`,
   );
   // 新規・開く・保存は「ファイル」のメニューにまとめる
   await page.getByRole("button", { name: /^(File|ファイル)/ }).click();

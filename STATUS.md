@@ -4,7 +4,7 @@
 2026-11-26
 
 ## ブランチ
-claude/windows-video-ci-github-actions-upw54p(main fb826d8 を取り込み済み)
+claude/windows-video-ci-github-actions-upw54p(main 709f157 を取り込み済み)
 
 ## ゴール
 紹介ページの動画と画像(site/public/media/)を GitHub Actions の Windows で作り直し、PR のブランチにコミットできるようにする(決定: docs/decisions/20261116-lp-media-ci.md)
