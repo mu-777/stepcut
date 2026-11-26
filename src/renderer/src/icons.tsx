@@ -32,7 +32,7 @@ const paths: Record<string, string> = {
   trash: "M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 11v6M14 11v6",
   // キー操作の一覧: 丸の中の ?
   help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 16.5v.5",
-  // 支援(Ko-fi へのリンク): ハート
+  // 支援(Ko-fi へのリンク): 塗りのハート
   heart: "M12 20.5S3.5 15.5 3.5 9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8.5 2.5c0 6-8.5 11-8.5 11z",
   // ポインターの見た目(設定パネルの切り替え)
   ptrArrow: "M6 3v15l4-4 3 6 2-1-3-6h6z",
@@ -70,7 +70,6 @@ const LINE_ICONS = [
   "sendBackward",
   "trash",
   "help",
-  "heart",
   "ptrRing",
   "ptrImage",
   "addCaption",

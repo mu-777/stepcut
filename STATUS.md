@@ -10,7 +10,7 @@ claude/amazing-brahmagupta-ifl8i4
 ヘッダーの ? の左に、紹介ページと同じ Ko-fi へのリンク(ハートのアイコン)を置く
 
 ## 現在地
-- 済: ハートのボタン(線のアイコン、文字色)。押すと https://ko-fi.com/mu_777 を OS のブラウザで開く。ツールチップ「Ko-fi で支援する / Support me on Ko-fi」
+- 済: ハートのボタン(塗りのアイコン、文字色)。押すと https://ko-fi.com/mu_777 を OS のブラウザで開く。ツールチップ「Ko-fi で支援する / Support me on Ko-fi」
 - npm run check・ui-smoke は通過(ヘッダーのアイコン数・並びの確認を更新)
 
 ## 次にやること
