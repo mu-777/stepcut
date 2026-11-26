@@ -17,7 +17,8 @@
     "test": "vitest run",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "dist:win": "electron-vite build && electron-builder --win --publish never",
-    "dist:dir": "electron-vite build && electron-builder --dir --publish never"
+    "dist:dir": "electron-vite build && electron-builder --dir --publish never",
+    "version": "node scripts/changelog.mjs stamp && git add CHANGELOG.md"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
@@ -48,6 +49,10 @@
       "out/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
@@ -57,12 +62,16 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup.${ext}"
     },
     "linux": {
       "target": [
         "dir"
       ]
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable.${ext}"
     }
   }
 }

@@ -35,6 +35,7 @@ npm ci            # 済んでいれば不要
 npm run build     # 必ず。古い out/ のまま撮ると、古い画面が載る
 which ffmpeg ffprobe
 node -e "require('playwright')"
+npx playwright install chromium   # ブラウザ本体。Playwright の版が変わると要る(無いと record で Executable doesn't exist)
 ```
 
 Linux のコンテナでは、日本語のフォントを入れておく(入っていないと、画面とテロップの文字が別の書体になる)。

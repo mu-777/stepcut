@@ -74,7 +74,9 @@ export function checkSemantics(p: Project): { errors: Issue[]; warnings: Issue[]
     if (!sourceIds.has(step.source)) {
       errors.push(issue(at(".source"), "unknownSource", { id: step.source }));
     }
-    if (step.out <= step.in) errors.push(issue(at(".out"), "outBeforeIn"));
+    step.segments.forEach((g, k) => {
+      if (g.out <= g.in) errors.push(issue(at(`.segments[${k}].out`), "outBeforeIn"));
+    });
 
     const holds = stepHolds(step);
     let base = videoDuration(step);

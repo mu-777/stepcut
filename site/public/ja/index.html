@@ -45,7 +45,7 @@
 
     <header class="nav">
       <div class="wrap">
-        <a href="/ja/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="112" height="34" /></a>
+        <a href="/ja/"><img class="brand" src="/assets/logo.svg" alt="StepCut" width="102" height="34" /></a>
         <ul>
           <li><a href="#howto">使い方</a></li>
           <li><a href="#features">付けられるもの</a></li>
@@ -53,7 +53,7 @@
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/mu-777/stepcut">GitHub</a></li>
         </ul>
-        <a class="lang" href="/" hreflang="en" lang="en">English</a>
+        <a class="lang" href="/" hreflang="en" lang="en" onclick="try{localStorage.setItem('stepcut-lang','en')}catch(e){}">English</a>
         <a class="btn pri sm" href="#download">ダウンロード</a>
       </div>
     </header>
@@ -62,13 +62,14 @@
       <section class="hero">
         <div class="wrap">
           <div>
+            <img class="hero-logo" src="/assets/logo.svg" alt="StepCut" width="293" height="98" />
             <span class="pill">無料・オープンソース · Windows 10 / 11</span>
             <h1><span>録画を、</span><span>説明付きの動画に。</span></h1>
             <p class="lead">
               録画をステップに切って、テロップ・読み上げ・ズーム・ポインターで説明を付けます。操作の手順、製品のデモ、資料の解説などに使えます。
             </p>
             <div class="cta">
-              <a class="btn pri" href="https://github.com/mu-777/stepcut/releases">
+              <a class="btn pri" href="https://github.com/mu-777/stepcut/releases/latest/download/StepCut-Setup.exe">
                 <svg aria-hidden="true"><use href="#win" /></svg>Windows 版をダウンロード
               </a>
               <a class="btn sec" href="https://github.com/mu-777/stepcut">GitHub で見る</a>
@@ -221,7 +222,7 @@
                   aria-label="画面の下にテロップの文が出る"
                 ></video>
               </div>
-              <figcaption>テロップ<small>ステップごとの文</small></figcaption>
+              <figcaption>テロップ<small>ステップごとに 1 文。音がなくても伝わります</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -254,7 +255,7 @@
                   aria-label="スイッチのあたりにズームで寄る"
                 ></video>
               </div>
-              <figcaption>ズーム<small>囲んだ範囲に寄る</small></figcaption>
+              <figcaption>ズーム<small>囲んだ範囲に寄ります。小さな文字も読めます</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -270,7 +271,7 @@
                   aria-label="ポインターがスイッチへ動いてクリックする"
                 ></video>
               </div>
-              <figcaption>ポインター<small>押す場所を示す</small></figcaption>
+              <figcaption>ポインター<small>押す場所を示します。録画の後から足せます</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -286,7 +287,7 @@
                   aria-label="「メール通知」の文字に蛍光ペンの線が引かれる"
                 ></video>
               </div>
-              <figcaption>蛍光ペン<small>なぞって線を引く</small></figcaption>
+              <figcaption>蛍光ペン<small>なぞって線を引きます。読んでほしい所が伝わります</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -302,7 +303,7 @@
                   aria-label="「メール通知」の行が四角で囲まれる"
                 ></video>
               </div>
-              <figcaption>四角<small>場所を囲む</small></figcaption>
+              <figcaption>四角<small>場所を囲みます。見る場所がひと目で分かります</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -318,7 +319,7 @@
                   aria-label="矢印がスイッチを指す"
                 ></video>
               </div>
-              <figcaption>矢印<small>場所を指す</small></figcaption>
+              <figcaption>矢印<small>場所を指します。離れた場所から指せます</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -334,7 +335,7 @@
                   aria-label="画面の上に文字が置かれる"
                 ></video>
               </div>
-              <figcaption>テキスト<small>画面に文字を置く</small></figcaption>
+              <figcaption>テキスト<small>画面に文字を置きます。補足や注意を書き添えられます</small></figcaption>
             </figure>
             <figure>
               <div class="frame">
@@ -350,7 +351,7 @@
                   aria-label="画面の上にロゴの画像が置かれる"
                 ></video>
               </div>
-              <figcaption>画像<small>ロゴなどを置く</small></figcaption>
+              <figcaption>画像<small>好きな画像を後から足せます。図や写真で補足できます</small></figcaption>
             </figure>
           </div>
         </div>
@@ -528,9 +529,10 @@
           <h2>StepCut をダウンロード</h2>
           <p class="meta">Windows 10 / 11(64 ビット) · 無料</p>
           <div class="cta">
-            <a class="btn pri" href="https://github.com/mu-777/stepcut/releases">
+            <a class="btn pri" href="https://github.com/mu-777/stepcut/releases/latest/download/StepCut-Setup.exe">
               <svg aria-hidden="true"><use href="#win" /></svg>Windows 版をダウンロード
             </a>
+            <a class="btn sec" href="https://github.com/mu-777/stepcut/releases/latest/download/StepCut-Portable.exe">portable 版</a>
           </div>
           <p class="meta">インストーラー版と、インストール不要の portable 版があります</p>
           <p class="note">
@@ -543,11 +545,14 @@
 
     <footer class="foot">
       <div class="wrap">
-        <span>© mu-777 · Apache-2.0</span>
+        <span>© <a href="https://mu-777.dev/">mu-777</a></span>
         <span class="sp">
           <a href="https://github.com/mu-777/stepcut">GitHub</a>
           <a href="https://github.com/mu-777/stepcut/issues">不具合の報告</a>
-          <a href="https://mu-777.dev/">mu-777.dev</a>
+          <a class="kofi" href="https://ko-fi.com/mu_777" rel="noopener" target="_blank">
+            <img src="/assets/kofi_symbol.svg" alt="" width="22" height="18" />
+            <span>Ko-fi で支援する</span>
+          </a>
         </span>
       </div>
     </footer>

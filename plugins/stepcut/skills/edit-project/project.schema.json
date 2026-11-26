@@ -353,6 +353,10 @@
               "boolean"
             ]
           }
+        },
+        "startOffset": {
+          "type": "number",
+          "minimum": 0
         }
       },
       "additionalProperties": false
@@ -445,13 +449,27 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]+$"
           },
-          "in": {
-            "type": "number",
-            "minimum": 0
-          },
-          "out": {
-            "type": "number",
-            "minimum": 0
+          "segments": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "in": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "out": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "in",
+                "out"
+              ],
+              "additionalProperties": false
+            }
           },
           "speed": {
             "type": "number",
@@ -1464,8 +1482,7 @@
         "required": [
           "id",
           "source",
-          "in",
-          "out"
+          "segments"
         ],
         "additionalProperties": false
       }

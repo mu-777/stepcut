@@ -98,10 +98,21 @@ export function TextField(props: {
   );
 }
 
-export function CheckField(props: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+export function CheckField(props: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
-    <label className="check">
-      <input type="checkbox" checked={props.value} onChange={(e) => props.onChange(e.target.checked)} />
+    <label className={`check${props.disabled ? " disabled" : ""}`} title={props.title}>
+      <input
+        type="checkbox"
+        checked={props.value}
+        disabled={props.disabled}
+        onChange={(e) => props.onChange(e.target.checked)}
+      />
       {props.label}
     </label>
   );

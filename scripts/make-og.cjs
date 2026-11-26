@@ -27,7 +27,7 @@ const html = (
   p,
 ) => `<body style="margin:0;width:1200px;height:630px;background:#1e1f22;color:#e3e5e8;display:flex;
   flex-direction:column;justify-content:center;gap:44px;padding:0 96px;box-sizing:border-box;font-family:${p.family}">
-  <div style="width:420px">${logo}</div>
+  <div style="width:383px">${logo}</div>
   <div style="font-size:68px;font-weight:700;line-height:1.3">${p.title}</div>
   <div style="font-size:28px;color:#9a9ca3">${p.sub}</div>
 </body>`;

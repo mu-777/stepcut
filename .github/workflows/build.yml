@@ -1,26 +1,41 @@
 name: build
 
 # Windows の配布物(nsis インストーラ + portable)を windows-latest でネイティブに作る。
-#   - pull_request: PR の HEAD をビルドし Artifacts に置く(Release は作らない)
+#   - pull_request: lint・型チェック・テスト(check)は PR の作成・push のたびに回す。Windows のビルド
+#     (build-win)は PR にラベル `build` を付けたときだけ走り、Artifacts に置く(Release は作らない)。
+#     作り直すにはラベルを外して付け直す。Artifacts は容量(アカウントで 500MB)を食うので、
+#     push のたびには作らず、保存も 7 日にしている
 #   - workflow_dispatch: 同じく Artifacts のみ(人が Actions タブから実行する)
+#   - workflow_call: release.yml から呼ばれるリリースの経路。release_tag の GitHub Release を作る。
+#     GITHUB_TOKEN が作ったタグは push イベントを起こさないので、タグ起動ではなくここから直接呼ぶ
+#     (docs/decisions/20261116-release-flow.md)
 # package-lock.json をコミットしておくこと(npm ci に必要)。
 #
-# pull_request で回す理由: レビュー時に実機で触れる Windows バイナリが要る。Linux から
+# ラベルで起動する理由: レビュー時に実機で触れる Windows バイナリが要る。Linux から
 # nsis/portable を作るには Wine が要り、クラウドセッションの環境には入っていない。
 # さらにエージェントのトークンには Actions の write が無く workflow_dispatch を叩けないので、
-# 「PR を作れば必ずバイナリが付く」形にしてある(手順は .claude/skills/pr-build/SKILL.md)。
-# 逆戻りガード: この pull_request トリガを外すと、エージェントから Windows ビルドを出す手段が
-# なくなる(dispatch 権限が付与されない限り)。
+# 「PR にラベルを付ければバイナリが付く」形にしてある(手順は .claude/skills/pr-build/SKILL.md)。
+# 逆戻りガード: この pull_request(labeled)トリガを外すと、エージェントから Windows ビルドを出す
+# 手段がなくなる(dispatch 権限が付与されない限り)。PR ごとに自動でビルドする形に戻すと、
+# Artifacts の容量がすぐ満杯になり、リリース(publish が Artifacts を経由する)も落ちる。
 
 on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "この名前のタグを checkout してビルドし、GitHub Release を作る"
+        type: string
+        required: true
 
-# PR に続けて push したとき、古いビルドは打ち切って最新だけ残す。
+# PR に続けて push したとき、古い run は打ち切って最新だけ残す。ラベルで起動した Windows ビルドが
+# 後の push の check で打ち切られないよう、ラベルの run は別の組にする。
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
+  group: build-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'labeled' && 'labeled' || 'push' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -30,11 +45,13 @@ jobs:
   # lint・型チェック・単体テスト。Windows ランナーは checkout で改行が CRLF になり
   # Biome の format 確認が落ちるので、Linux で回す。
   check:
+    # ラベルの run では `build` のときだけ(ほかのラベルで回し直さない)
+    if: github.event.action != 'labeled' || github.event.label.name == 'build'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ inputs.release_tag || github.event.pull_request.head.sha || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -43,14 +60,20 @@ jobs:
       - run: npm run check
 
   build-win:
+    # リリース(workflow_call)・手動実行・ラベル `build` を付けたときだけ。PR の作成・push では走らない
+    if: >-
+      inputs.release_tag != '' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'build')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           # PR では既定でマージコミット (refs/pull/N/merge) が checkout される。レビュー用の
           # バイナリは「このブランチの HEAD をビルドしたもの」であってほしいので、PR の
-          # head SHA を明示する。
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          # head SHA を明示する。release.yml から呼ばれたときの github.ref は main なので、
+          # 作ったばかりのタグ(inputs.release_tag)を最優先する。
+          ref: ${{ inputs.release_tag || github.event.pull_request.head.sha || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -58,6 +81,17 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # リリース以外のビルドは version に短い SHA を足す(0.1.0-g1a2b3c4)。インストール後も
+      # どのコミットのビルドか分かるようにする。CI の作業場所だけの書き換えでコミットしない。
+      # `npm version` は version フックが CHANGELOG を書き換えるので使わない。npm ci の後に置くのは
+      # package-lock.json の版と食い違わせないため。g を付けるのは、SHA が数字だけで 0 始まりの
+      # とき semver の識別子として不正になり electron-builder が落ちるのを防ぐため。
+      - name: Stamp build version (non-release)
+        if: inputs.release_tag == ''
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'),j=JSON.parse(fs.readFileSync('package.json','utf8'));j.version+='-g'+process.argv[1];fs.writeFileSync('package.json',JSON.stringify(j,null,2)+'\\n');console.log('build version =',j.version)" "$(git rev-parse --short=7 HEAD)"
 
       - name: Build (win)
         run: npm run dist:win
@@ -67,5 +101,36 @@ jobs:
         with:
           name: stepcut-win
           if-no-files-found: error
+          retention-days: 7
           path: |
             dist/*.exe
+
+  # リリースの経路だけ。確認とビルドが両方通ったら Release を作る。書き込み権限はこのジョブだけに付ける
+  # (PR のビルドに付けない)。
+  publish:
+    needs: [check, build-win]
+    if: inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: stepcut-win
+          path: dist
+      # 本文は CHANGELOG.md のその版の節(release.yml で中身があることを確認済み)
+      - name: Extract release notes
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: node scripts/changelog.mjs extract "${TAG#v}" > RELEASE_NOTES.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/StepCut-Setup.exe
+            dist/StepCut-Portable.exe

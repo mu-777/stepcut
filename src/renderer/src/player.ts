@@ -38,6 +38,8 @@ export interface PlayerState {
   captionPlaceholder?: string;
   /** テロップを描かないステップの番号(プレビュー上でテロップの文を入力中) */
   hideCaptionStep?: number | null;
+  /** 文を描かない文字のオブジェクト(プレビュー上で文を入力中) */
+  hideObjectText?: { step: number; ref: ObjectRef } | null;
 }
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -136,6 +138,7 @@ export class Player {
       step: entry?.step ?? null,
       local,
       stepDuration: entry?.duration ?? 0,
+      carry: entry?.carry,
       frame,
       srcW: m?.width ?? 0,
       srcH: m?.height ?? 0,
@@ -148,6 +151,7 @@ export class Player {
       images: st.images ? (p) => st.images?.get(p, st.projectPath) ?? null : undefined,
       captionPlaceholder: st.captionPlaceholder,
       hideCaption: entry !== null && st.hideCaptionStep === entry.index,
+      hideObjectText: entry && st.hideObjectText?.step === entry.index ? st.hideObjectText.ref : undefined,
     });
   }
 
@@ -366,7 +370,7 @@ export class Player {
 
     // デコードと描画を分ける。保持中は同じフレームが続くのでデコーダーは何も返さないが、
     // 描画は毎フレーム行い、時刻とズームの動きを進める。
-    // デコードは「続いた区間」ごとに 1 本で読み続ける(同じ録画で前のステップの Out = 次の In なら切れ目をまたぐ)。
+    // デコードは「続いた区間」ごとに 1 本で読み続ける(同じ録画で前の区間の out = 次の区間の in なら切れ目をまたぐ)。
     // 区間ごとに作り直すと、次の区間の手前のキーフレームからデコードし直しになり、切れ目で映像が止まって飛ぶ。
     // 本当に切った箇所(録画が違う・区間が続いていない)は、切れ目の PREROLL 秒前から次の区間のデコードを始めておく
     const runs = playbackRuns(st.timeline, first.entry.index, st.media);
@@ -432,7 +436,8 @@ export class Player {
       if (now >= total) break;
       const l = locate(st.timeline, now);
       if (!l) break;
-      while (ri < runs.length - 1 && l.entry.index > (runs[ri] as PlaybackRun).to) {
+      // 区間はステップの途中でも切れる(まとめたステップの区間の切れ目)ので、時刻で次へ進める
+      while (ri < runs.length - 1 && now >= (runs[ri] as PlaybackRun).end) {
         (runs[ri] as PlaybackRun).done = true;
         ri++;
       }

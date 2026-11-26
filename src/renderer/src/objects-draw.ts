@@ -39,6 +39,8 @@ export interface ObjectsInput {
   images?: (path: string) => Img | null;
   /** 出ている間ならフェード・点滅に関わらず不透明に出すオブジェクト */
   show?: ObjectRef;
+  /** 文を描かない文字のオブジェクト(プレビュー上で文を入力中。入力欄を重ねて出す。枠の塗りは描く) */
+  hideText?: ObjectRef;
 }
 
 /** 文字の書体(テロップと同じ代替フォントの並び) */
@@ -220,11 +222,22 @@ function drawShape(ctx: Ctx, f: ObjectsInput, s: Shape): void {
     ctx.fill();
     return;
   }
-  drawTextBox(ctx, f.project, s);
+  const index = f.step.shapes?.indexOf(s) ?? -1;
+  drawTextBox(ctx, f.project, s, f.hideText?.kind === "shape" && f.hideText.index === index);
 }
 
+/** 文字の枠の左右の余白(文字の大きさに対する割合) */
+export const TEXT_PAD = 0.3;
+/** 文字の行の高さ(文字の大きさに対する割合) */
+export const TEXT_LINE_HEIGHT = 1.3;
+
 /** 文字の枠。枠の幅で折り返し、上下の中央に置く */
-export function drawTextBox(ctx: Ctx, project: Project, s: Extract<Shape, { type: "text" }>): void {
+export function drawTextBox(
+  ctx: Ctx,
+  project: Project,
+  s: Extract<Shape, { type: "text" }>,
+  hideText = false,
+): void {
   const st = resolveTextStyle(project, s);
   const r = s.rect;
   const bg = captionBoxColor(st.background);
@@ -233,11 +246,11 @@ export function drawTextBox(ctx: Ctx, project: Project, s: Extract<Shape, { type
     ctx.fillStyle = bg;
     ctx.fill();
   }
-  if (s.text.trim() === "") return;
-  const pad = st.size * 0.3;
+  if (hideText || s.text.trim() === "") return;
+  const pad = st.size * TEXT_PAD;
   ctx.font = objectFont(st.font, st.size);
   const lines = wrapText(s.text, Math.max(1, r.w - pad * 2), (x) => ctx.measureText(x).width);
-  const lineH = st.size * 1.3;
+  const lineH = st.size * TEXT_LINE_HEIGHT;
   ctx.fillStyle = st.color;
   ctx.textBaseline = "middle";
   ctx.textAlign = st.align;

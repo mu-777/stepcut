@@ -6,13 +6,14 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   withSpeechPieces,
 } from "../../core/defaults";
 import {
-  canMergeSteps,
   deleteStep,
   duplicateStep,
   followCaptions,
+  mergeBlocker,
   mergeSteps,
   moveStep,
   newProject,
@@ -29,7 +30,9 @@ import {
   zoomRectAt,
 } from "../../core/layout";
 import {
+  type AnyObject,
   isScreenAnchored,
+  moveObject,
   type ObjectRef,
   objectOf,
   objectWindow,
@@ -64,8 +67,7 @@ import {
 } from "./inspector";
 import { actionOf, keyLabel, withKey } from "./keymap";
 import { openMedia, releaseMedia, type SourceMedia } from "./media";
-import { hitObject, ObjectEditor } from "./object-editor";
-import { objectTextInputId } from "./object-panel";
+import { hitObject, ObjectEditor, objectSnapBoxes, zoomSnapBoxes } from "./object-editor";
 import {
   insertObject,
   NEW_OBJECT_KINDS,
@@ -83,7 +85,15 @@ import { SettingsDialog } from "./settings-dialog";
 import { SpeechStore } from "./speech";
 import { StepRail } from "./step-rail";
 import { ThumbCache } from "./thumbs";
-import { fmtTime, insertZoom, type MenuItem, type Selection, selectedStep, Timeline } from "./timeline";
+import {
+  fmtTime,
+  insertZoom,
+  type MenuItem,
+  mergeNextItem,
+  type Selection,
+  selectedStep,
+  Timeline,
+} from "./timeline";
 import { useClipboard } from "./use-clipboard";
 import { useExport } from "./use-export";
 import { type Banner, useProjectFile } from "./use-project-file";
@@ -135,6 +145,10 @@ export function App() {
   const [drawingZoom, setDrawingZoom] = useState<DrawingZoom | null>(null);
   /** プレビュー上でテロップの文字を入力中のステップ */
   const [captionEdit, setCaptionEdit] = useState<number | null>(null);
+  /** プレビュー上で文を入力中の文字のオブジェクト(selectAll なら始めに文をすべて選ぶ) */
+  const [textEdit, setTextEdit] = useState<{ step: number; index: number; selectAll: boolean } | null>(null);
+  /** プレビューのクリックで選んだ文字のオブジェクト(ドラッグせずに離したら入力を始める) */
+  const pickedText = useRef<{ step: number; index: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** アプリの設定を開いているか("shortcuts" ならキー操作の欄まで送る) */
   const [settingsOpen, setSettingsOpen] = useState<false | true | "shortcuts" | "engines">(false);
@@ -245,7 +259,10 @@ export function App() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: speechVersion で読み上げの長さの更新を拾う
   const speechDurations = useMemo(() => speech.durations(project), [project, speechVersion]);
-  const timeline = useMemo(() => buildTimeline(project.steps, speechDurations), [project, speechDurations]);
+  const timeline = useMemo(
+    () => buildTimeline(project.steps, speechDurations, speechStartOffset(project)),
+    [project, speechDurations],
+  );
   const total = totalDuration(timeline);
   const issues = useMemo(() => {
     const r = parseProject(project);
@@ -304,6 +321,7 @@ export function App() {
     projectPath: filePath,
     captionPlaceholder: t("captionPlaceholder"),
     hideCaptionStep: captionEdit,
+    hideObjectText: textEdit ? { step: textEdit.step, ref: { kind: "shape", index: textEdit.index } } : null,
   };
   const stateRef = useRef(playerState);
   stateRef.current = playerState;
@@ -364,7 +382,18 @@ export function App() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 表示に関わる値が変わったら描き直す
   useLayoutEffect(() => {
     playerRef.current?.renderStill();
-  }, [project, timeline, media, trimPreview, drawingZoom, bgVersion, imgVersion, captionEdit, selection]);
+  }, [
+    project,
+    timeline,
+    media,
+    trimPreview,
+    drawingZoom,
+    bgVersion,
+    imgVersion,
+    captionEdit,
+    textEdit,
+    selection,
+  ]);
 
   // 選択が範囲外になったら(削除・外部変更)プロジェクトの選択に戻す
   useEffect(() => {
@@ -415,8 +444,12 @@ export function App() {
         const step: Step = {
           id: uniqueStepId(p, "step"),
           source: id,
-          in: 0,
-          out: m.kind === "image" ? DEFAULT_IMAGE_STEP_SECONDS : Math.round(m.duration * 1000) / 1000,
+          segments: [
+            {
+              in: 0,
+              out: m.kind === "image" ? DEFAULT_IMAGE_STEP_SECONDS : Math.round(m.duration * 1000) / 1000,
+            },
+          ],
           // テロップは空で付けておく(プレビューには仮の文を出し、書き出しには出さない)
           caption: { text: "" },
           // 読み上げは、書き換えるまでテロップの文を読む
@@ -479,8 +512,16 @@ export function App() {
     const pl = playerRef.current;
     if (!pl) return;
     const boundaries = [0, ...timeline.map((x) => x.start + x.duration)];
-    if (dir < 0) pl.seek([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0);
-    else pl.seek(boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    const to =
+      dir < 0
+        ? ([...boundaries].reverse().find((b) => b < pl.time - 1e-3) ?? 0)
+        : (boundaries.find((b) => b > pl.time + 1e-3) ?? total);
+    pl.seek(to);
+    // ステップ(要素ではなく)を選んでいるときは、移った先のステップを選ぶ(設定パネルとサムネイルの枠が付いてくる)
+    if (selection.kind === "step" && view === "step") {
+      const l = locate(timeline, to);
+      if (l && l.entry.index !== selection.step) setSelection({ kind: "step", step: l.entry.index });
+    }
   };
 
   // キー操作は一般的な動画編集アプリに合わせる(docs/decisions/20261029-timeline-ui.md)
@@ -653,6 +694,22 @@ export function App() {
       );
       return true;
     }
+    // 選んでいるオブジェクトを動かす(ポインターは軌跡ごと)
+    if ((selection.kind === "pointer" || selection.kind === "shape") && !playing) {
+      const ref: ObjectRef = { kind: selection.kind, index: selection.index };
+      const i = selection.step;
+      if (!project.steps[i] || !objectOf(project.steps[i] as Step, ref)) return false;
+      update(
+        (p) => ({
+          ...p,
+          steps: p.steps.map((s, k) =>
+            k === i ? patchStepObject(s, ref, (o) => moveObject(o, dx * n, dy * n)) : s,
+          ),
+        }),
+        "nudge-object",
+      );
+      return true;
+    }
     if (selection.kind === "video" && !playing) {
       const i = selection.step;
       const src = media.get(project.steps[i]?.source ?? "") ?? locMedia;
@@ -727,7 +784,7 @@ export function App() {
           },
         },
         { label: t("duplicate"), action: () => update((p) => duplicateStep(p, i)) },
-        { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => mergeNext(i) },
+        mergeNextItem(project, i, () => mergeNext(i)),
         {
           label: t("delete"),
           shortcut: keyLabel("delete"),
@@ -916,7 +973,17 @@ export function App() {
     // ステップの終わりちょうどでは見えないので、少し手前に作る
     const local = place && place.entry.index === i ? Math.min(place.local, Math.max(0, e.duration - 0.5)) : 0;
     const m = media.get(st.source);
-    const g = frameGeometry(project, st, local, out.width, out.height, m?.width || 1920, m?.height || 1080);
+    const g = frameGeometry(
+      project,
+      st,
+      local,
+      out.width,
+      out.height,
+      m?.width || 1920,
+      m?.height || 1080,
+      false,
+      e.carry,
+    );
     playerRef.current?.stop();
     const b = g.box;
     const inVideo = at && at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h;
@@ -932,13 +999,8 @@ export function App() {
     if (!loc || loc.entry.index !== i || Math.abs(loc.local - local) > 1e-3)
       playerRef.current?.seek(e.start + local);
     setSelection({ kind: r.ref.kind, step: i, index: r.ref.index });
-    // 文字はすぐ文を打てるようにする(欄が開いてから)
-    if (kind === "text")
-      setTimeout(() => {
-        const el = document.getElementById(objectTextInputId(r.ref.index)) as HTMLTextAreaElement | null;
-        el?.focus();
-        el?.select();
-      }, 80);
+    // 文字はプレビュー上ですぐ文を打てるようにする(仮の文をすべて選んでおく)
+    if (kind === "text") setTextEdit({ step: i, index: r.ref.index, selectAll: true });
   };
 
   /**
@@ -951,7 +1013,17 @@ export function App() {
     if (!st || !s || (anchor === "screen") === isScreenAnchored(s)) return;
     const local = loc && loc.entry.index === i ? loc.local : 0;
     const m = media.get(st.source);
-    const g = frameGeometry(project, st, local, out.width, out.height, m?.width || 1920, m?.height || 1080);
+    const g = frameGeometry(
+      project,
+      st,
+      local,
+      out.width,
+      out.height,
+      m?.width || 1920,
+      m?.height || 1080,
+      false,
+      timeline[i]?.carry,
+    );
     const sg = screenGeometry(out.width, out.height, g.video);
     const [from, to] = anchor === "screen" ? [g, sg] : [sg, g];
     const next = reanchorShape(
@@ -976,7 +1048,17 @@ export function App() {
       const { entry, local } = loc;
       const step = entry.step;
       if (!playing) {
-        const g = frameGeometry(project, step, local, out.width, out.height, locMedia.width, locMedia.height);
+        const g = frameGeometry(
+          project,
+          step,
+          local,
+          out.width,
+          out.height,
+          locMedia.width,
+          locMedia.height,
+          false,
+          entry.carry,
+        );
         const sg = screenGeometry(out.width, out.height, g.video);
         const hitRef = hitObject(project, step, local, entry.duration, g, sg, out.height, pt);
         if (hitRef) {
@@ -1009,7 +1091,7 @@ export function App() {
         items.push({ label: t("drawRect"), action: () => editZoomRect(entry.index, hit) });
       } else if (fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1) {
         // 表示中の範囲(ズーム中ならその範囲)の中で、クリックした点をソースの座標にする
-        const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop);
+        const view = viewRectAt(step, local, locMedia.width, locMedia.height, geo.crop, entry.carry);
         const center = { x: view.x + fx * view.w, y: view.y + fy * view.h };
         items.push({
           label: `＋ ${t("zooms")}`,
@@ -1076,7 +1158,7 @@ export function App() {
 
   /** ステップ i と次のステップをまとめる。前のステップの自動保持(読み上げが長い分)も保つ */
   const mergeNext = (i: number) => {
-    if (!canMergeSteps(project, i)) return;
+    if (mergeBlocker(project, i)) return;
     update((p) => mergeSteps(p, i, timeline[i]?.duration));
     setSelection({ kind: "step", step: i });
   };
@@ -1124,6 +1206,18 @@ export function App() {
   useEffect(() => {
     if (captionEdit !== null && !captionEditing) setCaptionEdit(null);
   }, [captionEdit, captionEditing]);
+  // 文字のオブジェクトの入力は、そのオブジェクトを選んでいて、停止中に再生位置がそのステップにある間だけ続ける
+  const textEditing =
+    textEdit !== null &&
+    !playing &&
+    selection.kind === "shape" &&
+    selection.step === textEdit.step &&
+    selection.index === textEdit.index &&
+    loc?.entry.index === textEdit.step &&
+    project.steps[textEdit.step]?.shapes?.[textEdit.index]?.type === "text";
+  useEffect(() => {
+    if (textEdit !== null && !textEditing) setTextEdit(null);
+  }, [textEdit, textEditing]);
   /**
    * プレビューでのテロップの置き方の変更(位置・幅)。常にそのステップの個別の値にする。
    * 全ステップ共通にするのは、文のパネルの「この位置を共通にする」か共通の欄の数値
@@ -1371,6 +1465,11 @@ ${t("renameTip")}`}
           }}
           onStepMenu={stepMenu}
           onAdd={() => actions.current.addSource?.()}
+          onMove={(from, to) => {
+            update((p) => moveStep(p, from, to));
+            setView("step");
+            setSelection({ kind: "step", step: to });
+          }}
           onDropFiles={(files) => {
             const paths = files
               .filter((f) => /\.mp4$/i.test(f.name) || isImageSource(f.name))
@@ -1635,7 +1734,7 @@ ${t("renameTip")}`}
               );
             }}
             onCaptionEditEnd={() => setCaptionEdit(null)}
-            objects={(stage) => {
+            objects={(stage, caption) => {
               if (!selObject || playing || !loc || loc.entry.index !== selObject.step) return null;
               const st = loc.entry.step;
               const o = objectOf(st, selObject.ref);
@@ -1649,6 +1748,8 @@ ${t("renameTip")}`}
                 stage.h,
                 m?.width || 1920,
                 m?.height || 1080,
+                false,
+                loc.entry.carry,
               );
               return (
                 <ObjectEditor
@@ -1660,10 +1761,66 @@ ${t("renameTip")}`}
                   onChange={(next, key) =>
                     patchObject(update, selObject.step, selObject.ref, () => next, key)
                   }
-                  onEditText={() => document.getElementById(objectTextInputId(selObject.ref.index))?.focus()}
+                  onEditText={() =>
+                    setTextEdit({ step: selObject.step, index: selObject.ref.index, selectAll: false })
+                  }
+                  editingText={
+                    textEdit && textEdit.step === selObject.step && textEdit.index === selObject.ref.index
+                      ? { selectAll: textEdit.selectAll }
+                      : null
+                  }
+                  onText={(text) =>
+                    patchObject(
+                      update,
+                      selObject.step,
+                      selObject.ref,
+                      (x) => ({ ...x, text }) as AnyObject,
+                      `step${selObject.step}.shape${selObject.ref.index}.text`,
+                    )
+                  }
+                  onEditTextEnd={() => setTextEdit(null)}
                   outside={shapeOutsideVideo(o, m?.width || 1920, m?.height || 1080)}
+                  targets={[
+                    ...objectSnapBoxes(
+                      st,
+                      loc.local,
+                      loc.entry.duration,
+                      g,
+                      screenGeometry(stage.w, stage.h, g.video),
+                      selObject.ref,
+                    ),
+                    ...zoomSnapBoxes(st, g, null),
+                    ...(caption ? [caption] : []),
+                  ]}
                 />
               );
+            }}
+            snapTargets={(stage, zoomEditing) => {
+              if (!loc) return [];
+              // ズームの枠の編集中は、そのステップを再生位置で表示しているときだけ(ズームなしの表示に合わせる)
+              if (zoomEditing && drawingZoom?.step !== loc.entry.index) return [];
+              const st = loc.entry.step;
+              const m = media.get(st.source);
+              const g = frameGeometry(
+                project,
+                st,
+                loc.local,
+                stage.w,
+                stage.h,
+                m?.width || 1920,
+                m?.height || 1080,
+                zoomEditing,
+                loc.entry.carry,
+              );
+              const sg = screenGeometry(stage.w, stage.h, g.video);
+              return [
+                ...objectSnapBoxes(st, loc.local, loc.entry.duration, g, sg, null),
+                ...zoomSnapBoxes(
+                  st,
+                  g,
+                  zoomEditing && drawingZoom ? { zoom: drawingZoom.zoom, key: drawingZoom.key } : null,
+                ),
+              ];
             }}
             onPickObject={(p, stage) => {
               if (playing || !loc) return false;
@@ -1677,9 +1834,15 @@ ${t("renameTip")}`}
                 stage.h,
                 m?.width || 1920,
                 m?.height || 1080,
+                false,
+                loc.entry.carry,
               );
               const sg = screenGeometry(stage.w, stage.h, g.video);
               const hit = hitObject(project, st, loc.local, loc.entry.duration, g, sg, stage.h, p);
+              pickedText.current =
+                hit?.kind === "shape" && st.shapes?.[hit.index]?.type === "text"
+                  ? { step: loc.entry.index, index: hit.index }
+                  : null;
               if (hit) {
                 setSelection({ kind: hit.kind, step: loc.entry.index, index: hit.index });
                 return true;
@@ -1690,6 +1853,11 @@ ${t("renameTip")}`}
                 return true;
               }
               return false;
+            }}
+            onPickClick={() => {
+              // 文字のオブジェクトはテロップと同じく、ドラッグせずにクリックしたらその場で文の入力を始める
+              const picked = pickedText.current;
+              if (picked) setTextEdit({ ...picked, selectAll: false });
             }}
             onAddSource={project.steps.length === 0 ? () => void actions.current.addSource?.() : undefined}
             onContextLost={() => {
@@ -1858,6 +2026,20 @@ ${t("renameTip")}`}
                     return typeof bg !== "string" && "image" in bg
                       ? backgrounds.error(bg.image, filePath)
                       : null;
+                  })()}
+                  {...(() => {
+                    // 録画(動画)だけを見る。画像のステップは比を決めない
+                    const sizes = project.steps
+                      .map((st) => media.get(st.source))
+                      .filter((m) => m?.kind === "video")
+                      .map((m) => ({ w: m?.width ?? 0, h: m?.height ?? 0 }));
+                    const first = sizes[0] ?? null;
+                    return {
+                      sourceSize: first,
+                      mixedSourceAspect:
+                        first !== null &&
+                        sizes.some((z) => Math.abs(z.w * first.h - z.h * first.w) > first.w),
+                    };
                   })()}
                 />
               </>

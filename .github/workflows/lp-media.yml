@@ -110,6 +110,8 @@ jobs:
         with:
           name: lp-media-check
           if-no-files-found: ignore
+          # Artifacts の容量(アカウントで 500MB)を食わないよう、build.yml と同じく 7 日で消す
+          retention-days: 7
           path: |
             test-output/*.log
             test-output/lp-media*/sheets/

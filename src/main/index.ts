@@ -313,6 +313,7 @@ function registerIpc(): void {
       process.env.STEPCUT_UPDATE_URL || RELEASES_API,
     );
   handle("update:check", () => checkUpdate());
+  handle("app:version", () => app.getVersion());
   handle("update:auto", async () => {
     // 開発中(パッケージしていない)と CLI では自動で確認しない。E2E が外へ通信しないように
     if (cli || (!app.isPackaged && !process.env.STEPCUT_UPDATE_URL)) return null;

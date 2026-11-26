@@ -65,12 +65,11 @@ fs.writeFileSync(
         {
           id: "first",
           source: "rec1",
-          in: 0,
-          out: 4,
+          segments: [{ in: 0, out: 4 }],
           caption: { text: "最初のステップ" },
           speech: { text: "最初のステップです。" },
         },
-        { id: "second", source: "rec1", in: 4, out: 8, caption: { text: "Second step" } },
+        { id: "second", source: "rec1", segments: [{ in: 4, out: 8 }], caption: { text: "Second step" } },
       ],
     },
     null,
@@ -779,33 +778,33 @@ function fakeVoicevox() {
   await page.keyboard.press("Escape");
   await shot(page, "07-mint");
 
-  // 余白なし: オンで余白 0、オフで元に戻す
+  // 録画を画面全体に表示: オンで余白 0、オフで元に戻す
   await openProject();
-  const noMargin = page.getByLabel(/No margins|余白なし/);
+  const noMargin = page.getByLabel(/full-frame|画面全体に表示/);
   const before = await marginOf();
   await noMargin.check();
   await page.waitForTimeout(200);
   const zeroed = await marginOf();
   check(
     zeroed.every((v) => v === 0),
-    `余白なしで上下左右の余白が 0 (${before} → ${zeroed})`,
+    `画面全体に表示で上下左右の余白が 0 (${before} → ${zeroed})`,
   );
   await noMargin.uncheck();
   await page.waitForTimeout(200);
   const after = await marginOf();
   check(
     after[0] === before[0] && after[1] === before[1],
-    `余白なしを外すと元の余白に戻る (${before} → ${after})`,
+    `画面全体に表示を外すと元の余白に戻る (${before} → ${after})`,
   );
 
-  // ステップ 2 だけ余白なしにする(設定パネルの「録画の枠」)
+  // ステップ 2 だけ画面全体に表示にする(設定パネルの「録画の枠」)
   {
     await thumbs.nth(1).click();
     await page.waitForTimeout(200);
     const frameFold = page.locator(".fold", { hasText: /Recording frame|録画の枠/ });
     if (!(await frameFold.evaluate((el) => el.classList.contains("open"))))
       await frameFold.locator(".fold-head").click();
-    await frameFold.getByLabel(/No margins|余白なし/).check();
+    await frameFold.getByLabel(/full-frame|画面全体に表示/).check();
     await page.waitForTimeout(200);
     await saveProject();
     await page.waitForTimeout(800);
@@ -817,7 +816,7 @@ function fakeVoicevox() {
         m.left === 0 &&
         saved3.steps[1].layout.fit === "contain" &&
         saved3.layout.margin.top > 0.04,
-      "ステップ 2 だけ余白なしにできる(全体の余白はそのまま)",
+      "ステップ 2 だけ画面全体に表示にできる(全体の余白はそのまま)",
     );
     check(
       /This step uses its own frame|このステップだけの枠/.test(
@@ -1188,6 +1187,39 @@ function fakeVoicevox() {
     ["テキスト(ここを押す)", "Text (ここを押す)"].includes(textTitle),
     `右パネルのテキストの見出しは「テキスト(文)」 (${textTitle})`,
   );
+  // テキストはテロップと同じく、プレビュー上でその場で文を直せる(作ったときは入力欄が出ている)
+  {
+    const input = page.locator(".object-text-input");
+    check((await input.count()) === 1, "テキストを作るとプレビュー上に入力欄が出る");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+    check((await input.count()) === 0, "Esc で入力を終える");
+    const box = await page.locator(".object-layer .box-outline").boundingBox();
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    // 選んでいない状態から、文字の枠をクリック(ドラッグなし)すると入力を始める
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(200);
+    check(
+      (await input.count()) === 1 && (await input.inputValue()) === "ここを押す",
+      "文字の枠をクリックするとプレビュー上で入力を始める",
+    );
+    await page.keyboard.press("End");
+    await page.keyboard.type("!");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    check(
+      (await page.locator(".tl-bar.object", { hasText: "ここを押す!" }).count()) === 1,
+      "プレビュー上で直した文がオブジェクトに入る",
+    );
+    // 選んだ状態の枠をクリックしても入力を始め、ドラッグなら動かす(入力しない)
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(150);
+    check((await input.count()) === 1, "選んだ文字の枠のクリックでも入力を始める");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+  }
   check(
     (await page.locator(".tl-bar.object").count()) === 5,
     "重なる時刻のオブジェクトはタイムラインで行を分けて並ぶ",
@@ -1272,6 +1304,66 @@ function fakeVoicevox() {
     await undoBtn.click();
     await page.waitForTimeout(200);
     check((await page.locator(".tl-bar.object").count()) === n0, "近道で作ったものも元に戻すで消える");
+  }
+
+  // 要素どうしの吸着: ズームの枠の左辺を四角の左辺の近くへ動かすと、四角の辺に吸着して同じ値(録画のピクセル)になる
+  {
+    const undoBtn = page.getByRole("button", { name: /^(Undo|元に戻す)$/ });
+    const n0 = await page.locator(".tl-bar.object").count();
+    const z0 = await page.locator(".tl-bar.zoom").count();
+    // ズームしていない時刻(ステップ 2 の先頭)で測る。枠の編集中はズームなしで表示するため
+    await page.locator(".preview-stage").click({ position: { x: 30, y: 30 } });
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowDown");
+    await page.waitForTimeout(200);
+    await addObject(/^(Box|四角)$/);
+    const rb = await page.locator(".object-layer .box-outline").boundingBox();
+    // 選択を外してから、帯の「ズーム」で枠の編集を始める
+    await page.keyboard.press("Escape");
+    await page
+      .locator(".preview-add")
+      .getByRole("button", { name: /^(Zoom|ズーム)$/ })
+      .click();
+    await page.waitForTimeout(300);
+    const zb = await page.locator(".box-outline").boundingBox();
+    // 左辺を合わせる(縦は、ステップ 2 は録画の上下を切っていて、枠が四角の上辺・下辺にそろう位置に収まらない)。
+    // ずらす量は小さく(ほかのズームの枠の中心など、ほかの吸着先も近くにある)
+    const from = { x: zb.x + 20, y: zb.y + 20 };
+    const to = { x: from.x + (rb.x - zb.x) + 1.5, y: from.y - 40 };
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.waitForTimeout(100);
+    const hits = await page.locator(".snap-hit").count();
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.keyboard.press("Escape");
+    await saveProject();
+    await page.waitForTimeout(500);
+    const st = JSON.parse(fs.readFileSync(projectPath, "utf8")).steps[1];
+    const r = st.shapes[st.shapes.length - 1].rect;
+    const snapped = (st.zooms ?? []).some((z) => z.keys.some((k) => k.rect.x === r.x));
+    check(
+      hits >= 1 && snapped,
+      `ズームの枠の左辺を四角の左辺の近くへ動かすと四角の左辺に吸着して同じ X になり、相手の枠を点線で示す (点線 ${hits})`,
+    );
+    // 四角の追加・ズームの追加・枠の移動を戻す(回数は数で見る)
+    for (let i = 0; i < 6; i++) {
+      if (
+        (await page.locator(".tl-bar.object").count()) === n0 &&
+        (await page.locator(".tl-bar.zoom").count()) === z0
+      )
+        break;
+      await undoBtn.click();
+      await page.waitForTimeout(150);
+    }
+    await saveProject();
+    await page.waitForTimeout(300);
+    check(
+      (await page.locator(".tl-bar.object").count()) === n0 &&
+        (await page.locator(".tl-bar.zoom").count()) === z0,
+      "吸着の確認で作った四角とズームを元に戻す",
+    );
   }
 
   // タイムラインの帯をクリックで選んでも再生位置は動かさない。ダブルクリックで始まりへ移す
@@ -1413,7 +1505,7 @@ function fakeVoicevox() {
     await page.locator(".fold:not(.open) .fold-head").first().click();
   check(
     /Project|全体/.test(await panelTitle()) &&
-      (await page.getByLabel(/No margins|余白なし/).count()) === 1 &&
+      (await page.getByLabel(/full-frame|画面全体に表示/).count()) === 1 &&
       (await page.locator(".dict-field").count()) === 1,
     "「全体」で出力・レイアウト・テロップの見た目・声の共通の設定",
   );
@@ -1442,6 +1534,29 @@ function fakeVoicevox() {
       `縦横比を固定すると幅に合わせて高さも変わる (${h0} → ${h1})`,
     );
     await page.getByRole("checkbox", { name: /^(Keep aspect ratio|縦横比を固定)$/ }).uncheck();
+    // 録画に合わせる(録画は 1280×720): 幅はそのまま高さを録画の比に。外すと元の大きさに戻す
+    const match = page.getByRole("checkbox", { name: /^(Match the recording|録画に合わせる)$/ });
+    await hField.fill("1000");
+    await page.waitForTimeout(150);
+    const wasMatched = await match.isChecked();
+    await match.check();
+    await page.waitForTimeout(150);
+    const mh = Number(await hField.inputValue());
+    await match.uncheck();
+    await page.waitForTimeout(150);
+    check(
+      !wasMatched && mh === 1080 && (await hField.inputValue()) === "1000",
+      `「録画に合わせる」で高さが録画の比になり、外すと戻る (1000 → ${mh} → ${await hField.inputValue()})`,
+    );
+    await hField.fill(h0);
+    await page.waitForTimeout(150);
+    // 横に並べた 2 つの欄は同じ幅
+    const [fpsW, qW] = await page
+      .locator(".row:has(> .field > .seg-field)")
+      .first()
+      .locator("> .field")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    check(Math.abs(fpsW - qW) < 1, `フレームレートと画質の欄は同じ幅 (${fpsW} / ${qW})`);
   }
   // 選択欄のラベルには選択肢の文字も入るので、ラベルの見出しで探す
   const fontSel = page
@@ -1547,8 +1662,8 @@ function fakeVoicevox() {
     const tabs = page.locator(".settings-nav [role=tab]");
     const panel = page.locator(".settings-panel");
     check(
-      (await tabs.count()) === 3 && (await panel.getAttribute("data-section")) === "general",
-      "アプリの設定は左に 3 つの区分のメニューがあり、「一般」から開く",
+      (await tabs.count()) === 4 && (await panel.getAttribute("data-section")) === "general",
+      "アプリの設定は左に 4 つの区分のメニューがあり、「一般」から開く",
     );
     await shot(page, "22-settings-general");
     await tabs.nth(1).click();
@@ -1979,9 +2094,16 @@ function fakeVoicevox() {
       (await u.w.locator(".update-banner").count()) === 0 && upSaved.dismissedUpdate === "9.9.9",
       "知らせを閉じると、その版を覚える",
     );
-    // アプリの設定の「一般」: 起動時の確認(既定オン)と今すぐ確認
+    // アプリの設定の「アプリ情報」: 版・ライセンス、起動時の確認(既定オン)と今すぐ確認
     await u.w.getByRole("button", { name: /^(Settings|設定)$/ }).click();
     await u.w.waitForTimeout(200);
+    await u.w.locator(".settings-nav [role=tab]").nth(3).click();
+    await u.w.waitForTimeout(200);
+    check(
+      /^v\d+\.\d+\.\d+/.test((await u.w.locator(".about-version").textContent()) ?? "") &&
+        /Apache-2\.0/.test((await u.w.locator(".about-list").textContent()) ?? ""),
+      `「アプリ情報」に版とライセンスを出す (${await u.w.locator(".about-version").textContent()})`,
+    );
     const upCheck = u.w.locator(".update-field input[type=checkbox]");
     check(await upCheck.isChecked(), "起動時に新しい版を確認する(既定オン)");
     await u.w.getByRole("button", { name: /^(Check now|今すぐ確認)$/ }).click();
@@ -2070,7 +2192,7 @@ function fakeVoicevox() {
         format: "stepcut.project",
         version: 1,
         sources: [{ id: "rec1", path: "moved.mp4" }],
-        steps: [{ id: "a", source: "rec1", in: 0, out: 4, caption: { text: "a" } }],
+        steps: [{ id: "a", source: "rec1", segments: [{ in: 0, out: 4 }], caption: { text: "a" } }],
       }),
     );
     r = await launchWith(lostPath);

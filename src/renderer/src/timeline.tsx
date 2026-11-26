@@ -8,6 +8,7 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   speechText,
   stepSourceEnabled,
   stepSpeed,
@@ -17,8 +18,8 @@ import {
 } from "../../core/defaults";
 import {
   addHold,
-  canMergeSteps,
   deleteStep,
+  mergeBlocker,
   resizeImageStepStart,
   splitStep,
   trimStep,
@@ -37,7 +38,17 @@ import {
   stepObjects,
 } from "../../core/objects";
 import type { Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
-import { baseDuration, sourceTimeAt, speechTimes, stepHolds, type TimelineEntry } from "../../core/timeline";
+import {
+  baseDuration,
+  segmentBoundaries,
+  sourceTimeAt,
+  speechTimes,
+  stepDuration,
+  stepHolds,
+  stepIn,
+  stepOut,
+  type TimelineEntry,
+} from "../../core/timeline";
 import { t } from "./i18n";
 import { Icon, type IconName } from "./icons";
 import { keyLabel } from "./keymap";
@@ -76,6 +87,14 @@ export interface MenuItem {
 }
 
 type Update = (fn: (p: Project) => Project, key?: string) => void;
+
+/** 右クリックの「次のステップとまとめる」。まとめられないときは理由を添えて押せなくする */
+export function mergeNextItem(project: Project, i: number, action: () => void): MenuItem {
+  const why = mergeBlocker(project, i);
+  const reason =
+    why === "otherSource" ? t("mergeOtherSource") : why === "otherSpeed" ? t("mergeOtherSpeed") : "";
+  return { label: `${t("mergeNext")}${reason}`, disabled: why !== null, action };
+}
 
 const VIDEO_H = 52;
 /** オブジェクトのレーンの 1 行の高さ */
@@ -195,7 +214,7 @@ function shiftGroup(
   let hi = Number.POSITIVE_INFINITY;
   const picked = new Set(items.map(multiKey));
   const speechStart = (st: Step, k: number) =>
-    speechTimes(st, speechDurations.get(st.id) ?? [])[k]?.start ?? 0;
+    speechTimes(st, speechDurations.get(st.id) ?? [], speechStartOffset(project))[k]?.start ?? 0;
   for (const it of items) {
     const entry = timeline[it.step];
     const st = project.steps[it.step];
@@ -241,8 +260,7 @@ function shiftGroup(
       const pieces = speechPieces(st).map((p, k) => {
         if (!has("speech", k)) return p;
         const v = r3(speechStart(st, k) + dt);
-        const { start: _s, ...rest } = p;
-        return v > 0 || k > 0 ? { ...rest, start: v } : rest;
+        return { ...p, start: v };
       });
       Object.assign(next, withSpeechPieces(next, pieces));
     }
@@ -262,6 +280,8 @@ function shiftGroup(
 }
 const TILE_W = Math.round((VIDEO_H - 4) * (16 / 9));
 const SNAP_PX = 6;
+/** オブジェクトの終わりをステップの終わりで止めておく幅(px)。これを越えて引くとステップを伸ばす */
+const STICK_PX = 24;
 /** 再生ヘッドを吸着させる距離 */
 const SEEK_SNAP_PX = 8;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -467,7 +487,7 @@ export function Timeline(props: {
       const cw = captionWindow(s, e.duration);
       if (cw) ts.push(e.start + cw.start, e.start + cw.end);
       const sd = props.speechDurations.get(s.id) ?? [];
-      speechTimes(s, sd).forEach((x, k) => {
+      speechTimes(s, sd, speechStartOffset(project)).forEach((x, k) => {
         if (!speechText(s, k)) return;
         ts.push(e.start + x.start);
         if (sd[k]) ts.push(e.start + x.end);
@@ -612,7 +632,7 @@ export function Timeline(props: {
         label: t("addHoldEnd"),
         action: () => update((p) => addHold(p, i, baseDuration(p.steps[i] as Step), 1)),
       },
-      { label: t("mergeNext"), disabled: !canMergeSteps(project, i), action: () => props.onMergeNext(i) },
+      mergeNextItem(project, i, () => props.onMergeNext(i)),
       // ステップの録画の音(全体で消しているときは、全体の切り替えが先)。画像には音がない
       ...(isImageStep(entry.step)
         ? []
@@ -662,7 +682,11 @@ export function Timeline(props: {
     if (!hit) return;
     const { entry, local } = hit;
     const i = entry.index;
-    const times = speechTimes(entry.step, props.speechDurations.get(entry.step.id) ?? []);
+    const times = speechTimes(
+      entry.step,
+      props.speechDurations.get(entry.step.id) ?? [],
+      speechStartOffset(project),
+    );
     const on = times.findIndex(
       (x, k) => local >= x.start && local <= Math.max(x.end, x.start + (speechText(entry.step, k) ? 0 : 1)),
     );
@@ -862,6 +886,15 @@ export function Timeline(props: {
                       <Icon name="muted" />
                     </span>
                   )}
+                  {/* 録画の区間の切れ目(ステップをまとめたとき)。ここで分割すると、まとめる前に戻せる */}
+                  {segmentBoundaries(step).map((b) => (
+                    <div
+                      key={`seg${b}`}
+                      className="tl-segment-cut"
+                      style={{ left: b * scale }}
+                      title={t("segmentCutTip")}
+                    />
+                  ))}
                   {/* ステップのフェードイン・フェードアウト(黒から現れる・黒へ消える区間) */}
                   {step.fadeIn ? (
                     <div
@@ -967,8 +1000,8 @@ export function Timeline(props: {
                       className={`tl-handle ${edge === "in" ? "left" : "right"}`}
                       title={t(edge === "in" ? "in" : "out")}
                       onPointerDown={(e) => {
-                        const v0 = edge === "in" ? step.in : step.out;
-                        const out0 = step.out;
+                        const v0 = edge === "in" ? stepIn(step) : stepOut(step);
+                        const out0 = stepOut(step);
                         const dur = m?.duration ?? Number.POSITIVE_INFINITY;
                         // 画像は左端を動かしても長さだけが変わる(in は 0 のまま。左へも伸ばせる)
                         const image = isImageStep(step);
@@ -984,7 +1017,10 @@ export function Timeline(props: {
                             update((p) => trim(p, v), key);
                             const s2 = trim(project, v).steps[i];
                             if (s2)
-                              props.onTrimPreview({ step: i, time: edge === "in" ? s2.in : s2.out - 0.001 });
+                              props.onTrimPreview({
+                                step: i,
+                                time: edge === "in" ? stepIn(s2) : stepOut(s2) - 0.001,
+                              });
                           },
                           () => props.onTrimPreview(null),
                         );
@@ -1092,7 +1128,7 @@ export function Timeline(props: {
                 );
               }
               const durs = props.speechDurations.get(step.id) ?? [];
-              const times = speechTimes(step, durs);
+              const times = speechTimes(step, durs, speechStartOffset(project));
               return pieces.map((_, k) => {
                 const text = speechText(step, k);
                 const d = durs[k];
@@ -1446,6 +1482,16 @@ export function Timeline(props: {
                     key,
                   );
                 const span = isPath(o) ? pathSpan(o) : null;
+                // このオブジェクトを除いたステップの終わり。終わりのドラッグはここで一度止まり、さらに引くとステップを伸ばす
+                const restEnd = stepDuration(
+                  {
+                    ...step,
+                    [field]: (step[field] as unknown[] | undefined)?.filter((_, j) => j !== ref.index),
+                  },
+                  props.speechDurations.get(step.id) ?? [],
+                  speechStartOffset(project),
+                );
+                const stick = STICK_PX / scale;
                 const outside = !!om && shapeOutsideVideo(o, om.width, om.height);
                 const label = labels.get(`${ref.kind}:${ref.index}`) ?? objectLabel(o, ref.kind);
                 return (
@@ -1474,12 +1520,10 @@ export function Timeline(props: {
                       () => props.onSelectObject(i, ref),
                       (dx, key) => {
                         const len = w.end - w.start;
-                        const st = clamp(
-                          snap(entry.start + w.start + dx / scale, 0) - entry.start,
-                          0,
-                          entry.duration - len,
-                        );
-                        const atEnd = st + len >= entry.duration - 1e-3 && o.end === undefined;
+                        let st = Math.max(0, snap(entry.start + w.start + dx / scale, 0) - entry.start);
+                        // ステップの終わりを越えるところで一度止め、さらに引けばステップを伸ばす
+                        if (st + len > restEnd && st + len < restEnd + stick) st = Math.max(0, restEnd - len);
+                        const atEnd = Math.abs(st + len - restEnd) < 1e-3 && o.end === undefined;
                         setWin(st, atEnd ? null : st + len, key);
                         props.onSeek(entry.start + st);
                       },
@@ -1507,13 +1551,12 @@ export function Timeline(props: {
                     })}
                     onRight={groupEdge({ kind: ref.kind, step: i, index: ref.index }, "right", (dx, key) => {
                       const lo = Math.max(w.start, span ? span.end : w.start) + 0.1;
-                      const e = clamp(
-                        snap(entry.start + w.end + dx / scale) - entry.start,
-                        lo,
-                        entry.duration,
-                      );
-                      // 末尾まで伸ばしたら「ステップの終わりまで」(end 省略)にする
-                      setWin(w.start, (entry.duration - e) * scale < SNAP_PX ? null : e, key);
+                      const raw = Math.max(lo, snap(entry.start + w.end + dx / scale) - entry.start);
+                      // ステップの終わりで一度止め(終わりの手前 SNAP_PX から越えて STICK_PX まで)、
+                      // そこで離せば「ステップの終わりまで」(end 省略)。さらに引けば end を書いてステップを伸ばす
+                      const atEnd = raw > restEnd - SNAP_PX / scale && raw < restEnd + stick;
+                      const e = atEnd ? restEnd : raw;
+                      setWin(w.start, atEnd ? null : e, key);
                       props.onSeek(entry.start + e);
                     })}
                   />

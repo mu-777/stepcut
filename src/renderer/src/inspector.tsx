@@ -9,6 +9,7 @@ import {
   DEFAULT_CAPTION_WIDTH,
   DEFAULT_MARGIN,
   DEFAULT_SOLID_BACKGROUND,
+  DEFAULT_SPEECH_START_OFFSET,
   hasStepLayout,
   isImageSource,
   type ResolvedLayout,
@@ -17,6 +18,7 @@ import {
   resolveLayout,
   resolveOutput,
   speechPieces,
+  speechStartOffset,
   speechSynced,
   speechText,
   withSpeechPieces,
@@ -36,7 +38,7 @@ import {
 } from "../../core/layout";
 import { type ObjectRef, shapeOutsideVideo, stepObjects } from "../../core/objects";
 import type { Background, Margin, Project, SpeechPiece, Step, Zoom, ZoomKey } from "../../core/schema";
-import { speechTimes } from "../../core/timeline";
+import { sourceLength, speechTimes } from "../../core/timeline";
 import type { SpeechEngineSettings, Voice } from "../../shared/api";
 import { api } from "./api";
 import { drawPresetThumb, PRESETS } from "./backgrounds";
@@ -315,29 +317,45 @@ function StepRecording(props: {
           // 画像はどの時刻も同じ 1 枚。長さだけを決める(in は 0 にそろえる)
           <NumField
             label={t("stepLength")}
-            value={Math.round(((step.out - step.in) / (step.speed ?? 1)) * 1000) / 1000}
+            value={Math.round((sourceLength(step) / (step.speed ?? 1)) * 1000) / 1000}
             min={0.1}
             step={0.5}
             onChange={(v) =>
-              set("length")((s) => ({ ...s, in: 0, out: Math.max(0.1, v ?? 0.1) * (s.speed ?? 1) }))
+              set("length")((s) => ({
+                ...s,
+                segments: [{ in: 0, out: Math.max(0.1, v ?? 0.1) * (s.speed ?? 1) }],
+              }))
             }
           />
         ) : (
           <>
-            <div className="row">
-              <NumField
-                label={t("in")}
-                value={step.in}
-                min={0}
-                onChange={(v) => set("in")((s) => ({ ...s, in: v ?? 0 }))}
-              />
-              <NumField
-                label={t("out")}
-                value={step.out}
-                min={0}
-                onChange={(v) => set("out")((s) => ({ ...s, out: v ?? 0 }))}
-              />
-            </div>
+            {/* 区間が 2 つ以上(ステップをまとめたとき)は区間ごとに In / Out を出す。切れ目はここでだけ直す */}
+            {step.segments.length > 1 && <p className="hint">{t("segmentsHint")}</p>}
+            {step.segments.map((g, k) => {
+              const setSeg = (key: "in" | "out", v: number | undefined) =>
+                set(`segment${k}.${key}`)((s) => ({
+                  ...s,
+                  segments: s.segments.map((x, j) => (j === k ? { ...x, [key]: v ?? 0 } : x)),
+                }));
+              const many = step.segments.length > 1;
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 区間は id を持たない
+                <div className="row" key={k}>
+                  <NumField
+                    label={many ? `${t("segment")} ${k + 1} ${t("in")}` : t("in")}
+                    value={g.in}
+                    min={0}
+                    onChange={(v) => setSeg("in", v)}
+                  />
+                  <NumField
+                    label={many ? `${t("segment")} ${k + 1} ${t("out")}` : t("out")}
+                    value={g.out}
+                    min={0}
+                    onChange={(v) => setSeg("out", v)}
+                  />
+                </div>
+              );
+            })}
             <NumField
               label={t("speed")}
               value={step.speed ?? 1}
@@ -522,7 +540,7 @@ function StepText(props: {
   const pieces = speechPieces(step);
   const synced = speechSynced(step);
   const status = props.speechStatus;
-  const times = speechTimes(step, status?.durations ?? []);
+  const times = speechTimes(step, status?.durations ?? [], speechStartOffset(project));
   const style = resolveCaptionStyle(project, step);
   const projCap = project.styles?.caption;
   const overridden = caption.position !== undefined || caption.width !== undefined;
@@ -747,9 +765,13 @@ function StepText(props: {
               label={t("speechStart")}
               value={p.start}
               min={0}
-              placeholder={k === 0 ? "0" : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`}
+              placeholder={
+                k === 0
+                  ? String(speechStartOffset(project))
+                  : `${t("speechAfterPrev")} (${(times[k]?.start ?? 0).toFixed(2)})`
+              }
               onChange={(v) => {
-                setPiece(k, "start", { start: v === 0 && k === 0 ? undefined : v });
+                setPiece(k, "start", { start: v });
                 if (v !== undefined) props.onSeekLocal(index, v);
               }}
             />
@@ -1040,6 +1062,15 @@ function TextDefaults(props: {
             }
           />
         </div>
+        <NumField
+          label={t("speechStartOffset")}
+          title={t("speechStartOffsetTip")}
+          value={project.speech?.startOffset}
+          step={0.1}
+          min={0}
+          placeholder={String(DEFAULT_SPEECH_START_OFFSET)}
+          onChange={(v) => set("speech", prune({ ...project.speech, startOffset: v }), "speech.startOffset")}
+        />
         <DictionaryField
           value={project.dictionary ?? []}
           onChange={(entries) => set("dictionary", entries.length ? entries : undefined, "dictionary")}
@@ -1310,14 +1341,17 @@ function Section(props: { focused: boolean; className?: string; children: ReactN
 /** 出力の縦横比を固定しているときの比(幅 ÷ 高さ)。保存はせず、アプリを閉じるまで覚えておく */
 let lockedAspect: number | null = null;
 
-/** 「余白なし」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
+/** 「録画に合わせる」にする前の出力の大きさ。保存はせず、アプリを閉じるまで覚えておく */
+let sizeBeforeMatch: { width?: number; height?: number } | null = null;
+
+/** 「録画を画面全体に表示」にする前の余白と置き方。保存はせず、アプリを閉じるまで覚えておく */
 const savedMargins = new Map<string, { margin: Margin; fit: "contain" | "cover" }>();
 
 type FramePatch = { margin?: Margin; fit?: "contain" | "cover"; shadow?: boolean };
 
 /**
- * 録画の枠の欄(余白・余白なし・切り取り・影)。全体の設定とステップの上書きで共通。
- * memo は「余白なし」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
+ * 録画の枠の欄(余白・画面全体に表示・切り取り・影)。全体の設定とステップの上書きで共通。
+ * memo は「録画を画面全体に表示」を外したときに戻す値を覚える場所の名前(全体・ステップの id)
  */
 function FrameFields(props: {
   layout: ResolvedLayout;
@@ -1428,9 +1462,14 @@ export function ProjectPanel(props: {
   /** ステップの「共通の設定 ›」から来た。テロップの見た目の欄を強調する */
   focusShared: boolean;
   backgroundError: string | null;
+  /** 出力を合わせる録画の大きさ(ステップの並びで最初の録画。なければ null) */
+  sourceSize: { w: number; h: number } | null;
+  /** 縦横比の違う録画が混ざっている */
+  mixedSourceAspect: boolean;
 }) {
   const { project, update } = props;
   const out = resolveOutput(project);
+  const src = props.sourceSize;
   const layout = resolveLayout(project);
   const set = <K extends keyof Project>(key: K, value: Project[K], coalesce?: string) =>
     update((p) => ({ ...p, [key]: value }), coalesce ?? String(key));
@@ -1446,6 +1485,11 @@ export function ProjectPanel(props: {
     set("output", prune({ ...project.output, width: even(w), height: even(h) }), key);
   /** 幅・高さの入力。空や小さすぎる値(打ちかけ)は直前の大きさのまま(欄は打ったまま残る) */
   const typedSize = (v: number | undefined) => (v !== undefined && v >= 16 ? v : null);
+  /** 録画に合わせたときの高さ(幅はそのまま。偶数に丸める) */
+  const matchedHeight = src ? even((out.width * src.h) / src.w) : undefined;
+  // 丸めの誤差(1px)のうちなら合っているとみなす
+  const matched =
+    matchedHeight !== undefined && Math.abs(out.height - (out.width * (src?.h ?? 0)) / (src?.w ?? 1)) <= 1;
 
   return (
     <div className="inspector">
@@ -1490,12 +1534,38 @@ export function ProjectPanel(props: {
               if (v !== null) setSize(aspect !== null ? v * aspect : project.output?.width, v, "output.h");
             }}
           />
+        </div>
+        <div className="row">
           <CheckField
             label={t("lockAspect")}
             value={aspect !== null}
             onChange={(v) => lockAspect(v ? out.width / out.height : null)}
           />
+          <CheckField
+            label={t("matchSource")}
+            value={matched}
+            disabled={!src}
+            title={src ? undefined : t("matchSourceNone")}
+            onChange={(v) => {
+              if (!src) return;
+              if (v) {
+                // 直前の大きさを覚えておき、外したら戻す(アプリを閉じるまで)
+                sizeBeforeMatch = { width: project.output?.width, height: project.output?.height };
+                setSize(out.width, matchedHeight, "output.match");
+                if (aspect !== null) lockAspect(src.w / src.h);
+              } else {
+                const back = sizeBeforeMatch ?? { width: undefined, height: undefined };
+                sizeBeforeMatch = null;
+                setSize(back.width, back.height, "output.match");
+                if (aspect !== null) {
+                  const r = resolveOutput({ ...project, output: { ...project.output, ...back } });
+                  lockAspect(r.width / r.height);
+                }
+              }
+            }}
+          />
         </div>
+        {src && props.mixedSourceAspect && <p className="hint">{t("matchSourceHint")}</p>}
         <div className="row">
           <SegField
             label={t("fps")}
