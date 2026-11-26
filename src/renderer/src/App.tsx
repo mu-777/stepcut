@@ -110,6 +110,9 @@ import {
 /** ズームの範囲の編集。key は編集中の枠(時刻の順の番号) */
 type DrawingZoom = { step: number; zoom: number; key: number };
 
+/** 支援のリンク(紹介ページ site/ の Ko-fi と同じ先) */
+const KOFI_URL = "https://ko-fi.com/mu_777";
+
 /** 文字を入力中か。チェックボックス・スライダー・選択欄は含めない(Ctrl+Z を文字の取り消しに回さないため) */
 const TEXT_INPUTS = new Set(["text", "number", "search", "url", "email", "password", "tel", ""]);
 const isTyping = () => {
@@ -1336,6 +1339,15 @@ ${t("renameTip")}`}
           </button>
         )}
         <div className="tb-side right">
+          <button
+            type="button"
+            className="tb-btn"
+            title={t("supportKofi")}
+            aria-label={t("supportKofi")}
+            onClick={() => void api.openExternal(KOFI_URL)}
+          >
+            <Icon name="heart" />
+          </button>
           <button
             type="button"
             className="tb-btn"
