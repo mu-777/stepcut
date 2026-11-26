@@ -132,13 +132,24 @@ const H = 720;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ffmpeg = (...args) => execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...args]);
 
-// StepCut の CLI。結果の JSON はファイルで受ける(標準出力をパイプで受けると終わらないことがある)
+// StepCut の CLI。結果の JSON と出力はファイルで受ける(標準出力をパイプで受けると終わらないことがある)。
+// 失敗したら、出力と結果をログに出してから止める(CI では途中のファイルを見られないため)
 function cli(command, project, ...args) {
-  const result = path.join(work, `result-${command}-${path.basename(project)}.json`);
-  execFileSync(electronBin, [root, ...sandboxArgs, command, project, ...args, "--result", result], {
+  const base = path.join(work, `result-${command}-${path.basename(project)}`);
+  const result = `${base}.json`;
+  const log = `${base}.log`;
+  const fd = fs.openSync(log, "w");
+  const r = spawnSync(electronBin, [root, ...sandboxArgs, command, project, ...args, "--result", result], {
     cwd: root,
-    stdio: "ignore",
+    stdio: ["ignore", fd, fd],
   });
+  fs.closeSync(fd);
+  const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "(なし)");
+  if (r.status !== 0 && command !== "validate") {
+    console.error(`CLI の ${command} が失敗(終了コード ${r.status}${r.error ? `、${r.error.message}` : ""})`);
+    console.error(`出力:\n${read(log)}\n結果:\n${read(result)}`);
+    throw new Error(`CLI の ${command} が失敗: ${path.basename(project)}`);
+  }
   return JSON.parse(fs.readFileSync(result, "utf8"));
 }
 
