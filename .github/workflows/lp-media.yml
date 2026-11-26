@@ -83,6 +83,33 @@ jobs:
           if (-not (& $has)) { throw "Yu Gothic UI がありません" }
           Get-ChildItem "$env:WINDIR\Fonts\YuGoth*" | ForEach-Object Name
 
+      # 音声なしで載せる動画も、ステップの長さを決めるために OS 標準の声で読む(アプリと同じ WinRT の声)。
+      # Windows Server のランナーには声が入っていないことがあるので、日本語と英語の音声合成を入れる。
+      # WinRT を使うので Windows PowerShell 5.1 で回す(pwsh 7 からは WinRT の型を読めない)
+      - name: OS 標準の声
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Voices {
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime
+            $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime]
+            @([Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.Language) $($_.DisplayName)" })
+          }
+          $v = Voices
+          "before: $($v -join ', ')"
+          Get-WindowsCapability -Online -Name "Language.TextToSpeech*" | Where-Object { $_.Name -match 'ja-JP|en-US' } | Format-Table Name, State
+          foreach ($lang in 'ja-JP', 'en-US') {
+            if (-not ($v | Where-Object { $_ -like "$lang *" })) {
+              "install: $lang"
+              Get-WindowsCapability -Online -Name "Language.TextToSpeech~~~$lang*" | Add-WindowsCapability -Online | Out-Null
+            }
+          }
+          $v = Voices
+          "after: $($v -join ', ')"
+          foreach ($lang in 'ja-JP', 'en-US') {
+            if (-not ($v | Where-Object { $_ -like "$lang *" })) { throw "OS 標準の声がありません: $lang" }
+          }
+
       - run: npm run build
 
       - name: Azure AI Speech の設定
