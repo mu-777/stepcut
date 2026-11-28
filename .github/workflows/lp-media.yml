@@ -100,7 +100,10 @@ jobs:
         env:
           AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
           AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
-        run: npx electron scripts/ci-azure-settings.cjs
+        run: |
+          npx electron scripts/ci-azure-settings.cjs
+          ls "$APPDATA/StepCut"
+          npx electron scripts/ci-azure-settings.cjs --check
 
       # 標準出力はファイルに受ける(.claude/rules/e2e.md)。
       # LP_MUTED_SPEECH_ENGINE: 音声なしで載せる動画も Azure で読む(読み上げの長さがステップの長さを決める)。
