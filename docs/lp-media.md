@@ -141,7 +141,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 
 ## いまのファイルについて
 
-いまコミットしてあるものは、日本語・英語の組とも Windows で作った。使い方の動画には Azure AI Speech の読み上げ(`ja-JP-NanamiNeural` / `en-US-JennyNeural`)が入っている。ほかの動画は音声なし。 作り直すときは、手元の Windows か、上の「GitHub Actions の Windows で作る」で作る。
+いまコミットしてあるものは、日本語・英語の組とも GitHub Actions の Windows(上の節)で作った。読み上げはすべて Azure AI Speech(`ja-JP-NanamiNeural` / `en-US-JennyNeural`)で、音声を載せているのは使い方の動画だけ。映像はソフトウェアで書き出している(ランナーに GPU がない)。使い方の動画に映るアプリのタイトルは `howto-demo`(CI では空のプロジェクトを開いて始めるため)。
 
 ## Windows で回すときの注意
 
