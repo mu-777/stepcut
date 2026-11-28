@@ -83,33 +83,16 @@ jobs:
           if (-not (& $has)) { throw "Yu Gothic UI がありません" }
           Get-ChildItem "$env:WINDIR\Fonts\YuGoth*" | ForEach-Object Name
 
-      # 音声なしで載せる動画も、ステップの長さを決めるために OS 標準の声で読む(アプリと同じ WinRT の声)。
-      # Windows Server のランナーには声が入っていないことがあるので、日本語と英語の音声合成を入れる。
+      # CI では読み上げをすべて Azure にする(下の LP_MUTED_SPEECH_ENGINE)。ランナーの OS 標準の声は英語だけで、
+      # 日本語の文を読ませると書き出しが止まる(docs/handoff-os-tts-no-voice.md)。ここでは声の一覧を出すだけ。
       # WinRT を使うので Windows PowerShell 5.1 で回す(pwsh 7 からは WinRT の型を読めない)。
-      # 5.1 は BOM なしの UTF-8 を読み違えるので、run の中は ASCII だけで書く(コメントもこの外に置く)
-      - name: OS 標準の声
+      # 5.1 は BOM なしの UTF-8 を読み違えるので、run の中は ASCII だけで書く
+      - name: OS 標準の声(表示だけ)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          function Voices {
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime
-            $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime]
-            @([Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.Language) $($_.DisplayName)" })
-          }
-          $v = Voices
-          "before: $($v -join ', ')"
-          Get-WindowsCapability -Online -Name "Language.TextToSpeech*" | Where-Object { $_.Name -match 'ja-JP|en-US' } | Format-Table Name, State
-          foreach ($lang in 'ja-JP', 'en-US') {
-            if (-not ($v | Where-Object { $_ -like "$lang *" })) {
-              "install: $lang"
-              Get-WindowsCapability -Online -Name "Language.TextToSpeech~~~$lang*" | Add-WindowsCapability -Online | Out-Null
-            }
-          }
-          $v = Voices
-          "after: $($v -join ', ')"
-          foreach ($lang in 'ja-JP', 'en-US') {
-            if (-not ($v | Where-Object { $_ -like "$lang *" })) { throw "No OS voice for $lang" }
-          }
+          Add-Type -AssemblyName System.Runtime.WindowsRuntime
+          $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime]
+          [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.Language) $($_.DisplayName)" }
 
       - run: npm run build
 
@@ -119,14 +102,22 @@ jobs:
           AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
         run: npx electron scripts/ci-azure-settings.cjs
 
-      # 標準出力はファイルに受ける(.claude/rules/e2e.md)
+      # 標準出力はファイルに受ける(.claude/rules/e2e.md)。
+      # LP_MUTED_SPEECH_ENGINE: 音声なしで載せる動画も Azure で読む(読み上げの長さがステップの長さを決める)。
+      # LP_APP_ENGINES: 画面を撮る・録画するアプリにも同じ Azure の設定を写す(プレビューの読み上げのため)
       - name: 作り直す(日本語)
+        env:
+          LP_MUTED_SPEECH_ENGINE: azure
+          LP_APP_ENGINES: default
         run: |
           mkdir -p test-output
           node scripts/make-lp-media.cjs --require-narration > test-output/lp-media.log 2>&1 || { tail -50 test-output/lp-media.log; exit 1; }
           cat test-output/lp-media.log
 
       - name: 作り直す(英語)
+        env:
+          LP_MUTED_SPEECH_ENGINE: azure
+          LP_APP_ENGINES: default
         run: |
           node scripts/make-lp-media.cjs --lang en --require-narration > test-output/lp-media-en.log 2>&1 || { tail -50 test-output/lp-media-en.log; exit 1; }
           cat test-output/lp-media-en.log

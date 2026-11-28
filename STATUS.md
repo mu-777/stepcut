@@ -1,7 +1,7 @@
 # STATUS
 
 ## 更新
-2026-11-26
+2026-11-28
 
 ## ブランチ
 claude/windows-video-ci-github-actions-upw54p(main 709f157 を取り込み済み)
@@ -12,14 +12,14 @@ claude/windows-video-ci-github-actions-upw54p(main 709f157 を取り込み済み
 ## 現在地
 - .github/workflows/lp-media.yml(PR #34 に lp-media ラベルで起動、windows-latest、日英、PR ブランチにコミット。前回の CI コミットは置き換え)、scripts/ci-azure-settings.cjs、make-lp-media.cjs の --require-narration を作った
 - CI で確かめた: 解像度の変更(1024x768→1920x1080)、Yu Gothic UI あり、Azure の鍵の暗号化と設定の書き込み、ラベルを外す
-- 止まっている: ランナーに日本語の OS 標準の声がなく、日本語の読み上げの付いた書き出しが `Unable to decode audio data` で止まる。アプリの不具合として別の担当者に引き継いだ(docs/handoff-os-tts-no-voice.md)
+- 日本語の OS 標準の声がランナーになく書き出しが止まった件: アプリの不具合として別の担当者に引き継ぎ(docs/handoff-os-tts-no-voice.md)、CI は読み上げをすべて Azure にして避ける(LP_MUTED_SPEECH_ENGINE・LP_APP_ENGINES)
 
 ## 次にやること
-- 別の担当者: docs/handoff-os-tts-no-voice.md の修正(Windows で声がないときの OS 標準のエンジン)
-- その修正を main に取り込んだら: lp-media.yml の「OS 標準の声」のステップを一覧の表示だけにし(日本語の声を入れる処理と止める処理を外す)、PR #34 に lp-media ラベルを付けて回し直す。通ったら sheets を見て、ブランチに積まれたコミットを確かめる
+- PR #34 に lp-media ラベルを付けて 5 回目を回す。通ったら Artifacts の sheets と、ブランチに積まれたコミット(howto.mp4 に音声があるか)を確かめる
+- 別の担当者: docs/handoff-os-tts-no-voice.md の不具合
 
 ## 課題・ブロッカー
-- 上の OS 標準の声の不具合(引き継ぎ済み)。直るまで lp-media の CI は日本語の組で止まる
+- CI で読み上げをすべて Azure にしてから、まだ通していない(画面のプレビューで Azure の設定を写したものが効くかも未確認)
 - tts の単体テストがときどき時間切れ、ui-smoke が最後の app.close() で終わらないことがある(原因は未確認。以前から)
 
 ## 未決事項

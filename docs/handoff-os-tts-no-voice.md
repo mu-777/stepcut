@@ -53,7 +53,7 @@ NG Cannot create the narration: turn-on-mail: Unable to decode audio data; open-
 ## 影響
 
 - 文の言語の声がない Windows(英語版の Windows、Windows Server など)のユーザーは、OS 標準の読み上げを付けたプロジェクトを書き出せない。エラーの文からは原因(声がないこと)が分からない
-- PR #34 の CI(`.github/workflows/lp-media.yml`)は、日本語の組の最初の書き出しで止まっている。今は「OS 標準の声」のステップで日本語の声を入れようとし、15 分待ってから止まる
+- PR #34 の CI(`.github/workflows/lp-media.yml`)では、日本語の組の最初の書き出しで止まった。CI は読み上げをすべて Azure にして避けている(この問題そのものは残っている)
 
 ## 関係するファイル
 
