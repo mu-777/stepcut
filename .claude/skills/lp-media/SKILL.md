@@ -17,6 +17,17 @@ description: 紹介ページ(site/)の動画と編集画面の画像を、今の
 - 生成物は `site/public/media/`。途中のファイルは `test-output/lp-media/`(毎回消える)
 - 編集画面の画像だけ撮り直すなら `--screens`(直前に作ったプロジェクトを開いて撮る。1 分ほど)
 
+## Windows の版(読み上げ入り)が要るとき
+
+このコンテナではなく CI で作る(`.github/workflows/lp-media.yml`、docs/lp-media.md の「GitHub Actions の Windows で作る」)。
+
+1. 変更をコミットして push し、base=main の PR を用意する(スキル `/pr-build` の Phase 1)
+2. `mcp__github__issue_write`(method=update、issue_number=PR の番号)で `labels` に `lp-media` を足す(既にあるラベルは残す)。付けられなければ、ユーザーにラベルを付けてもらう
+3. `mcp__github__actions_list`(list_workflow_runs、branch=作業ブランチ)で lp-media の run を待つ(20〜30 分)。待つ間はブランチに push しない
+4. 終わったら `git fetch origin <branch>` して `git merge --ff-only FETCH_HEAD`。進められなければ(先頭のコミットが置き換わった)、自分の未 push のコミットがないのを確かめて `git reset --hard FETCH_HEAD`。`site/public/media/` が衝突したら origin の側を採る
+5. 中身の確認は Phase 2 と同じ。場面の一覧は Artifacts にありここからは取れないので、取り込んだ mp4 から ffmpeg で作って見る(`exportVideo` の `tiles` と同じ指定)
+6. 失敗したら `mcp__github__get_job_logs` でログを読む。Windows 固有の失敗(解像度・フォント・パス)なら、スクリプトかワークフローを直してラベルを付け直す
+
 ## Phase 0: 準備
 
 ```bash
@@ -97,4 +108,4 @@ Linux では「ソフトウェアで書き出し」「Opus」「無音で代替�
 1. 新しくした機能・なくした機能があれば、ページの文(英語 `site/public/index.html` と日本語 `site/public/ja/index.html` の「付けられるもの」「使いみち」)と docs/lp-media.md の表も直す
 2. `npm run check`
 3. `site/public/media/` とスクリプトの変更をコミットする
-4. 報告に書く: 作り直したファイル、Phase 2 で確かめたこと、**使い方の動画に音声が入っているか**(Linux で作ったなら入っていない。音声付きは Windows で `node scripts/make-lp-media.cjs` を回す必要がある、と伝える)
+4. 報告に書く: 作り直したファイル、Phase 2 で確かめたこと、**使い方の動画に音声が入っているか**(Linux で作ったなら入っていない。音声付きは CI の lp-media ラベルか、Windows で `node scripts/make-lp-media.cjs` を回す必要がある、と伝える)

@@ -47,6 +47,23 @@
 
 途中のファイル(録画、プロジェクトファイル、CLI の結果)は `test-output/lp-media/` に残る。うまくいかないときは、ここの `*.stepcut.json` を StepCut で開くと、時刻や座標のずれを目で確かめられる。
 
+## GitHub Actions の Windows で作る
+
+`.github/workflows/lp-media.yml` が windows-latest で日本語・英語の両方を作り直し、PR のブランチにコミットする。読み上げ(Azure AI Speech)入り、Windows のフォントの版になる。決定は [docs/decisions/20261116-lp-media-ci.md](decisions/20261116-lp-media-ci.md)。
+
+1. 準備(初回だけ): リポジトリの Settings → Secrets and variables → Actions に `AZURE_SPEECH_KEY`(音声サービスのキー 1)と `AZURE_SPEECH_REGION`(例: `japaneast`)を入れる。Azure の側で用意するものは下の節の 1
+2. PR(同じリポジトリのブランチ)に `lp-media` ラベルを付ける。手動なら Actions タブの lp-media → Run workflow(main で回すと作るだけでコミットしない)
+3. 20〜30 分ほどで、`lp-media(ci): ...` のコミットがブランチに積まれ、ラベルが外れる。もう一度作るときはラベルを付け直す。ブランチの先頭が前回のこのコミットなら、積まずに置き換える(force push)
+4. 場面の一覧(`sheets/*.png`)・ログ・使い方の動画のプロジェクトは、その run の Artifacts(`lp-media-check`)にある。中身を確かめてからマージする
+
+- 読み上げはすべて Azure AI Speech で作る。音声なしで載せる動画も、読み上げの長さでステップの長さが決まるので読む(`LP_MUTED_SPEECH_ENGINE=azure`)。ランナーの OS 標準の声は英語だけで、日本語は読めない
+- 画面を撮る・録画するアプリにも、同じ Azure の設定を写す(`LP_APP_ENGINES=default`)
+- 使い方の動画の録画は、読み上げを Azure にした空のプロジェクト(`howto-demo.stepcut.json`)を開いて始める(新しいプロジェクトは OS 標準の声で読むため)。画面の書き出しが失敗したら(エラーの帯が出たら)止める
+- どの動画でも OS 標準の声で代わりに読まれたら、また使い方の動画が Azure で読まれなかったら(鍵の誤り、無音)、失敗にしてコミットしない
+- 手元の Windows(OS 標準の声)で作ったものとは声が違うので、音声なしの動画のステップの長さが少し変わることがある
+- 動いている間にブランチへ push しない。終わったら手元に取り込んでから続ける(先頭のコミットが置き換わっていることがある)
+- CI のコミットに対しては build.yml(Windows のビルド)は回り直さない
+
 ## 使い方の動画に Azure の読み上げを入れる(Windows)
 
 1. Azure の側で用意するもの(ポータル https://portal.azure.com )
@@ -124,7 +141,7 @@ $env:LP_SPEECH_VOICE = "ja-JP-KeitaNeural"; node scripts/make-lp-media.cjs
 
 ## いまのファイルについて
 
-いまコミットしてあるものは、日本語・英語の組とも Windows で作った。使い方の動画には Azure AI Speech の読み上げ(`ja-JP-NanamiNeural` / `en-US-JennyNeural`)が入っている。ほかの動画は音声なし。
+いまコミットしてあるものは、日本語・英語の組とも GitHub Actions の Windows(上の節)で作った。読み上げはすべて Azure AI Speech(`ja-JP-NanamiNeural` / `en-US-JennyNeural`)で、音声を載せているのは使い方の動画だけ。映像はソフトウェアで書き出している(ランナーに GPU がない)。使い方の動画に映るアプリのタイトルは `howto-demo`(CI では空のプロジェクトを開いて始めるため)。
 
 ## Windows で回すときの注意
 

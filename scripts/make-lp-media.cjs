@@ -5,8 +5,11 @@
 // 前提: npm run build 済み、ffmpeg と Playwright がある。
 //   編集画面の画像だけ撮り直す(直前に作ったプロジェクトを使う): --screens
 //   --overwrite-narrated: 置いてある音声付きの使い方の動画を、無音のものでも上書きする
+//   --require-narration: 使い方の動画が Azure AI Speech で読まれなかったら(無音・OS 標準の声で代替)失敗にする(CI 用)
 //   --lang en: 英語のページ用(アプリの画面・例の画面・テロップを英語にし、site/public/media/en/ に置く)。既定は ja
 // 環境変数: LP_SPEECH_ENGINE(使い方の動画の読み上げエンジン。既定は azure)、
+//   LP_MUTED_SPEECH_ENGINE(音声なしで載せる動画の読み上げエンジン。既定は OS 標準。CI では azure。
+//     音声は載せないが、読み上げの長さでステップの長さが決まる)、
 //   LP_SPEECH_VOICE(声の ID。既定は ja-JP-NanamiNeural、--lang en では en-US-JennyNeural)
 //
 // 1. 例の画面(site/media-src/sample-app.html)をブラウザで操作して録画する
@@ -19,6 +22,7 @@
 const { chromium, _electron: electron } = require("playwright");
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -131,13 +135,24 @@ const H = 720;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ffmpeg = (...args) => execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...args]);
 
-// StepCut の CLI。結果の JSON はファイルで受ける(標準出力をパイプで受けると終わらないことがある)
+// StepCut の CLI。結果の JSON と出力はファイルで受ける(標準出力をパイプで受けると終わらないことがある)。
+// 失敗したら、出力と結果をログに出してから止める(CI では途中のファイルを見られないため)
 function cli(command, project, ...args) {
-  const result = path.join(work, `result-${command}-${path.basename(project)}.json`);
-  execFileSync(electronBin, [root, ...sandboxArgs, command, project, ...args, "--result", result], {
+  const base = path.join(work, `result-${command}-${path.basename(project)}`);
+  const result = `${base}.json`;
+  const log = `${base}.log`;
+  const fd = fs.openSync(log, "w");
+  const r = spawnSync(electronBin, [root, ...sandboxArgs, command, project, ...args, "--result", result], {
     cwd: root,
-    stdio: "ignore",
+    stdio: ["ignore", fd, fd],
   });
+  fs.closeSync(fd);
+  const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "(なし)");
+  if (r.status !== 0 && command !== "validate") {
+    console.error(`CLI の ${command} が失敗(終了コード ${r.status}${r.error ? `、${r.error.message}` : ""})`);
+    console.error(`出力:\n${read(log)}\n結果:\n${read(result)}`);
+    throw new Error(`CLI の ${command} が失敗: ${path.basename(project)}`);
+  }
   return JSON.parse(fs.readFileSync(result, "utf8"));
 }
 
@@ -543,6 +558,15 @@ async function makeSlides() {
 const background = { gradient: { angle: 160, colors: ["#2F4F8F", "#1B2740", "#141A28"] } };
 
 // tile: 「付けられるもの」の小さな動画用。出力を小さくし、余白をなくして、テロップとポインターを大きめにする
+// 音声なしで載せる動画の読み上げ(LP_MUTED_SPEECH_ENGINE)。指定がなければ OS 標準(プロジェクトに書かない)
+const mutedEngine = process.env.LP_MUTED_SPEECH_ENGINE;
+const mutedSpeech = mutedEngine
+  ? {
+      engine: mutedEngine,
+      ...(mutedEngine === "azure" ? { voice: process.env.LP_SPEECH_VOICE || TEXT.voice } : {}),
+    }
+  : null;
+
 function writeProject(
   name,
   steps,
@@ -566,7 +590,7 @@ function writeProject(
       ? { background, margin: { top: 0, right: 0, bottom: 0, left: 0 }, shadow: false }
       : { background },
     ...(Object.keys(styles).length ? { styles } : {}),
-    ...(speech ? { speech } : {}),
+    ...(speech ? { speech } : mutedSpeech ? { speech: mutedSpeech } : {}),
     sources: sources ?? [{ id: "rec", path: source }],
     steps,
   };
@@ -727,6 +751,21 @@ function exportVideo(project, name, posterAt, { audio = false } = {}) {
   const warnings = r.warnings || [];
   const out = path.join(outDir, `${name}.mp4`);
   const silent = !hasSound(raw);
+  // CI では、どの動画でも OS 標準の声で代わりに読んだら止める(声の違いでステップの長さが変わるため)
+  if (
+    process.argv.includes("--require-narration") &&
+    warnings.some((w) => w.includes("Used the OS voice instead"))
+  )
+    throw new Error(`${name}.mp4 が OS 標準の声で代わりに読まれました: ${JSON.stringify(warnings)}`);
+  if (audio && process.argv.includes("--require-narration")) {
+    // CLI の警告は英語に固定。Azure で読むと規約の知らせが出て、代替すると「Used the OS voice instead」が出る
+    const azure = warnings.some((w) => w.includes("Azure AI Speech voices"));
+    const fallback = warnings.filter((w) => w.includes("Used the OS voice instead"));
+    if (silent || !azure || fallback.length)
+      throw new Error(
+        `${name}.mp4 が Azure AI Speech で読まれていません(${silent ? "無音" : "音声あり"}): ${JSON.stringify(warnings)}`,
+      );
+  }
   if (audio && silent && hasSound(out) && !process.argv.includes("--overwrite-narrated")) {
     console.log(
       `${name}.mp4 は音声付きのものが置いてあるので、無音のもので上書きしません(--overwrite-narrated で上書き)`,
@@ -756,11 +795,29 @@ function exportVideo(project, name, posterAt, { audio = false } = {}) {
   );
 }
 
+// LP_APP_ENGINES=default(CI 用): CLI が読むふだんの設定フォルダーから、読み上げエンジンの設定(暗号化した鍵を含む)を
+// 作業用の設定フォルダーに写す。画面のプレビューでも CLI と同じエンジン(Azure)で読むため。
+// 暗号化の鍵(Local State)も写す。同じユーザーなので、写した先でも鍵を解ける
+function appEngines() {
+  if (process.env.LP_APP_ENGINES !== "default") return {};
+  const base =
+    process.platform === "win32"
+      ? process.env.APPDATA
+      : process.platform === "darwin"
+        ? path.join(os.homedir(), "Library", "Application Support")
+        : process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const from = path.join(base, require(path.join(root, "package.json")).productName);
+  const cur = JSON.parse(fs.readFileSync(path.join(from, "settings.json"), "utf8"));
+  return { from, engines: cur.engines, secrets: cur.secrets };
+}
+
 // StepCut を起動する。アプリの設定は作業用のフォルダーに置き、画面の言語は --lang のものにする
 async function launchApp(name, size, args, video) {
   const userData = path.join(work, `user-data-${name}`);
   fs.mkdirSync(userData, { recursive: true });
-  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ language: lang }));
+  const { from, ...engines } = appEngines();
+  if (from) fs.copyFileSync(path.join(from, "Local State"), path.join(userData, "Local State"));
+  fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ language: lang, ...engines }));
   const app = await electron.launch({
     executablePath: electronBin,
     args: [root, ...sandboxArgs, `--user-data-dir=${userData}`, ...args],
@@ -815,7 +872,16 @@ const selectBar = (step, kind) => async (page) => {
 // 録画を入れる → 切る → プレビューの上でテロップを書く → ズームの範囲を囲む → 再生して確かめる → 四角を置く → 書き出す
 const APP = { width: 1280, height: 760 };
 async function recordHowto(sample) {
-  const { app, page } = await launchApp("howto", APP, [], true);
+  // LP_MUTED_SPEECH_ENGINE があれば(CI)、そのエンジンにした空のプロジェクトを開いて始める。新しいプロジェクトは
+  // OS 標準の声で読み、ランナーには日本語の OS 標準の声がないので、画面の書き出しが止まる
+  const start = [];
+  if (mutedSpeech) {
+    const empty = path.join(work, "howto-demo.stepcut.json");
+    const project = { format: "stepcut.project", version: 1, speech: mutedSpeech, sources: [], steps: [] };
+    fs.writeFileSync(empty, `${JSON.stringify(project, null, 2)}\n`);
+    start.push(empty);
+  }
+  const { app, page } = await launchApp("howto", APP, start, true);
   const t0 = Date.now();
   const now = () => (Date.now() - t0) / 1000;
   const marks = {};
@@ -956,6 +1022,9 @@ async function recordHowto(sample) {
     )
     .catch(() => {});
   await sleep(2500);
+  // 画面の書き出しが失敗していたら止める(エラーの帯が映った動画を作らない)
+  const failed = page.locator(".banner.error");
+  if (await failed.count()) throw new Error(`画面の書き出しが失敗: ${await failed.first().innerText()}`);
   await mark("end");
   const video = page.video();
   await closeApp(app);

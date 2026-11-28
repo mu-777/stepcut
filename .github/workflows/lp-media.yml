@@ -1,0 +1,184 @@
+name: lp-media
+
+# 紹介ページ(site/)の動画と画像を windows-latest で作り直し、PR のブランチにコミットする。
+# Windows で作るのは、読み上げ(Azure AI Speech)・Windows のフォントの入った版にするため(docs/lp-media.md)。
+#   - pull_request(labeled): PR に `lp-media` ラベルを付けると動く。終わったらラベルを外す(付け直すと再実行)
+#   - workflow_dispatch: 人が Actions タブから実行する。main では作るだけでコミットしない
+# 決定と、Git LFS を使わない理由: docs/decisions/20261116-lp-media-ci.md
+#
+# 要る Secrets: AZURE_SPEECH_KEY(Azure の音声サービスのキー)、AZURE_SPEECH_REGION(例: japaneast)
+# フォークからの PR には Secrets が渡らないので、同じリポジトリのブランチだけで動かす。
+# GITHUB_TOKEN での push では、ほかのワークフロー(build.yml)は動かない(GitHub の仕様)。
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+# ほかのラベルを付けたときの起動(すぐ飛ばされる)が、動いているものを打ち切らないよう、ラベル名を組に入れる
+concurrency:
+  group: lp-media-${{ github.event.label.name || 'dispatch' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  media:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'lp-media' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      BRANCH: ${{ github.head_ref || github.ref_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - run: npm ci
+
+      - name: Playwright と ffmpeg
+        run: |
+          npm i --no-save playwright
+          npx playwright install chromium
+          choco install ffmpeg -y --no-progress
+          ffmpeg -version | head -1
+
+      # 窓(最大 1360x800)が画面に収まるようにする。既定の解像度はランナーの版で変わりうるので、表示して確かめる
+      - name: 画面の解像度
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          "before: $($b.Width)x$($b.Height)"
+          if ($b.Width -lt 1600 -or $b.Height -lt 1000) {
+            try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { "Set-DisplayResolution: $_" }
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            "after: $($b.Width)x$($b.Height)"
+          }
+
+      # テロップの既定(Yu Gothic UI)が入っていなければ、日本語の追加フォントを入れる。入らなければ止める
+      - name: 日本語のフォント
+        shell: pwsh
+        run: |
+          $has = { Test-Path "$env:WINDIR\Fonts\YuGothM.ttc" }
+          if (-not (& $has)) {
+            "Yu Gothic がないので、日本語の追加フォントを入れる"
+            Add-WindowsCapability -Online -Name "Language.Fonts.Jpan~~~und-JPAN~0.0.1.0" | Out-Null
+          }
+          if (-not (& $has)) { throw "Yu Gothic UI がありません" }
+          Get-ChildItem "$env:WINDIR\Fonts\YuGoth*" | ForEach-Object Name
+
+      # CI では読み上げをすべて Azure にする(下の LP_MUTED_SPEECH_ENGINE)。ランナーの OS 標準の声は英語だけで、
+      # 日本語の文を読ませると書き出しが止まる(docs/handoff-os-tts-no-voice.md)。ここでは声の一覧を出すだけ。
+      # WinRT を使うので Windows PowerShell 5.1 で回す(pwsh 7 からは WinRT の型を読めない)。
+      # 5.1 は BOM なしの UTF-8 を読み違えるので、run の中は ASCII だけで書く
+      - name: OS 標準の声(表示だけ)
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Runtime.WindowsRuntime
+          $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime]
+          [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | ForEach-Object { "$($_.Language) $($_.DisplayName)" }
+
+      - run: npm run build
+
+      - name: Azure AI Speech の設定
+        env:
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+        run: |
+          npx electron scripts/ci-azure-settings.cjs
+          ls "$APPDATA/StepCut"
+          npx electron scripts/ci-azure-settings.cjs --check
+
+      # 標準出力はファイルに受ける(.claude/rules/e2e.md)。
+      # LP_MUTED_SPEECH_ENGINE: 音声なしで載せる動画も Azure で読む(読み上げの長さがステップの長さを決める)。
+      # LP_APP_ENGINES: 画面を撮る・録画するアプリにも同じ Azure の設定を写す(プレビューの読み上げのため)
+      - name: 作り直す(日本語)
+        env:
+          LP_MUTED_SPEECH_ENGINE: azure
+          LP_APP_ENGINES: default
+        run: |
+          mkdir -p test-output
+          node scripts/make-lp-media.cjs --require-narration > test-output/lp-media.log 2>&1 || { tail -50 test-output/lp-media.log; exit 1; }
+          cat test-output/lp-media.log
+
+      - name: 作り直す(英語)
+        env:
+          LP_MUTED_SPEECH_ENGINE: azure
+          LP_APP_ENGINES: default
+        run: |
+          node scripts/make-lp-media.cjs --lang en --require-narration > test-output/lp-media-en.log 2>&1 || { tail -50 test-output/lp-media-en.log; exit 1; }
+          cat test-output/lp-media-en.log
+
+      # 中身を確かめる用(場面の一覧・ログ・使い方の動画のプロジェクト)。失敗したときも置く
+      - name: 確認用のファイルを置く
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lp-media-check
+          if-no-files-found: ignore
+          # Artifacts の容量(アカウントで 500MB)を食わないよう、build.yml と同じく 7 日で消す
+          retention-days: 7
+          path: |
+            test-output/*.log
+            test-output/lp-media*/sheets/
+            test-output/lp-media*/result-*.json
+            test-output/lp-howto*/howto.stepcut.json
+
+      # PR のブランチにコミットする。履歴を膨らませないよう、ブランチの先頭が前回のこのワークフローのコミットなら
+      # 置き換える(人やエージェントがその後に積んでいれば、新しく積む)。途中で push されたら取り直してやり直す
+      - name: コミットして push
+        if: env.BRANCH != 'main'
+        run: |
+          SUBJECT="lp-media(ci): 紹介ページの動画と画像を Windows で作り直す"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          saved="$(cygpath -u "$RUNNER_TEMP")/media"
+          rm -rf "$saved" && cp -r site/public/media "$saved"
+          git fetch --depth=50 origin main
+          for attempt in 1 2 3; do
+            git fetch --depth=2 origin "$BRANCH"
+            git reset -q --hard FETCH_HEAD
+            tip=$(git rev-parse HEAD)
+            if [ "$(git log -1 --format=%s)" = "$SUBJECT" ] &&
+               [ "$(git log -1 --format=%an)" = "github-actions[bot]" ] &&
+               ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "前回のコミットを置き換える"
+              git reset -q --hard HEAD~1
+            fi
+            rm -rf site/public/media && cp -r "$saved" site/public/media
+            git add -A site/public/media
+            if ! git diff --cached --quiet; then
+              git commit -q -m "$SUBJECT" -m "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            elif [ "$(git rev-parse HEAD)" = "$tip" ]; then
+              echo "変更なし"
+              exit 0
+            fi
+            if git push --force-with-lease="refs/heads/$BRANCH:$tip" origin "HEAD:refs/heads/$BRANCH"; then
+              git log -1 --stat --format="%h %s"
+              exit 0
+            fi
+            echo "ブランチが動いたので取り直す($attempt)"
+          done
+          exit 1
+
+      - name: ラベルを外す
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --remove-label lp-media || true
