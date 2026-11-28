@@ -872,7 +872,16 @@ const selectBar = (step, kind) => async (page) => {
 // 録画を入れる → 切る → プレビューの上でテロップを書く → ズームの範囲を囲む → 再生して確かめる → 四角を置く → 書き出す
 const APP = { width: 1280, height: 760 };
 async function recordHowto(sample) {
-  const { app, page } = await launchApp("howto", APP, [], true);
+  // LP_MUTED_SPEECH_ENGINE があれば(CI)、そのエンジンにした空のプロジェクトを開いて始める。新しいプロジェクトは
+  // OS 標準の声で読み、ランナーには日本語の OS 標準の声がないので、画面の書き出しが止まる
+  const start = [];
+  if (mutedSpeech) {
+    const empty = path.join(work, "howto-demo.stepcut.json");
+    const project = { format: "stepcut.project", version: 1, speech: mutedSpeech, sources: [], steps: [] };
+    fs.writeFileSync(empty, `${JSON.stringify(project, null, 2)}\n`);
+    start.push(empty);
+  }
+  const { app, page } = await launchApp("howto", APP, start, true);
   const t0 = Date.now();
   const now = () => (Date.now() - t0) / 1000;
   const marks = {};
@@ -1013,6 +1022,9 @@ async function recordHowto(sample) {
     )
     .catch(() => {});
   await sleep(2500);
+  // 画面の書き出しが失敗していたら止める(エラーの帯が映った動画を作らない)
+  const failed = page.locator(".banner.error");
+  if (await failed.count()) throw new Error(`画面の書き出しが失敗: ${await failed.first().innerText()}`);
   await mark("end");
   const video = page.video();
   await closeApp(app);
